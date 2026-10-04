@@ -1,19 +1,18 @@
 #ifndef IMPL_BST_H
 #define IMPL_BST_H
 
-#include <stddef.h>
+#include <stdlib.h>
+#include "bst.h"
 
 typedef struct Node
 {
     void *value;
     int height;
+    int balance;
     struct Node *left;
     struct Node *right;
 } Node;
 
-typedef int (*BSTCompareFn)(const void *, const void *);
-typedef const void *(*BSTCopyValueFn)(const void *);
-typedef const void *(*BSTDestroyValueFn)(const void *);
 
 struct BST
 {
