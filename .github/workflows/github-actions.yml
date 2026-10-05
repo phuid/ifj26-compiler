@@ -8,6 +8,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: pre-commit cppcheck clang-format git cpplint clang-tidy
+          packages: pre-commit cppcheck clang-format git cpplint clang-tidy googletest libgtest-dev cmake
           version: 1.0
       - run: pre-commit run --all-files
