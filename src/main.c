@@ -20,7 +20,7 @@ void destroy(void *a){
 
 
 int main(){
-    BST *tree = bstCreate(sizeof(int), cmp, copy, destroy);
+    BST *tree = bstCreate(cmp, copy, destroy);
     
     int arr[] = {10, 30, 20};
 

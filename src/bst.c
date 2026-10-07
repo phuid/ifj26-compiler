@@ -11,7 +11,7 @@ int max(const int a, const int b)
         return b;
 }
 
-BST *bstCreate(size_t elementSize, BSTCompareFn compare, BSTCopyValueFn copy, BSTDestroyValueFn destroy)
+BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy, BSTDestroyValueFn destroy)
 {
     BST *tree = malloc(sizeof(BST));
     if (!tree)
@@ -23,7 +23,6 @@ BST *bstCreate(size_t elementSize, BSTCompareFn compare, BSTCopyValueFn copy, BS
     tree->compareData = compare;
     tree->copyData = copy;
     tree->destroyData = destroy;
-    tree->elementSize = elementSize;
     return tree;
 }
 

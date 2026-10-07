@@ -17,7 +17,6 @@ typedef struct Node
 struct BST
 {
     Node *root;
-    size_t elementSize;
     BSTCompareFn compareData;
     BSTCopyValueFn copyData;
     BSTDestroyValueFn destroyData;

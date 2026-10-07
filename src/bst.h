@@ -10,7 +10,7 @@ typedef int (*BSTCompareFn)(const void *, const void *);
 typedef void *(*BSTCopyValueFn)(const void *);
 typedef void (*BSTDestroyValueFn)(void *);
 
-BST *bstCreate(size_t elementSize, BSTCompareFn compare, BSTCopyValueFn copy, BSTDestroyValueFn destroy);
+BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy, BSTDestroyValueFn destroy);
 void bstDestroy(BST **tree);
 void bstInsert(BST *tree, const void *value);
 void bstRemove(BST *tree, const void *value);
