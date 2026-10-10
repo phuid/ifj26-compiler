@@ -55,7 +55,7 @@ repos:
         name: cppcheck
         description: runs cppcheck on changed files
         language: system
-        entry: cppcheck . --error-exitcode=1
+        entry: cppcheck . --error-exitcode=1 -ibuild
         types_or: [c++, c, 'c#', cuda, proto]
       - id: cpplint
         name: cpplint
