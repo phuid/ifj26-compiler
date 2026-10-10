@@ -1,0 +1,9 @@
+set(TEST_LIST_VARIABLES "@TEST_LIST_VARIABLES@")
+
+foreach(test_list_variable IN LISTS TEST_LIST_VARIABLES)
+    if(DEFINED ${test_list_variable})
+        foreach(test IN LISTS ${test_list_variable})
+            set_tests_properties("${test}" PROPERTIES LABELS "${test}")
+        endforeach()
+    endif()
+endforeach()

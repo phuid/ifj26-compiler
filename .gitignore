@@ -1,3 +1,8 @@
+ifj26-compiler
+build
+
+.vscode/settings.json
+
 # Prerequisites
 *.d
 
