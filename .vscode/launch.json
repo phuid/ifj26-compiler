@@ -5,7 +5,7 @@
             "name": "Debug C",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/src/main",
+            "program": "${workspaceFolder}/ifj26-compiler",
             "cwd": "${workspaceFolder}/src",
             "stopAtEntry": false,
             "externalConsole": false,

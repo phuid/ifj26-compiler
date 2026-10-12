@@ -6,7 +6,7 @@
             "type": "shell",
             "command": "make",
             "options": {
-                "cwd": "${workspaceFolder}/src"
+                "cwd": "${workspaceFolder}"
             },
             "group": {
                 "kind": "build",
