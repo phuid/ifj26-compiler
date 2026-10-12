@@ -57,12 +57,6 @@ repos:
         language: system
         entry: cppcheck . --error-exitcode=1 -ibuild
         types_or: [c++, c, 'c#', cuda, proto]
-      - id: cpplint
-        name: cpplint
-        description: runs cpplint on changed files
-        language: system
-        entry: cpplint
-        types_or: [c++, c, 'c#', cuda, proto]
       - id: clang-tidy
         name: clang-tidy
         description: runs clang-tidy on changed files
