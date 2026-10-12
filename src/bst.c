@@ -1,61 +1,39 @@
+/**
+ * @file bst.c
+ * @brief Height-balanced binary search tree implementation
+ * @author Milan Novák
+ * @todo Error handling is not decided yet. Should functions only return NULL,
+ *       or also pass some sort of error code? Needs to be decided together.
+ */
+
 #include "bst.h"
 #include "impl_bst.h"
 #include <stdbool.h>
 #include <stdlib.h>
 
-int max(const int a, const int b) {
+/**
+ * @brief Returns the larger of two integers.
+ *
+ * @param a First integer.
+ * @param b Second integer.
+ * @return The maximum value between a and b.
+ */
+static int max(const int a, const int b) {
   if (a > b)
     return a;
   else
     return b;
 }
 
-BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
-               BSTDestroyValueFn destroy) {
-  if (compare == NULL || copy == NULL || destroy == NULL) {
-    // TODO(Milan Novak):
-    return NULL;
-  }
-
-  BST *tree = malloc(sizeof(BST));
-  if (!tree) {
-    // TODO(Milan Novak):
-    return NULL;
-  }
-
-  tree->root = NULL;
-  tree->compareData = compare;
-  tree->copyData = copy;
-  tree->destroyData = destroy;
-  return tree;
-}
-
-void destroyNode(BST *tree, Node *node) {
-  if (node == NULL) {
-    return;
-  }
-
-  destroyNode(tree, node->left);
-  destroyNode(tree, node->right);
-
-  tree->destroyData(node->value);
-  free(node);
-}
-
-void bstDestroy(BST **tree) {
-  if (tree == NULL || *tree == NULL) {
-    return;
-  }
-
-  destroyNode(*tree, (*tree)->root);
-  free(*tree);
-  *tree = NULL;
-}
-
-Node *createNode(void *value) {
+/**
+ * @brief Creates a new node containing the given value.
+ *
+ * @param value Value stored in the node.
+ * @return Newly allocated node or NULL on allocation failure.
+ */
+static Node *createNode(void *value) {
   Node *node = malloc(sizeof(Node));
   if (node == NULL) {
-    // TODO(Milan Novak):
     return NULL;
   }
 
@@ -67,16 +45,52 @@ Node *createNode(void *value) {
   return node;
 }
 
-int getNodeHeight(Node *node) { return node == NULL ? 0 : node->height; }
+/**
+ * @brief Recursively destroys a subtree rooted at the given node.
+ *
+ * @param tree Tree that owns the node values.
+ * @param root Root of the subtree to destroy.
+ */
+static void destroySubtree(BST *tree, Node *root) {
+  if (root == NULL) {
+    return;
+  }
 
-int calculateBalance(Node *node) {
+  destroySubtree(tree, root->left);
+  destroySubtree(tree, root->right);
+
+  tree->destroyData(root->value);
+  free(root);
+}
+
+/**
+ * @brief Returns the height of a node.
+ *
+ * @param node Node to inspect.
+ * @return Height of the node, or 0 for NULL.
+ */
+static int getNodeHeight(Node *node) { return node == NULL ? 0 : node->height; }
+
+/**
+ * @brief Calculates the balance of a node.
+ *
+ * @param node Tree node.
+ * @return Balance of the node or 0 for NULL node.
+ */
+static int calculateBalance(Node *node) {
   if (node == NULL)
     return 0;
 
   return getNodeHeight(node->right) - getNodeHeight(node->left);
 }
 
-int calculateHeight(Node *node) {
+/**
+ * @brief Computes the height of a node based on its children.
+ *
+ * @param node Tree node.
+ * @return Height of the subtree rooted at the node.
+ */
+static int calculateHeight(Node *node) {
   if (node == NULL) {
     return 0;
   }
@@ -85,10 +99,15 @@ int calculateHeight(Node *node) {
   return max(leftHeight, rightHeight) + 1;
 }
 
-Node *rotateRight(Node *root) {
+/**
+ * @brief Rotates the subtree rooted at root to the right.
+ *
+ * @param root Root of the subtree.
+ * @return New root or NULL for NULL root node.
+ */
+static Node *rotateRight(Node *root) {
   Node *newRoot = root->left;
   if (newRoot == NULL) {
-    // TODO(Milan Novak):
     return NULL;
   }
   root->left = newRoot->right;
@@ -101,10 +120,15 @@ Node *rotateRight(Node *root) {
   return newRoot;
 }
 
-Node *rotateLeft(Node *root) {
+/**
+ * @brief Rotates the subtree rooted at root to the left.
+ *
+ * @param root Root of the subtree.
+ * @return New root or NULL for NULL root node.
+ */
+static Node *rotateLeft(Node *root) {
   Node *newRoot = root->right;
   if (newRoot == NULL) {
-    // TODO(Milan Novak):
     return NULL;
   }
   root->right = newRoot->left;
@@ -117,7 +141,13 @@ Node *rotateLeft(Node *root) {
   return newRoot;
 }
 
-Node *bstRebalance(Node *root) {
+/**
+ * @brief Rebalances a node and its subtree if needed.
+ *
+ * @param root Root of the subtree to rebalance.
+ * @return Root of the balanced subtree.
+ */
+static Node *bstRebalance(Node *root) {
   root->height = calculateHeight(root);
   root->balance = calculateBalance(root);
 
@@ -137,11 +167,16 @@ Node *bstRebalance(Node *root) {
   return root;
 }
 
-// TODO(Milan Novak):  maybe pass the function pointers instead of the whole
-// tree
-Node *insertValue(BST *tree, Node *root, const void *value) {
+/**
+ * @brief Inserts a value into the subtree rooted at root.
+ *
+ * @param tree Tree that defines the data operations.
+ * @param root Current subtree root.
+ * @param value Value to insert.
+ * @return Updated subtree root or NULL for errors.
+ */
+static Node *insertValue(BST *tree, Node *root, const void *value) {
   if (tree == NULL) {
-    // TODO(Milan Novak):
     return NULL;
   }
 
@@ -175,16 +210,15 @@ Node *insertValue(BST *tree, Node *root, const void *value) {
   return bstRebalance(root);
 }
 
-void bstInsert(BST *tree, const void *value) {
-  if (tree == NULL || value == NULL) {
-    // TODO(Milan Novak):
-    return;
-  }
-
-  tree->root = insertValue(tree, tree->root, value);
-}
-
-Node *search(const BST *tree, Node *root, const void *value) {
+/**
+ * @brief Searches the subtree rooted at root for the given value.
+ *
+ * @param tree Tree used to compare values.
+ * @param root Current subtree root.
+ * @param value Value to find.
+ * @return Matching node or NULL if not found.
+ */
+static Node *search(const BST *tree, Node *root, const void *value) {
   if (root == NULL) {
     return NULL;
   }
@@ -202,16 +236,13 @@ Node *search(const BST *tree, Node *root, const void *value) {
   return search(tree, root->right, value);
 }
 
-void *bstSearch(const BST *tree, const void *value) {
-  if (tree == NULL || value == NULL) {
-    return NULL;
-  }
-
-  Node *res = search(tree, tree->root, value);
-  return res == NULL ? NULL : res->value;
-}
-
-Node *findMin(Node *root) {
+/**
+ * @brief Finds the minimum-valued node in a subtree.
+ *
+ * @param root Root of the subtree.
+ * @return Node containing the minimum value or NULL for NULL root.
+ */
+static Node *findMin(Node *root) {
   if (root == NULL) {
     return NULL;
   }
@@ -219,7 +250,15 @@ Node *findMin(Node *root) {
   return root->left == NULL ? root : findMin(root->left);
 }
 
-Node *remove(BST *tree, Node *root, const void *value) {
+/**
+ * @brief Removes a value from the subtree rooted at root.
+ *
+ * @param tree Tree that defines the data operations.
+ * @param root Current subtree root.
+ * @param value Value to remove.
+ * @return Updated subtree root or NULL for NULL root.
+ */
+static Node *remove(BST *tree, Node *root, const void *value) {
   if (root == NULL) {
     return NULL;
   }
@@ -247,6 +286,53 @@ Node *remove(BST *tree, Node *root, const void *value) {
   }
 
   return bstRebalance(root);
+}
+
+BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
+               BSTDestroyValueFn destroy) {
+  if (compare == NULL || copy == NULL || destroy == NULL) {
+    return NULL;
+  }
+
+  BST *tree = malloc(sizeof(BST));
+  if (!tree) {
+    // TODO(Milan Novak):
+    return NULL;
+  }
+
+  tree->root = NULL;
+  tree->compareData = compare;
+  tree->copyData = copy;
+  tree->destroyData = destroy;
+  return tree;
+}
+
+void bstDestroy(BST **tree) {
+  if (tree == NULL || *tree == NULL) {
+    return;
+  }
+
+  destroySubtree(*tree, (*tree)->root);
+  free(*tree);
+  *tree = NULL;
+}
+
+void bstInsert(BST *tree, const void *value) {
+  if (tree == NULL || value == NULL) {
+    // TODO(Milan Novak):
+    return;
+  }
+
+  tree->root = insertValue(tree, tree->root, value);
+}
+
+void *bstSearch(const BST *tree, const void *value) {
+  if (tree == NULL || value == NULL) {
+    return NULL;
+  }
+
+  Node *res = search(tree, tree->root, value);
+  return res == NULL ? NULL : res->value;
 }
 
 void bstRemove(BST *tree, const void *value) {
