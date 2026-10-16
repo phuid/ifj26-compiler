@@ -11,7 +11,7 @@ SOURCES = $(wildcard src/*.c)
 configure:
 	cmake -S . -B $(BUILD_DIR)
 
-build: 
+build:
 	gcc -Wall -Wextra -Werror -std=c11 -g $(SOURCES) -o ifj26-compiler
 
 test: build configure
@@ -19,7 +19,7 @@ test: build configure
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -L $(ITESTS) -E $(ETESTS)
 
 check: build
-	pre-commit run --files $(git ls-files -m)
+	pre-commit run --files $$(git ls-files -m)
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) ifj26-compiler
