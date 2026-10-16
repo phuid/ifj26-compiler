@@ -14,6 +14,9 @@ configure:
 build:
 	gcc -Wall -Wextra -Werror -std=c11 -g $(SOURCES) -o ifj26-compiler
 
+run: build
+	./ifj26-compiler
+
 test: build configure
 	cmake --build $(BUILD_DIR)
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -L $(ITESTS) -E $(ETESTS)
