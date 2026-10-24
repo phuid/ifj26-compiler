@@ -1,8 +1,8 @@
 #include "lexer.h"
 #include "lexer_dfa.h"
 
-#include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 /*
  * AI-generated code block — generic table-driven lexer runner.
@@ -117,12 +117,29 @@ static LexerStatus consume(TokenBuilder *builder) {
 }
 
 /**
+ * @brief Consumes lookahead without adding it to a token spelling.
+ * @details Advances the 1-based source position exactly as @ref consume, but
+ * does not transfer the character into a builder.
+ * @param lexer Lexer whose lookahead and position are advanced.
+ */
+static void discard_lookahead(Lexer *lexer) {
+  if (lexer->lookahead == '\n') {
+    lexer->line += 1U;
+    lexer->column = 1U;
+  } else {
+    lexer->column += 1U;
+  }
+  lexer->lookahead = fgetc(lexer->input);
+}
+
+/**
  * @brief Reports whether a token type owns @c value.string_value.
  * @param type Token kind to inspect.
  * @return True for non-numeric tokens, false for TOKEN_INT and TOKEN_DOUBLE.
  */
 static bool token_owns_text(TokenType type) {
-  return type != TOKEN_INT && type != TOKEN_DOUBLE;
+  return type != TOKEN_INT && type != TOKEN_DOUBLE && type != TOKEN_INDENT &&
+         type != TOKEN_DEDENT;
 }
 
 /**
@@ -198,19 +215,73 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input) {
   lexer->lookahead = fgetc(input);
   lexer->line = 1U;
   lexer->column = 1U;
+  lexer->current_indent = 0U;
+  lexer->pending_indent_delta = 0;
   return LEXER_OK;
 }
 
+/*
+ * AI-generated code block — indentation-sensitive layout wrapper.
+ * Model: gpt-5.6-terra (OpenAI Codex via Hermes Agent).
+ * Prompt:
+ *   Keep all newline-prefix validation in the table-driven DFA. The wrapper
+ *   may only discard inline horizontal whitespace and derive the indentation
+ *   delta from the suffix after the last newline in a completed NEWLINE token.
+ *   Do not manually scan tabs, reset blank-line state, or change numeric and
+ *   string token conversion.
+ */
 /**
- * @brief Produces one maximal token by executing the declarative DFA.
+ * @brief Creates one synthetic indentation token at the current position.
+ * @param lexer Lexer providing the source position.
+ * @param token Output token to initialize.
+ * @param type Either @ref TOKEN_INDENT or @ref TOKEN_DEDENT.
+ */
+static void emit_layout_token(Lexer *lexer, Token *token, TokenType type) {
+  token->type = type;
+  token->value.string_value = NULL;
+  token->line = lexer->line;
+  token->column = lexer->column;
+}
+
+/**
+ * @brief Discards horizontal whitespace following a non-newline token.
+ * @param lexer Lexer whose spaces and tabs are skipped.
+ */
+static void skip_inline_whitespace(Lexer *lexer) {
+  while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+    discard_lookahead(lexer);
+  }
+}
+
+/**
+ * @brief Derives pending layout tokens from one validated newline lexeme.
+ * @details The DFA guarantees that all characters after its last newline are
+ * spaces. Their count is compared with @c current_indent to form a signed
+ * delta: positive for INDENT and negative for DEDENT.
+ * @param lexer Lexer whose indentation state is updated.
+ * @param newline_lexeme Completed @ref TOKEN_NEWLINE spelling from the DFA.
+ */
+static void update_indent_delta(Lexer *lexer, const char *newline_lexeme) {
+  const char *last_newline = strrchr(newline_lexeme, '\n');
+  size_t indent = strlen(last_newline + 1);
+
+  if (indent > lexer->current_indent) {
+    lexer->pending_indent_delta = (ptrdiff_t)(indent - lexer->current_indent);
+  } else if (indent < lexer->current_indent) {
+    lexer->pending_indent_delta = -(ptrdiff_t)(lexer->current_indent - indent);
+  }
+  lexer->current_indent = indent;
+}
+
+/**
+ * @brief Produces one maximal raw token by executing the declarative DFA.
  * @details A non-matching lookahead is not consumed when the current state is
  * accepting, so it becomes the first character examined for the next token.
  * @param lexer Initialized lexer with one lookahead character.
- * @param token Output storage receiving type, value, and start position.
- * @return LEXER_OK, LEXER_EOF, LEXER_INVALID_TOKEN, or an argument/allocation
- * error.
+ * @param token Output storage receiving raw type, value, and start position.
+ * @return LEXER_OK, LEXER_EOF, LEXER_INVALID_TOKEN, or an allocation error.
  */
-LexerStatus lexer_pls(Lexer *lexer, Token *token) {
+static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
   TokenBuilder builder;
   LexerState state = STATE_S;
   LexerState next_state;
@@ -224,7 +295,10 @@ LexerStatus lexer_pls(Lexer *lexer, Token *token) {
     return LEXER_EOF;
   }
 
-  token_builder_init(&builder, lexer, token);
+  status = token_builder_init(&builder, lexer, token);
+  if (status != LEXER_OK) {
+    return status;
+  }
 
   /// Follow the DFA until no transition matches the current lookahead.
   while (lexer_dfa_next_state(state, lexer->lookahead, &next_state)) {
@@ -245,6 +319,47 @@ LexerStatus lexer_pls(Lexer *lexer, Token *token) {
   status = finish_token(&builder, token, token_type);
   token_builder_destroy(&builder);
   return status;
+}
+
+/**
+ * @brief Produces raw tokens plus indentation-sensitive layout tokens.
+ * @return LEXER_OK, LEXER_EOF, LEXER_INVALID_TOKEN, or an argument/allocation
+ * error.
+ */
+LexerStatus lexer_pls(Lexer *lexer, Token *token) {
+  LexerStatus status;
+
+  if (lexer == NULL || token == NULL || lexer->input == NULL) {
+    return LEXER_INVALID_ARGUMENT;
+  }
+
+  /// Emit pending layout tokens before consuming any new raw token.
+  if (lexer->pending_indent_delta > 0) {
+    lexer->pending_indent_delta -= 1;
+    emit_layout_token(lexer, token, TOKEN_INDENT);
+    return LEXER_OK;
+  }
+  if (lexer->pending_indent_delta < 0) {
+    lexer->pending_indent_delta += 1;
+    emit_layout_token(lexer, token, TOKEN_DEDENT);
+    return LEXER_OK;
+  }
+
+  /// Consume the next raw token.
+  status = lexer_next_raw(lexer, token);
+  if (status != LEXER_OK) {
+    return status;
+  }
+
+  /// Update indentation state if the token was a newline, otherwise skip
+  /// whitespace.
+  if (token->type == TOKEN_NEWLINE) {
+    update_indent_delta(lexer, token->value.string_value);
+  } else {
+    skip_inline_whitespace(lexer);
+  }
+
+  return LEXER_OK;
 }
 
 /**

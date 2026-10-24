@@ -94,7 +94,6 @@ static const StateTransitions transitions_by_state[STATE_COUNT] = {
                                TRANSITION(MATCH_CHAR, '>', STATE_GREATER),
                                TRANSITION(MATCH_CHAR, '<', STATE_LESS),
                                TRANSITION(MATCH_CHAR, '@', STATE_AT),
-                               TRANSITION(MATCH_CHAR, ' ', STATE_SPACE),
                                TRANSITION(MATCH_CHAR, '+', STATE_PLUS),
                                TRANSITION(MATCH_CHAR, '-', STATE_MINUS),
                                TRANSITION(MATCH_CHAR, '*', STATE_MULTIPLY),
@@ -185,6 +184,18 @@ static const StateTransitions transitions_by_state[STATE_COUNT] = {
     [STATE_AT_MA] = TRANSITION_ROW(TRANSITION(MATCH_CHAR, 'i', STATE_AT_MAI)),
     [STATE_AT_MAI] = TRANSITION_ROW(TRANSITION(MATCH_CHAR, 'n', STATE_AT_MAIN)),
     [STATE_PLUS] = TRANSITION_ROW(TRANSITION(MATCH_CHAR, '+', STATE_CONCAT)),
+    [STATE_NEWLINE] =
+        TRANSITION_ROW(TRANSITION(MATCH_CHAR, ' ', STATE_NEWLINE_SPACES),
+                       TRANSITION(MATCH_CHAR, '\t', STATE_NEWLINE_TABS),
+                       TRANSITION(MATCH_CHAR, '\n', STATE_NEWLINE)),
+    [STATE_NEWLINE_SPACES] =
+        TRANSITION_ROW(TRANSITION(MATCH_CHAR, ' ', STATE_NEWLINE_SPACES),
+                       TRANSITION(MATCH_CHAR, '\t', STATE_NEWLINE_TABS),
+                       TRANSITION(MATCH_CHAR, '\n', STATE_NEWLINE)),
+    [STATE_NEWLINE_TABS] =
+        TRANSITION_ROW(TRANSITION(MATCH_CHAR, ' ', STATE_NEWLINE_TABS),
+                       TRANSITION(MATCH_CHAR, '\t', STATE_NEWLINE_TABS),
+                       TRANSITION(MATCH_CHAR, '\n', STATE_NEWLINE)),
     [STATE_UNION] = TRANSITION_ROW(TRANSITION(MATCH_CHAR, '|', STATE_OR)),
 };
 
@@ -214,7 +225,6 @@ static const FinalState final_states[] = {
     {STATE_LESS_EQUAL, TOKEN_LESS_EQUAL},
     {STATE_GENERATOR, TOKEN_GENERATOR},
     {STATE_AT_MAIN, TOKEN_MAIN_ANNOTATION},
-    {STATE_SPACE, TOKEN_SPACE},
     {STATE_PLUS, TOKEN_PLUS},
     {STATE_CONCAT, TOKEN_CONCAT},
     {STATE_MINUS, TOKEN_MINUS},
@@ -227,6 +237,7 @@ static const FinalState final_states[] = {
     {STATE_RIGHT_BRACKET, TOKEN_RIGHT_BRACKET},
     {STATE_SEMICOLON, TOKEN_SEMICOLON},
     {STATE_NEWLINE, TOKEN_NEWLINE},
+    {STATE_NEWLINE_SPACES, TOKEN_NEWLINE},
     {STATE_PERIOD, TOKEN_DOT},
     {STATE_COMMA, TOKEN_COMMA},
     {STATE_UNION, TOKEN_UNION},

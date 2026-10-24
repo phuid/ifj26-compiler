@@ -57,7 +57,6 @@ Q_lex = {
   Q@ma,
   Q@mai,
   Q@main,
-  Space,
   Q+,
   Q++,
   Q-,
@@ -70,6 +69,8 @@ Q_lex = {
   Q],
   Q;,
   NewLine,
+  NewLineSpaces,
+  NewLineTabs,
   Period,
   Comma,
   Q|,
@@ -167,7 +168,6 @@ Q@ -> Q@m [m]
 Q@m -> Q@ma [a]
 Q@ma -> Q@mai [i]
 Q@mai -> Q@main [n]
-S -> Space [ ]
 S -> Q+ [+]
 Q+ -> Q++ [+]
 S -> Q- [-]
@@ -180,6 +180,15 @@ S -> Q[ [[]
 S -> Q] []]
 S -> Q; [;]
 S -> NewLine [LF]
+NewLine -> NewLineSpaces [ ]
+NewLine -> NewLineTabs [TAB]
+NewLine -> NewLine [LF]
+NewLineSpaces -> NewLineSpaces [ ]
+NewLineSpaces -> NewLineTabs [TAB]
+NewLineSpaces -> NewLine [LF]
+// NewLineTabs is non-final: a tab is valid only on a blank line.
+NewLineTabs -> NewLineTabs [ , TAB]
+NewLineTabs -> NewLine [LF]
 S -> Comma [,]
 S -> Q| [|]
 Q| -> Q|| [|]
@@ -218,7 +227,6 @@ F_lex = {
   Q<-,            // TOKEN_GENERATOR
   Q@main,         // TOKEN_MAIN_ANNOTATION
 
-  Space,          // TOKEN_SPACE
   Q+,             // TOKEN_PLUS
   Q++,            // TOKEN_CONCAT
   Q-,             // TOKEN_MINUS
@@ -232,6 +240,7 @@ F_lex = {
   Q],             // TOKEN_RIGHT_BRACKET
   Q;,             // TOKEN_SEMICOLON
   NewLine,        // TOKEN_NEWLINE
+  NewLineSpaces,  // TOKEN_NEWLINE(value includes leading spaces)
   Period,         // TOKEN_DOT
   Comma,          // TOKEN_COMMA
   Q|,             // TOKEN_UNION
