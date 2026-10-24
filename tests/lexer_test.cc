@@ -44,45 +44,14 @@ void expect_token_sequence(const char *input, const ExpectedToken *expected,
     Token token;
     ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK) << index;
     EXPECT_EQ(token.type, expected[index].type) << index;
-    EXPECT_STREQ(token.value.string_value, expected[index].lexeme) << index;
+    if (expected[index].lexeme != nullptr) {
+      EXPECT_STREQ(token.value.string_value, expected[index].lexeme) << index;
+    }
     token_destroy(&token);
   }
 
   Token token;
   EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
-  lexer_destroy(&lexer);
-  fclose(stream);
-}
-
-void expect_non_space_sequence(const char *input, const ExpectedToken *expected,
-                               size_t expected_count) {
-  FILE *stream = stream_from(input);
-  ASSERT_NE(stream, nullptr);
-
-  Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  for (size_t index = 0U; index < expected_count; index += 1U) {
-    Token token;
-    do {
-      ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK) << index;
-      if (token.type == TOKEN_SPACE) {
-        token_destroy(&token);
-      }
-    } while (token.type == TOKEN_SPACE);
-    EXPECT_EQ(token.type, expected[index].type) << index;
-    EXPECT_STREQ(token.value.string_value, expected[index].lexeme) << index;
-    token_destroy(&token);
-  }
-
-  Token token;
-  LexerStatus status;
-  do {
-    status = lexer_pls(&lexer, &token);
-    if (status == LEXER_OK && token.type == TOKEN_SPACE) {
-      token_destroy(&token);
-    }
-  } while (status == LEXER_OK && token.type == TOKEN_SPACE);
-  EXPECT_EQ(status, LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -212,9 +181,8 @@ TEST(LexerTest, IdentifiersWildcardAndStringsFollowKa) {
       {TOKEN_STRING, "\"\"\"first\nsecond\"\"\""},
   };
 
-  expect_non_space_sequence(
-      "_ alpha_2 \"\" \"a\\n\\\"\" \"\"\"first\nsecond\"\"\"", expected,
-      sizeof(expected) / sizeof(expected[0]));
+  expect_token_sequence("_ alpha_2 \"\" \"a\\n\\\"\" \"\"\"first\nsecond\"\"\"",
+                        expected, sizeof(expected) / sizeof(expected[0]));
 }
 
 /*
@@ -257,14 +225,9 @@ TEST(LexerTest, FixedTokensFollowKa) {
       {TOKEN_OR, "||"},
   };
 
-  expect_non_space_sequence(
+  expect_token_sequence(
       "= == ! && != => > < >= <= <- @main + ++ - * / ( ) : [ ] ;\n, | || ",
       expected, sizeof(expected) / sizeof(expected[0]));
-}
-
-TEST(LexerTest, SpaceIsReturnedAsKaToken) {
-  static const ExpectedToken expected[] = {{TOKEN_SPACE, " "}};
-  expect_token_sequence(" ", expected, sizeof(expected) / sizeof(expected[0]));
 }
 
 /*
@@ -370,18 +333,12 @@ TEST(LexerTest, NumericFinalStatesPreserveFollowingToken) {
   EXPECT_STREQ(token.value.string_value, "foo");
   token_destroy(&token);
   ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_SPACE);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
   EXPECT_EQ(token.type, TOKEN_DOUBLE);
   EXPECT_DOUBLE_EQ(token.value.double_value, 1.5);
   token_destroy(&token);
   ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
   EXPECT_EQ(token.type, TOKEN_IDENTIFIER);
   EXPECT_STREQ(token.value.string_value, "bar");
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_SPACE);
   token_destroy(&token);
   ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
   EXPECT_EQ(token.type, TOKEN_DOUBLE);
@@ -464,8 +421,8 @@ TEST(LexerTest, IdentifierMayStartWithUnderscoreWhenNotWildcard) {
       {TOKEN_IDENTIFIER, "__"},
       {TOKEN_IDENTIFIER, "Z_9"},
   };
-  expect_non_space_sequence("_9 __ Z_9", expected,
-                            sizeof(expected) / sizeof(expected[0]));
+  expect_token_sequence("_9 __ Z_9", expected,
+                        sizeof(expected) / sizeof(expected[0]));
 }
 
 TEST(LexerTest, IncompleteMandatoryPrefixesAreLexicalErrors) {
@@ -483,6 +440,51 @@ TEST(LexerTest, IncompleteMandatoryPrefixesAreLexicalErrors) {
     lexer_destroy(&lexer);
     fclose(stream);
   }
+}
+
+TEST(LexerTest, NewlineProducesIndentAndDedentFromLeadingSpaces) {
+  static const ExpectedToken expected[] = {
+      {TOKEN_IDENTIFIER, "a"}, {TOKEN_NEWLINE, "\n  "}, {TOKEN_INDENT, nullptr},
+      {TOKEN_INDENT, nullptr}, {TOKEN_IDENTIFIER, "b"}, {TOKEN_NEWLINE, "\n"},
+      {TOKEN_DEDENT, nullptr}, {TOKEN_DEDENT, nullptr}, {TOKEN_IDENTIFIER, "c"},
+  };
+
+  expect_token_sequence("a\n  b\nc", expected,
+                        sizeof(expected) / sizeof(expected[0]));
+}
+
+TEST(LexerTest, NewlineDfaResetsIndentationAcrossBlankTabbedLines) {
+  static const ExpectedToken expected[] = {
+      {TOKEN_IDENTIFIER, "a"}, {TOKEN_NEWLINE, "\n   \t\n  \n   "},
+      {TOKEN_INDENT, nullptr}, {TOKEN_INDENT, nullptr},
+      {TOKEN_INDENT, nullptr}, {TOKEN_IDENTIFIER, "b"},
+  };
+
+  expect_token_sequence("a\n   \t\n  \n   b", expected,
+                        sizeof(expected) / sizeof(expected[0]));
+}
+
+TEST(LexerTest, IgnoresHorizontalWhitespaceInsideLine) {
+  static const ExpectedToken expected[] = {
+      {TOKEN_IDENTIFIER, "a"},
+      {TOKEN_IDENTIFIER, "b"},
+  };
+  expect_token_sequence("a \t b", expected,
+                        sizeof(expected) / sizeof(expected[0]));
+}
+
+TEST(LexerTest, RejectsTabsInPrefixOfNonemptyLine) {
+  FILE *stream = stream_from("a\n \tb");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  Token token;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
+  token_destroy(&token);
+  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+  lexer_destroy(&lexer);
+  fclose(stream);
 }
 
 TEST(LexerTest, TokensReportPositionsAcrossNewline) {

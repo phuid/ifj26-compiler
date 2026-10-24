@@ -32,7 +32,8 @@ typedef enum {
   TOKEN_LESS_EQUAL,
   TOKEN_GENERATOR,
   TOKEN_MAIN_ANNOTATION,
-  TOKEN_SPACE,
+  TOKEN_INDENT,
+  TOKEN_DEDENT,
   TOKEN_PLUS,
   TOKEN_CONCAT,
   TOKEN_MINUS,
@@ -100,6 +101,8 @@ typedef struct {
   int lookahead;
   size_t line;
   size_t column;
+  size_t current_indent;
+  ptrdiff_t pending_indent_delta;
 } Lexer;
 
 /**
