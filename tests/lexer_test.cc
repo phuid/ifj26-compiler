@@ -3,7 +3,7 @@
 #include "gtest/gtest.h"
 
 extern "C" {
-#include "lexer.h"
+#include "../src/lexer.h"
 }
 
 namespace {
