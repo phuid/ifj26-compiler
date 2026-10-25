@@ -15,8 +15,8 @@ typedef struct BST BST;
 typedef struct Node BST_Node;
 
 /**
- * @brief Classic C comparison function, should return negative for A > B,
- * positive for A < B and 0 for A == B.
+ * @brief Classic C comparison function, should return negative for A < B,
+ * positive for A > B and 0 for A == B.
  */
 typedef int (*BSTCompareFn)(const void *, const void *);
 

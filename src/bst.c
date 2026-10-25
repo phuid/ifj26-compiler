@@ -183,10 +183,14 @@ static Node *insertValue(BST *tree, Node *root, const void *value) {
   if (root == NULL) {
     void *copy = tree->copyData(value);
     if (copy == NULL) {
-      // TODO(Milan Novak):
+      // TODO integrate error handling
       return NULL;
     }
-    return createNode(copy);
+    Node *node = createNode(copy);
+    if (node == NULL) {
+      tree->destroyData(copy);
+    }
+    return node;
   }
 
   int cmp = tree->compareData(root->value, value);
@@ -199,8 +203,8 @@ static Node *insertValue(BST *tree, Node *root, const void *value) {
     // Cleanup old data, replace with new
     void *copy = tree->copyData(value);
     if (copy == NULL) {
-      // TODO(Milan Novak):
-      return NULL;
+      // TODO integrate error handling
+      return root;
     }
     tree->destroyData(root->value);
     root->value = copy;
@@ -269,8 +273,13 @@ static Node *remove(BST *tree, Node *root, const void *value) {
     if (root->left != NULL && root->right != NULL) {
       // both children
       Node *min = findMin(root->right);
+      void *successorCopy = tree->copyData(min->value);
+      if (successorCopy == NULL) {
+        // TODO integrate error hanling
+        return root;
+      }
       tree->destroyData(root->value);
-      root->value = tree->copyData(min->value);
+      root->value = successorCopy;
       root->right = remove(tree, root->right, min->value);
     } else {
       // this also covers the case when both are NULL
@@ -291,12 +300,13 @@ static Node *remove(BST *tree, Node *root, const void *value) {
 BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
                BSTDestroyValueFn destroy) {
   if (compare == NULL || copy == NULL || destroy == NULL) {
+    // TODO integrate error handling
     return NULL;
   }
 
   BST *tree = malloc(sizeof(BST));
   if (!tree) {
-    // TODO(Milan Novak):
+    // TODO integrate error handling
     return NULL;
   }
 
@@ -319,7 +329,8 @@ void bstDestroy(BST **tree) {
 
 void bstInsert(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
-    // TODO(Milan Novak):
+    // TODO integrate error handling
+
     return;
   }
 
@@ -328,6 +339,7 @@ void bstInsert(BST *tree, const void *value) {
 
 void *bstSearch(const BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
+    // TODO integrate error handling
     return NULL;
   }
 
@@ -337,7 +349,7 @@ void *bstSearch(const BST *tree, const void *value) {
 
 void bstRemove(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
-    // TODO(Milan Novak):  error
+    // TODO integrate error handling
     return;
   }
   tree->root = remove(tree, tree->root, value);

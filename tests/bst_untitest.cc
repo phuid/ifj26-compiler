@@ -11,6 +11,7 @@ namespace {
 
 int copiedValues = 0;
 int destroyedValues = 0;
+bool failNextCopy = false;
 std::vector<void *> ownedValues;
 
 // Returns the actual subtree height while checking every AVL invariant.
@@ -30,8 +31,8 @@ int validateAVLNode(const BST_Node *node, long long minValue,
   EXPECT_GT(value, minValue) << "BST ordering violation";
   EXPECT_LT(value, maxValue) << "BST ordering violation";
 
-  const int leftHeight = validateAVLNode(node->left, minValue, value);
-  const int rightHeight = validateAVLNode(node->right, value, maxValue);
+  const int leftHeight = validateAVLNode(node->left, value, maxValue);
+  const int rightHeight = validateAVLNode(node->right, minValue, value);
 
   const int actualHeight = 1 + std::max(leftHeight, rightHeight);
   const int actualBalance = rightHeight - leftHeight;
@@ -58,10 +59,15 @@ void expectValidAVL(const BST *tree) {
 int compareInts(const void *left, const void *right) {
   const int leftValue = *static_cast<const int *>(left);
   const int rightValue = *static_cast<const int *>(right);
-  return rightValue - leftValue;
+  return (leftValue > rightValue) - (leftValue < rightValue);
 }
 
 void *copyInt(const void *value) {
+  if (failNextCopy) {
+    failNextCopy = false;
+    return nullptr;
+  }
+
   int *copy = static_cast<int *>(malloc(sizeof(int)));
   if (copy != nullptr) {
     *copy = *static_cast<const int *>(value);
@@ -90,6 +96,7 @@ protected:
   void SetUp() override {
     copiedValues = 0;
     destroyedValues = 0;
+    failNextCopy = false;
     ownedValues.clear();
     tree = bstCreate(compareInts, copyInt, destroyInt);
     ASSERT_NE(tree, nullptr);
@@ -109,6 +116,38 @@ protected:
 };
 
 } // namespace
+
+TEST_F(BSTTest, FailedCopyDuringInsertPreservesExistingTree) {
+  for (int value : {20, 10, 30}) {
+    bstInsert(tree, &value);
+  }
+  const int failedValue = 5;
+  failNextCopy = true;
+
+  bstInsert(tree, &failedValue);
+
+  for (int value : {10, 20, 30}) {
+    EXPECT_NE(bstSearch(tree, &value), nullptr);
+  }
+  EXPECT_EQ(bstSearch(tree, &failedValue), nullptr);
+  expectValidAVL(tree);
+}
+
+TEST_F(BSTTest, FailedCopyDuringTwoChildRemovalPreservesExistingTree) {
+  for (int value : {20, 10, 30, 25, 35}) {
+    bstInsert(tree, &value);
+  }
+  const int removedValue = 20;
+  failNextCopy = true;
+
+  bstRemove(tree, &removedValue);
+
+  for (int value : {10, 20, 25, 30, 35}) {
+    EXPECT_NE(bstSearch(tree, &value), nullptr);
+  }
+  EXPECT_EQ(destroyedValues, 0);
+  expectValidAVL(tree);
+}
 
 TEST_F(BSTTest, EmptyTreeSearchReturnsNull) {
   const int value = 42;
