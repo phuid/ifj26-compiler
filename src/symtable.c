@@ -1,6 +1,7 @@
 #include "symtable.h"
 
-#include <stdint.h>
+#include "dynamic_array.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -64,24 +65,9 @@ static void symbol_destroy(void *value) {
 
 /** Ensures room for one additional owned child scope. */
 static bool reserve_children(SymbolTable *table) {
-  SymbolTable **resized;
-  size_t capacity;
-
-  if (table->child_count < table->child_capacity) {
-    return true;
-  }
-  capacity = table->child_capacity == 0U ? 4U : table->child_capacity * 2U;
-  if (capacity < table->child_capacity ||
-      capacity > SIZE_MAX / sizeof(*table->children)) {
-    return false;
-  }
-  resized = realloc(table->children, capacity * sizeof(*table->children));
-  if (resized == NULL) {
-    return false;
-  }
-  table->children = resized;
-  table->child_capacity = capacity;
-  return true;
+  return dynamic_array_reserve((void **)&table->children,
+                               &table->child_capacity, table->child_count + 1U,
+                               sizeof(*table->children)) == DYNAMIC_ARRAY_OK;
 }
 
 SymbolTable *symbol_table_create_root(void) {

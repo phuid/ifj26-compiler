@@ -1,8 +1,8 @@
 #include "function_table.h"
 
 #include "ast.h"
+#include "dynamic_array.h"
 
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,25 +19,10 @@ static char *copy_name(const char *name) {
 
 /** Ensures room for one additional owned function pointer. */
 static bool reserve_functions(FunctionTable *table) {
-  FunctionSymbol **resized;
-  size_t capacity;
-
-  if (table->function_count < table->function_capacity) {
-    return true;
-  }
-  capacity =
-      table->function_capacity == 0U ? 4U : table->function_capacity * 2U;
-  if (capacity < table->function_capacity ||
-      capacity > SIZE_MAX / sizeof(*table->functions)) {
-    return false;
-  }
-  resized = realloc(table->functions, capacity * sizeof(*table->functions));
-  if (resized == NULL) {
-    return false;
-  }
-  table->functions = resized;
-  table->function_capacity = capacity;
-  return true;
+  return dynamic_array_reserve((void **)&table->functions,
+                               &table->function_capacity,
+                               table->function_count + 1U,
+                               sizeof(*table->functions)) == DYNAMIC_ARRAY_OK;
 }
 
 FunctionTableStatus function_table_init(FunctionTable *table) {

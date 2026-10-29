@@ -52,7 +52,7 @@ struct ASTNode {
     struct {
       ASTNode *left;
       ASTNode *right;
-    } binary;
+    } binary_op;
     struct {
       Symbol *target;
       ASTNode *value;

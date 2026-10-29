@@ -1,28 +1,17 @@
 #include "type.h"
 
-#include <stdint.h>
+#include "dynamic_array.h"
+
 #include <stdlib.h>
 
 /** Appends a non-owning dependent edge to an unresolved type entity. */
 static TypeResolveStatus type_entity_append_dependent(TypeEntity *source,
                                                       TypeEntity *dependent) {
-  TypeEntity **resized;
-  size_t new_capacity;
-
-  if (source->dependent_count == source->dependent_capacity) {
-    new_capacity =
-        source->dependent_capacity == 0U ? 4U : source->dependent_capacity * 2U;
-    if (new_capacity < source->dependent_capacity ||
-        new_capacity > SIZE_MAX / sizeof(*source->dependents)) {
-      return TYPE_RESOLVE_OUT_OF_MEMORY;
-    }
-    resized =
-        realloc(source->dependents, new_capacity * sizeof(*source->dependents));
-    if (resized == NULL) {
-      return TYPE_RESOLVE_OUT_OF_MEMORY;
-    }
-    source->dependents = resized;
-    source->dependent_capacity = new_capacity;
+  if (dynamic_array_reserve((void **)&source->dependents,
+                            &source->dependent_capacity,
+                            source->dependent_count + 1U,
+                            sizeof(*source->dependents)) != DYNAMIC_ARRAY_OK) {
+    return TYPE_RESOLVE_OUT_OF_MEMORY;
   }
 
   source->dependents[source->dependent_count] = dependent;

@@ -1,4 +1,5 @@
 #include "lexer.h"
+#include "dynamic_array.h"
 #include "lexer_dfa.h"
 
 #include <stdlib.h>
@@ -37,13 +38,17 @@ typedef struct {
  */
 static LexerStatus token_builder_init(TokenBuilder *builder, Lexer *lexer,
                                       Token *token) {
-  char *text = malloc(16U);
-  if (text == NULL) {
+  char *text = NULL;
+  size_t capacity = 0U;
+
+  if (dynamic_array_reserve((void **)&text, &capacity, 16U, sizeof(*text)) !=
+      DYNAMIC_ARRAY_OK) {
     return LEXER_OUT_OF_MEMORY;
   }
 
   *builder = (TokenBuilder){
-      .lexer = lexer, .text = text, .length = 0U, .capacity = 16U};
+      .lexer = lexer, .text = text, .length = 0U, .capacity = capacity};
+  text[0] = '\0';
   token->line = lexer->line;
   token->column = lexer->column;
 
@@ -68,17 +73,10 @@ static void token_builder_destroy(TokenBuilder *builder) {
  * @return LEXER_OK, or LEXER_OUT_OF_MEMORY without changing ownership.
  */
 static LexerStatus append_char(TokenBuilder *builder, int character) {
-  char *resized;
-
-  /// Reallocates the builder's text to double size buffer if necessary.
-  if (builder->length + 1U >= builder->capacity) {
-    size_t new_capacity = builder->capacity * 2U;
-    resized = realloc(builder->text, new_capacity);
-    if (resized == NULL) {
-      return LEXER_OUT_OF_MEMORY;
-    }
-    builder->text = resized;
-    builder->capacity = new_capacity;
+  if (dynamic_array_reserve((void **)&builder->text, &builder->capacity,
+                            builder->length + 2U,
+                            sizeof(*builder->text)) != DYNAMIC_ARRAY_OK) {
+    return LEXER_OUT_OF_MEMORY;
   }
 
   /// Appends the character and maintains a NUL terminator.

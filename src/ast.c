@@ -1,6 +1,7 @@
 #include "ast.h"
 
-#include <stdint.h>
+#include "dynamic_array.h"
+
 #include <stdlib.h>
 
 /** Allocates an AST node with a still-unknown semantic type. */
@@ -55,27 +56,15 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
 }
 
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
-  ASTNode **resized;
-  size_t capacity;
-
   if (call == NULL || argument == NULL || call->kind != AST_FUNCTION_CALL) {
     return AST_INVALID_ARGUMENT;
   }
-  if (call->data.call.argument_count == call->data.call.argument_capacity) {
-    capacity = call->data.call.argument_capacity == 0U
-                   ? 4U
-                   : call->data.call.argument_capacity * 2U;
-    if (capacity < call->data.call.argument_capacity ||
-        capacity > SIZE_MAX / sizeof(*call->data.call.arguments)) {
-      return AST_OUT_OF_MEMORY;
-    }
-    resized = realloc(call->data.call.arguments,
-                      capacity * sizeof(*call->data.call.arguments));
-    if (resized == NULL) {
-      return AST_OUT_OF_MEMORY;
-    }
-    call->data.call.arguments = resized;
-    call->data.call.argument_capacity = capacity;
+  if (dynamic_array_reserve((void **)&call->data.call.arguments,
+                            &call->data.call.argument_capacity,
+                            call->data.call.argument_count + 1U,
+                            sizeof(*call->data.call.arguments)) !=
+      DYNAMIC_ARRAY_OK) {
+    return AST_OUT_OF_MEMORY;
   }
   call->data.call.arguments[call->data.call.argument_count] = argument;
   call->data.call.argument_count += 1U;
@@ -113,8 +102,8 @@ void ast_node_destroy(ASTNode *node) {
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
-    ast_node_destroy(node->data.binary.left);
-    ast_node_destroy(node->data.binary.right);
+    ast_node_destroy(node->data.binary_op.left);
+    ast_node_destroy(node->data.binary_op.right);
     break;
   case AST_BLOCK:
     for (index = 0U; index < node->data.block.statement_count; index += 1U) {

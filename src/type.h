@@ -7,7 +7,6 @@
 /** Represents a value type known to semantic analysis. */
 typedef enum {
   TYPE_UNKNOWN,
-  TYPE_VOID,
   TYPE_INT,
   TYPE_REAL,
   TYPE_STRING,
