@@ -2,7 +2,7 @@ BUILD_DIR ?= build
 ITESTS ?= ""
 ETESTS ?= ""
 
-.PHONY: all configure build test clean
+.PHONY: all configure build test clean check doc run
 
 all: build
 
@@ -24,5 +24,8 @@ test: build configure
 check: build
 	pre-commit run --files $$(git ls-files -m)
 
+doc:
+	doxygen Doxyfile
+
 clean:
-	rm -rf $(BUILD_DIR) ifj26-compiler
+	rm -rf $(BUILD_DIR) ifj26-compiler docs
