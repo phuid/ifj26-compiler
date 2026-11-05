@@ -4,7 +4,13 @@
 
 #include <stdlib.h>
 
-/** Allocates an AST node with a still-unknown semantic type. */
+/**
+ * @brief Allocates a zero-initialized AST node with an unresolved type.
+ * @param kind Node kind selecting the active union payload.
+ * @param line One-based source line stored in the node.
+ * @param column One-based source column stored in the node.
+ * @return An owned node, or null if allocation fails.
+ */
 static ASTNode *ast_node_create(ASTNodeKind kind, size_t line, size_t column) {
   ASTNode *node = calloc(1U, sizeof(*node));
 
@@ -17,6 +23,13 @@ static ASTNode *ast_node_create(ASTNodeKind kind, size_t line, size_t column) {
   return node;
 }
 
+/**
+ * @brief Constructs an owned integer literal with a concrete integer type.
+ * @param value Literal value.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new integer node, or null on allocation failure.
+ */
 ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
   ASTNode *node = ast_node_create(AST_CONSTANT_INT, line, column);
 
@@ -27,6 +40,13 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
   return node;
 }
 
+/**
+ * @brief Constructs an owned reference to a borrowed resolved symbol.
+ * @param symbol Non-null semantic binding borrowed by the new node.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A variable-reference node, or null for invalid input or OOM.
+ */
 ASTNode *ast_node_create_variable_ref(Symbol *symbol, size_t line,
                                       size_t column) {
   ASTNode *node;
@@ -41,6 +61,13 @@ ASTNode *ast_node_create_variable_ref(Symbol *symbol, size_t line,
   return node;
 }
 
+/**
+ * @brief Constructs an owned call node for a borrowed resolved function.
+ * @param function Non-null function record borrowed by the new node.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A function-call node, or null for invalid input or OOM.
+ */
 ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
                                        size_t column) {
   ASTNode *node;
@@ -55,6 +82,13 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
   return node;
 }
 
+/**
+ * @brief Transfers an argument node into a function-call node.
+ * @details On failure, @p argument remains owned by the caller.
+ * @param call Non-null AST_FUNCTION_CALL node receiving the argument.
+ * @param argument Non-null owned child to transfer on success.
+ * @return Construction status.
+ */
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
   if (call == NULL || argument == NULL || call->kind != AST_FUNCTION_CALL) {
     return AST_INVALID_ARGUMENT;
@@ -71,6 +105,11 @@ ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
   return AST_OK;
 }
 
+/**
+ * @brief Recursively destroys one AST-owned subtree.
+ * @details Semantic records referenced by nodes are borrowed and never freed.
+ * @param node Owned subtree root; null is a no-op.
+ */
 void ast_node_destroy(ASTNode *node) {
   size_t index;
 

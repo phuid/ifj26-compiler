@@ -37,6 +37,25 @@ typedef struct TypeEntity {
   bool resolving;
 } TypeEntity;
 
+/**
+ * @brief Maps one canonical source-language type name to its semantic type.
+ * @details Matching is case-sensitive: Int, Double, String, Unit, and Boolean
+ * are canonical. Unknown names, including future reserved words such as List,
+ * return TYPE_UNKNOWN.
+ * @param identifier Null-terminated candidate type name, or null.
+ * @return Matching @ref DataType, or @ref TYPE_UNKNOWN when not a known type.
+ */
+DataType type_from_identifier(const char *identifier);
+
+/**
+ * @brief Reports whether a lexer-accepted name is not a reserved word.
+ * @details This does not validate lexical spelling; the lexer already does so.
+ * Type names and language keywords are rejected case-sensitively.
+ * @param identifier Null-terminated lexer-accepted name, or null.
+ * @return True only for a non-null, unreserved identifier.
+ */
+bool identifier_is_valid(const char *identifier);
+
 /** Initializes an unresolved type entity. */
 void type_entity_init(TypeEntity *entity);
 
