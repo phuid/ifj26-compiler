@@ -1,3 +1,12 @@
+/**
+ * @file parser.c
+ * @brief Syntactic analysis of IFJ26 source code.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "parser.h"
 
 #include <stdbool.h>

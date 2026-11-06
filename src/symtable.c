@@ -1,3 +1,12 @@
+/**
+ * @file symtable.c
+ * @brief Lexical symbol table operations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "symtable.h"
 
 #include "dynamic_array.h"

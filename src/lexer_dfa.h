@@ -1,3 +1,12 @@
+/**
+ * @file lexer_dfa.h
+ * @brief Internal declarative DFA interface for lexical analysis.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_LEXER_DFA_H_
 #define SRC_LEXER_DFA_H_
 

@@ -1,3 +1,12 @@
+/**
+ * @file type.h
+ * @brief Semantic type declarations and dependency-resolution interface.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_TYPE_H_
 #define SRC_TYPE_H_
 

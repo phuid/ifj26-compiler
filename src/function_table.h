@@ -1,3 +1,12 @@
+/**
+ * @file function_table.h
+ * @brief Top-level function table declarations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_FUNCTION_TABLE_H_
 #define SRC_FUNCTION_TABLE_H_
 

@@ -1,3 +1,12 @@
+/**
+ * @file lexer_dfa.c
+ * @brief Declarative DFA tables for the IFJ26 lexer.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "lexer_dfa.h"
 
 #include <stddef.h>

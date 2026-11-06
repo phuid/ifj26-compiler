@@ -1,3 +1,12 @@
+/**
+ * @file ast.h
+ * @brief Public abstract syntax tree declarations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_AST_H_
 #define SRC_AST_H_
 

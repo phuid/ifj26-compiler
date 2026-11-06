@@ -1,3 +1,12 @@
+/**
+ * @file type.c
+ * @brief Semantic type names and dependency resolution.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "type.h"
 
 #include "dynamic_array.h"

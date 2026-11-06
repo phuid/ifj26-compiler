@@ -1,3 +1,12 @@
+/**
+ * @file dynamic_array.h
+ * @brief Generic dynamic-array capacity management declarations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_DYNAMIC_ARRAY_H_
 #define SRC_DYNAMIC_ARRAY_H_
 

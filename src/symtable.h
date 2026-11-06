@@ -1,3 +1,12 @@
+/**
+ * @file symtable.h
+ * @brief Lexical symbol table declarations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #ifndef SRC_SYMTABLE_H_
 #define SRC_SYMTABLE_H_
 

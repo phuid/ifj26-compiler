@@ -1,3 +1,12 @@
+/**
+ * @file ast.c
+ * @brief Abstract syntax tree structures and operations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "ast.h"
 
 #include "dynamic_array.h"

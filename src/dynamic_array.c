@@ -1,3 +1,12 @@
+/**
+ * @file dynamic_array.c
+ * @brief Generic dynamic-array capacity management.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "dynamic_array.h"
 
 #include <stdint.h>

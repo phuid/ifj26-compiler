@@ -1,3 +1,12 @@
+/**
+ * @file function_table.c
+ * @brief Top-level function table operations.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent based on
+ *       specifikace.txt.
+ */
+
 #include "function_table.h"
 
 #include "ast.h"
