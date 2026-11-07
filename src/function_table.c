@@ -140,7 +140,13 @@ FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
     return FUNCTION_TABLE_OK;
   }
 
-  ast_node_destroy(function->ast_root);
+  /// This should never happen because it would indicate the function is defined
+  /// twice.
+  if (function->ast_root != NULL) {
+    ast_node_destroy(function->ast_root);
+    return FUNCTION_TABLE_INVALID_ARGUMENT;
+  }
+
   function->ast_root = ast_root;
   return FUNCTION_TABLE_OK;
 }

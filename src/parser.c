@@ -30,7 +30,11 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
 
 /// TODO: Implement the grammar productions for code blocks
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
-                                 Token *first_token);
+                                 Token *first_token, ASTNode **return_node);
+
+static ParserStatus p_implicit_return(Lexer *lexer, Program *program,
+                                      Token *first_token,
+                                      ASTNode **return_node);
 
 /** Initializes the owned FunctionTable that anchors every parsed function. */
 ParserStatus program_init(Program *program) {
@@ -167,6 +171,12 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
   }
   token_destroy(&lookahead);
 
+  /// Check if the function is not already defined
+  if (function->is_defined) {
+    return PARSER_SEMANTIC_ERROR;
+  }
+  function->is_defined = true;
+
   /// Parse the function's argument list
   p_args(lexer, program);
 
@@ -198,8 +208,37 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
     token_destroy(&lookahead);
   }
 
+  /// Expect = to indicate the start of the function body
+  lexer_status = lexer_pls(lexer, &lookahead);
+  if (lexer_status != LEXER_OK) {
+    return parser_status_from_lexer(lexer_status);
+  }
+  if (lookahead.type != TOKEN_ASSIGN) {
+    token_destroy(&lookahead);
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Check for an implicit return on the same line
+  lexer_status = lexer_pls(lexer, &lookahead);
+  if (lexer_status != LEXER_OK) {
+    return parser_status_from_lexer(lexer_status);
+  }
+  if (lookahead.type != TOKEN_NEWLINE) {
+    ASTNode *implicit_return_node = NULL;
+    p_implicit_return(lexer, program, &lookahead, &implicit_return_node);
+
+    if (function_symbol_set_ast_root(function, implicit_return_node) !=
+        FUNCTION_TABLE_OK) {
+      ast_node_destroy(implicit_return_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+    // TODO: Build AST for implicit return
+    return PARSER_OK;
+  }
+
   /// Get the indent and parse the function's body
   size_t indent_delta;
+  ASTNode *block = NULL;
 
   parser_status = parser_consume_indent_delta(lexer, &lookahead, &indent_delta);
   if (parser_status != PARSER_OK) {
@@ -210,10 +249,18 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
     return PARSER_SYNTAX_ERROR;
   }
 
-  /// Parse the function body as a code block
-  parser_status = p_code_block(lexer, program, &lookahead);
+  /// Parse the function body as a code block and transfer its AST to the
+  /// function.
+  parser_status = p_code_block(lexer, program, &lookahead, &block);
   if (parser_status != PARSER_OK) {
     return parser_status;
+  }
+  if (block == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  if (function_symbol_set_ast_root(function, block) != FUNCTION_TABLE_OK) {
+    ast_node_destroy(block);
+    return PARSER_INTERNAL_ERROR;
   }
 
   // Consume the matching DEDENT tokens after the function body
