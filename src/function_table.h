@@ -13,9 +13,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "ast.h"
 #include "symtable.h"
-
-typedef struct ASTNode ASTNode;
+#include "type.h"
 
 /** Represents one top-level function and owns the root of its BVS-backed local
  * scope tree. */

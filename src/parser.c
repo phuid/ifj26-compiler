@@ -21,7 +21,7 @@
  * @return PARSER_OK only for LEXER_OK; all other results are parser outcomes.
  */
 static ParserStatus parser_status_from_lexer(LexerStatus status) {
-  if (status == LEXER_OK) {
+  if (status == LEXER_OK || status == LEXER_EOF) {
     return PARSER_OK;
   }
   if (status == LEXER_INVALID_ARGUMENT) {
@@ -94,6 +94,8 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
   if (lexer == NULL || type_entity == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
+
+  /// Check for `:`
   if (lexer->token.type != TOKEN_COLON) {
     if (required) {
       return PARSER_SYNTAX_ERROR;
@@ -101,14 +103,18 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
     return PARSER_OK;
   }
 
+  /// Consume the `:`
   status = parser_advance(lexer);
   if (status != PARSER_OK) {
     return status;
   }
+
+  /// Expect a type identifier
   if (lexer->token.type != TOKEN_IDENTIFIER) {
     return PARSER_SYNTAX_ERROR;
   }
 
+  /// Resolve the type from the identifier.
   DataType type = type_from_identifier(lexer->token.value.string_value);
   if (type == TYPE_UNKNOWN) {
     return PARSER_SYNTAX_ERROR;
@@ -118,20 +124,71 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
   return parser_advance(lexer);
 }
 
-// TODO: Implement p_code_block and p_implicit_return, then uncomment these
+static ParserStatus p_statement(Lexer *lexer, Program *program,
+                                ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// TODO
+  return PARSER_OK;
+}
+
+// TODO: Implement p_code_block and p_expression, then uncomment these
 // declarations and their calls in p_function.
 //
 // Parses an indented code block.
 // Entry: the first token of the block (after INDENT). Exit: the DEDENT closing
 // the block.
-// static ParserStatus p_code_block(Lexer *lexer, Program *program,
-//                                  ASTNode **return_node);
-//
+static ParserStatus p_code_block(Lexer *lexer, Program *program,
+                                 ASTNode **return_node) {
+  ParserStatus status;
+
+  ASTNode *block_node =
+      ast_node_create_block(lexer->token.line, lexer->token.column);
+  if (block_node == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Loop over statements until a DEDENT, EOF, next func def, or invalid token
+  /// is reached.
+  while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF &&
+         lexer->token.type != TOKEN_INVALID &&
+         !(lexer->token.type == TOKEN_IDENTIFIER &&
+           lexer->token.value.string_value != NULL &&
+           strcmp(lexer->token.value.string_value, "def") == 0)) {
+
+    /// Get the string value of the current token
+    char *token_string = lexer->token.value.string_value;
+
+    // switch(token_string) {
+    //   //TODO: Add cases for different statement types (e.g., if, while,
+    //   return, etc.)
+    // }
+
+    ASTNode *statement = NULL;
+    status = p_statement(lexer, program, statement);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    ast_node_block_append_statement(block_node, statement);
+  }
+  *return_node = block_node;
+}
+
 // Parses an implicit return expression on the function header line.
 // Entry: the first token of the expression. Exit: the token after the
 // expression.
-// static ParserStatus p_implicit_return(Lexer *lexer, Program *program,
-//                                       ASTNode **return_node);
+static ParserStatus p_expression(Lexer *lexer, Program *program,
+                                 ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// TODO
+  return PARSER_OK;
+}
 
 /**
  * @brief Parses a parameter list `( [id {, id}] )`.
@@ -336,8 +393,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   /// Check for an implicit return on the same line
   if (lexer->token.type != TOKEN_NEWLINE) {
     ASTNode *implicit_return_node = NULL;
-    // TODO: uncomment once p_implicit_return is implemented.
-    // status = p_implicit_return(lexer, program, &implicit_return_node);
+    // TODO: uncomment once p_expression is implemented.
+    // status = p_expression(lexer, program, &implicit_return_node);
     // if (status != PARSER_OK) {
     //   return status;
     // }

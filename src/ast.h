@@ -13,6 +13,7 @@
 #include <stddef.h>
 
 #include "symtable.h"
+#include "type.h"
 
 typedef struct FunctionSymbol FunctionSymbol;
 typedef struct ASTNode ASTNode;
@@ -128,6 +129,29 @@ struct ASTNode {
 ASTNode *ast_node_create_int(long long value, size_t line, size_t column);
 
 /**
+ * @brief Creates a real-literal node.
+ * @param value Literal value represented by the node.
+ * @param line One-based source line of the literal.
+ * @param column One-based source column of the literal.
+ * @return An owned node with @c kind AST_CONSTANT_REAL, or null on allocation
+ * failure.
+ */
+ASTNode *ast_node_create_real(double value, size_t line, size_t column);
+
+/**
+ * @brief Creates a string-literal node.
+ * @details The node stores its own heap copy of @p value, which is released
+ * by @ref ast_node_destroy. The caller keeps ownership of @p value and may
+ * free it right after the call.
+ * @param value Non-null null-terminated string to copy.
+ * @param line One-based source line of the literal.
+ * @param column One-based source column of the literal.
+ * @return An owned node with @c kind AST_CONSTANT_STRING, or null for an
+ * invalid argument or allocation failure.
+ */
+ASTNode *ast_node_create_string(const char *value, size_t line, size_t column);
+
+/**
  * @brief Creates a variable-reference node for an already resolved binding.
  * @param symbol Non-null borrowed symbol record; it must outlive the AST.
  * @param line One-based source line of the reference.
@@ -156,6 +180,95 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
  * @return @ref AST_OK, @ref AST_INVALID_ARGUMENT, or @ref AST_OUT_OF_MEMORY.
  */
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument);
+
+/**
+ * @brief Creates an empty statement block.
+ * @param line One-based source line of the block.
+ * @param column One-based source column of the block.
+ * @return An owned node with @c kind AST_BLOCK, or null on allocation failure.
+ */
+ASTNode *ast_node_create_block(size_t line, size_t column);
+
+/**
+ * @brief Appends one owned statement node to a block.
+ * @param block Non-null block node with @c kind AST_BLOCK.
+ * @param statement Non-null node whose ownership transfers on success only.
+ * @return @ref AST_OK, @ref AST_INVALID_ARGUMENT, or @ref AST_OUT_OF_MEMORY.
+ */
+ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement);
+
+/**
+ * @brief Creates a function-declaration node.
+ * @param function Non-null borrowed function record; it must outlive the AST.
+ * @param body Non-null body node whose ownership transfers on success only.
+ * @param line One-based source line of the declaration.
+ * @param column One-based source column of the declaration.
+ * @return An owned node with @c kind AST_FUNCTION, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_function(FunctionSymbol *function, ASTNode *body,
+                                  size_t line, size_t column);
+
+/**
+ * @brief Creates an assignment node for an already resolved target.
+ * @param target Non-null borrowed symbol record; it must outlive the AST.
+ * @param value Non-null value node whose ownership transfers on success only.
+ * @param line One-based source line of the assignment.
+ * @param column One-based source column of the assignment.
+ * @return An owned node with @c kind AST_ASSIGN, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_assign(Symbol *target, ASTNode *value, size_t line,
+                                size_t column);
+
+/**
+ * @brief Creates a return-statement node.
+ * @param value Returned expression whose ownership transfers on success only,
+ * or null for a return without a value.
+ * @param line One-based source line of the return.
+ * @param column One-based source column of the return.
+ * @return An owned node with @c kind AST_RETURN, or null on allocation
+ * failure.
+ */
+ASTNode *ast_node_create_return(ASTNode *value, size_t line, size_t column);
+
+/**
+ * @brief Creates a conditional node.
+ * @details Ownership of all non-null children transfers on success only.
+ * @param condition Non-null condition expression.
+ * @param then_branch Non-null branch evaluated when the condition holds.
+ * @param else_branch Alternative branch, or null when absent.
+ * @param line One-based source line of the conditional.
+ * @param column One-based source column of the conditional.
+ * @return An owned node with @c kind AST_IF, or null for an invalid argument
+ * or allocation failure.
+ */
+ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
+                            ASTNode *else_branch, size_t line, size_t column);
+
+/**
+ * @brief Creates a binary arithmetic node.
+ * @details Ownership of both operands transfers on success only.
+ * @param kind One of AST_ADD, AST_SUBTRACT, AST_MULTIPLY, or AST_DIVIDE.
+ * @param left Non-null left operand.
+ * @param right Non-null right operand.
+ * @param line One-based source line of the operator.
+ * @param column One-based source column of the operator.
+ * @return An owned node of the requested @p kind, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
+                                   ASTNode *right, size_t line, size_t column);
+
+/**
+ * @brief Wraps an expression in a compiler-inserted Int-to-Double conversion.
+ * @details The new node inherits the source location of @p operand and has
+ * inferred type TYPE_REAL.
+ * @param operand Non-null node whose ownership transfers on success only.
+ * @return An owned node with @c kind AST_IMPLICIT_INT_TO_REAL, or null for an
+ * invalid argument or allocation failure.
+ */
+ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand);
 
 /**
  * @brief Recursively releases a node and every AST-owned payload.

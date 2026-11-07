@@ -11,6 +11,9 @@
 #include "dynamic_array.h"
 #include "lexer_dfa.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 

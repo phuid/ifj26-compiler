@@ -12,6 +12,7 @@
 #include "dynamic_array.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 /**
  * @brief Allocates a zero-initialized AST node with an unresolved type.
@@ -46,6 +47,55 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
     node->data.int_value = value;
     node->inferred_type = TYPE_INT;
   }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned real literal with a concrete real type.
+ * @param value Literal value.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new real node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_real(double value, size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_REAL, line, column);
+
+  if (node != NULL) {
+    node->data.real_value = value;
+    node->inferred_type = TYPE_REAL;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned string literal holding a copy of @p value.
+ * @details The caller keeps ownership of @p value; the node owns its copy.
+ * @param value Non-null null-terminated string to copy.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new string node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
+  ASTNode *node;
+  char *copy;
+  size_t size;
+
+  if (value == NULL) {
+    return NULL;
+  }
+  size = strlen(value) + 1U;
+  copy = malloc(size);
+  if (copy == NULL) {
+    return NULL;
+  }
+  memcpy(copy, value, size);
+  node = ast_node_create(AST_CONSTANT_STRING, line, column);
+  if (node == NULL) {
+    free(copy);
+    return NULL;
+  }
+  node->data.string_value = copy;
+  node->inferred_type = TYPE_STRING;
   return node;
 }
 
@@ -112,6 +162,180 @@ ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
   call->data.call.arguments[call->data.call.argument_count] = argument;
   call->data.call.argument_count += 1U;
   return AST_OK;
+}
+
+/**
+ * @brief Constructs an empty owned statement block.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new block node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_block(size_t line, size_t column) {
+  return ast_node_create(AST_BLOCK, line, column);
+}
+
+/**
+ * @brief Transfers a statement node into a block node.
+ * @details On failure, @p statement remains owned by the caller.
+ * @param block Non-null AST_BLOCK node receiving the statement.
+ * @param statement Non-null owned child to transfer on success.
+ * @return Construction status.
+ */
+ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement) {
+  if (block == NULL || statement == NULL || block->kind != AST_BLOCK) {
+    return AST_INVALID_ARGUMENT;
+  }
+  if (dynamic_array_reserve((void **)&block->data.block.statements,
+                            &block->data.block.statement_capacity,
+                            block->data.block.statement_count + 1U,
+                            sizeof(*block->data.block.statements)) !=
+      DYNAMIC_ARRAY_OK) {
+    return AST_OUT_OF_MEMORY;
+  }
+  block->data.block.statements[block->data.block.statement_count] = statement;
+  block->data.block.statement_count += 1U;
+  return AST_OK;
+}
+
+/**
+ * @brief Constructs an owned function-declaration node.
+ * @details On failure, @p body remains owned by the caller.
+ * @param function Non-null function record borrowed by the new node.
+ * @param body Non-null owned body to transfer on success.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A function node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_function(FunctionSymbol *function, ASTNode *body,
+                                  size_t line, size_t column) {
+  ASTNode *node;
+
+  if (function == NULL || body == NULL) {
+    return NULL;
+  }
+  node = ast_node_create(AST_FUNCTION, line, column);
+  if (node != NULL) {
+    node->data.function.function = function;
+    node->data.function.body = body;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned assignment to a borrowed resolved symbol.
+ * @details On failure, @p value remains owned by the caller.
+ * @param target Non-null symbol borrowed by the new node.
+ * @param value Non-null owned expression to transfer on success.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return An assignment node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_assign(Symbol *target, ASTNode *value, size_t line,
+                                size_t column) {
+  ASTNode *node;
+
+  if (target == NULL || value == NULL) {
+    return NULL;
+  }
+  node = ast_node_create(AST_ASSIGN, line, column);
+  if (node != NULL) {
+    node->data.assignment.target = target;
+    node->data.assignment.value = value;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned return statement.
+ * @details On failure, @p value remains owned by the caller.
+ * @param value Owned expression to transfer on success, or null.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A return node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_return(ASTNode *value, size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_RETURN, line, column);
+
+  if (node != NULL) {
+    node->data.return_statement.value = value;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned conditional node.
+ * @details On failure, all children remain owned by the caller.
+ * @param condition Non-null owned condition.
+ * @param then_branch Non-null owned branch.
+ * @param else_branch Owned alternative branch, or null.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A conditional node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
+                            ASTNode *else_branch, size_t line, size_t column) {
+  ASTNode *node;
+
+  if (condition == NULL || then_branch == NULL) {
+    return NULL;
+  }
+  node = ast_node_create(AST_IF, line, column);
+  if (node != NULL) {
+    node->data.if_statement.condition = condition;
+    node->data.if_statement.then_branch = then_branch;
+    node->data.if_statement.else_branch = else_branch;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned binary arithmetic node.
+ * @details On failure, both operands remain owned by the caller.
+ * @param kind Arithmetic node kind.
+ * @param left Non-null owned left operand.
+ * @param right Non-null owned right operand.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A binary-operation node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
+                                   ASTNode *right, size_t line, size_t column) {
+  ASTNode *node;
+
+  if (left == NULL || right == NULL) {
+    return NULL;
+  }
+  if (kind != AST_ADD && kind != AST_SUBTRACT && kind != AST_MULTIPLY &&
+      kind != AST_DIVIDE) {
+    return NULL;
+  }
+  node = ast_node_create(kind, line, column);
+  if (node != NULL) {
+    node->data.binary_op.left = left;
+    node->data.binary_op.right = right;
+  }
+  return node;
+}
+
+/**
+ * @brief Wraps an owned expression in an implicit Int-to-Double conversion.
+ * @details On failure, @p operand remains owned by the caller.
+ * @param operand Non-null owned expression to transfer on success.
+ * @return A conversion node, or null for invalid input or OOM.
+ */
+ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand) {
+  ASTNode *node;
+
+  if (operand == NULL) {
+    return NULL;
+  }
+  node =
+      ast_node_create(AST_IMPLICIT_INT_TO_REAL, operand->line, operand->column);
+  if (node != NULL) {
+    node->data.conversion.operand = operand;
+    node->inferred_type = TYPE_REAL;
+  }
+  return node;
 }
 
 /**
