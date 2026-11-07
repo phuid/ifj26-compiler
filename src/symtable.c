@@ -149,7 +149,7 @@ Symbol *symbol_table_resolve(const SymbolTable *start, const char *name) {
 
 SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
                                       DataType type, bool initialized,
-                                      Symbol **symbol) {
+                                      bool constant, Symbol **symbol) {
   Symbol candidate;
   Symbol *stored;
 
@@ -170,6 +170,7 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
   type_entity_init(&candidate.type);
   candidate.type.type = type;
   candidate.initialized = initialized;
+  candidate.constant = constant;
   candidate.owner = table;
 
   /// Insert the candidate symbol into the symbol table.

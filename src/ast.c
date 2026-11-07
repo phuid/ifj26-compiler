@@ -28,7 +28,7 @@ static ASTNode *ast_node_create(ASTNodeKind kind, size_t line, size_t column) {
     node->kind = kind;
     node->line = line;
     node->column = column;
-    node->inferred_type = TYPE_UNKNOWN;
+    type_entity_init(&node->inferred_type);
   }
   return node;
 }
@@ -45,7 +45,7 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.int_value = value;
-    node->inferred_type = TYPE_INT;
+    type_entity_resolve(&node->inferred_type, TYPE_INT);
   }
   return node;
 }
@@ -62,7 +62,7 @@ ASTNode *ast_node_create_real(double value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.real_value = value;
-    node->inferred_type = TYPE_REAL;
+    type_entity_resolve(&node->inferred_type, TYPE_REAL);
   }
   return node;
 }
@@ -95,7 +95,7 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
     return NULL;
   }
   node->data.string_value = copy;
-  node->inferred_type = TYPE_STRING;
+  type_entity_resolve(&node->inferred_type, TYPE_STRING);
   return node;
 }
 
@@ -333,7 +333,7 @@ ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand) {
       ast_node_create(AST_IMPLICIT_INT_TO_REAL, operand->line, operand->column);
   if (node != NULL) {
     node->data.conversion.operand = operand;
-    node->inferred_type = TYPE_REAL;
+    type_entity_resolve(&node->inferred_type, TYPE_REAL);
   }
   return node;
 }

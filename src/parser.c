@@ -10,7 +10,11 @@
 #include "parser.h"
 
 #include "ast.h"
+#include "function_table.h"
 #include "keyword.h"
+#include "lexer.h"
+#include "symtable.h"
+#include "type.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,6 +32,25 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
     return PARSER_INVALID_ARGUMENT;
   }
   return PARSER_LEXER_ERROR;
+}
+
+/**
+ * @brief Translates a type resolution result to the parser status boundary.
+ * @param status Result of @ref type_entity_resolve or @ref type_entity_depend.
+ * @return PARSER_OK on success, PARSER_SEMANTIC_ERROR on a type conflict,
+ * otherwise an invalid-argument or internal error.
+ */
+static ParserStatus parser_status_from_type(TypeResolveStatus status) {
+  switch (status) {
+  case TYPE_RESOLVE_OK:
+    return PARSER_OK;
+  case TYPE_RESOLVE_CONFLICT:
+    return PARSER_SEMANTIC_ERROR;
+  case TYPE_RESOLVE_INVALID_ARGUMENT:
+    return PARSER_INVALID_ARGUMENT;
+  default:
+    return PARSER_INTERNAL_ERROR;
+  }
 }
 
 /** Initializes the owned FunctionTable that anchors every parsed function. */
@@ -114,39 +137,207 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
   if (type == TYPE_UNKNOWN) {
     return PARSER_SYNTAX_ERROR;
   }
-  type_entity_resolve(type_entity, type);
+  status = parser_status_from_type(type_entity_resolve(type_entity, type));
+  if (status != PARSER_OK) {
+    return status;
+  }
 
   return parser_advance(lexer);
 }
 
+// Parses an implicit return expression on the function header line.
+// Entry: the first token of the expression. Exit: the token after the
+// expression.
+static ParserStatus p_expression(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function,
+                                 ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// TODO
+  (void)function;
+  return PARSER_OK;
+}
+
+static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
+                                              bool constant,
+                                              FunctionSymbol *function,
+                                              ASTNode **return_node) {
+  ParserStatus status;
+
+  /// Consume the 'val' or 'var' keyword
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Get the function's local scope (always created by p_def_args)
+  SymbolTable *local_scope = function->local_scope;
+
+  /// Add the variable to the function's local scope
+  Symbol *var_symbol;
+  switch (symbol_table_define(local_scope, lexer->token.value.string_value,
+                              TYPE_UNKNOWN, true, constant, &var_symbol)) {
+  case SYMTABLE_OK:
+    break;
+  case SYMTABLE_DUPLICATE:
+    return PARSER_SEMANTIC_ERROR;
+  default:
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Consume the variable name
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the optional type annotation for the variable
+  status = p_type(lexer, &var_symbol->type, false);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Expect an assignment operator
+  if (lexer->token.type != TOKEN_ASSIGN) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Consume the assignment operator
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the expression for the variable's initial value
+  ASTNode *expression_node = NULL;
+  status = p_expression(lexer, program, function, &expression_node);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Resolve the variable's type based on the expression's inferred type or
+  /// create a dependency
+  if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+    status = parser_status_from_type(type_entity_resolve(
+        &var_symbol->type, expression_node->inferred_type.type));
+  } else {
+    status = parser_status_from_type(
+        type_entity_depend(&expression_node->inferred_type, &var_symbol->type));
+  }
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    return status;
+  }
+
+  /// Create an assignment node for the variable initialization
+  ASTNode *assignment_node = ast_node_create_assign(
+      var_symbol, expression_node, lexer->token.line, lexer->token.column);
+  if (assignment_node == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Return the assignment node to the caller
+  *return_node = assignment_node;
+
+  return PARSER_OK;
+}
+
+static ParserStatus p_return_statement(Lexer *lexer, Program *program,
+                                       FunctionSymbol *function,
+                                       ASTNode **return_node) {
+  ParserStatus status;
+
+  /// Consume the 'return' keyword
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the optional return expression
+  ASTNode *expression_node = NULL;
+  if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
+      lexer->token.type != TOKEN_EOF) {
+    status = p_expression(lexer, program, function, &expression_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(expression_node);
+      return status;
+    }
+
+    /// If the function's return type is unit, discard the expression and set it
+    /// to null
+    if (function->return_type.type == TYPE_UNIT) {
+      ast_node_destroy(expression_node);
+      expression_node = NULL;
+    }
+  }
+
+  /// Create a return statement node
+  ASTNode *return_node_local = ast_node_create_return(
+      expression_node, lexer->token.line, lexer->token.column);
+  if (return_node_local == NULL) {
+    ast_node_destroy(expression_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Resolve the return statement's inferred type based on the expression's
+  /// inferred type or create a dependency
+  if (expression_node != NULL) {
+    if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+      status = parser_status_from_type(
+          type_entity_resolve(&return_node_local->inferred_type,
+                              expression_node->inferred_type.type));
+    } else {
+      status = parser_status_from_type(type_entity_depend(
+          &expression_node->inferred_type, &return_node_local->inferred_type));
+    }
+    /// If there is no expression, resolve the return statement's inferred type
+    /// to unit
+  } else {
+    status = parser_status_from_type(
+        type_entity_resolve(&return_node_local->inferred_type, TYPE_UNIT));
+  }
+  if (status != PARSER_OK) {
+    ast_node_destroy(return_node_local);
+    return status;
+  }
+
+  /// Return the return statement node to the caller
+  *return_node = return_node_local;
+
+  return PARSER_OK;
+}
+
 static ParserStatus p_statement(Lexer *lexer, Program *program,
+                                FunctionSymbol *function,
                                 ASTNode **return_node) {
   if (lexer == NULL || program == NULL || return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
   switch (lexer->token.type) {
-  case TOKEN_KW_IF:
-    return p_if_statement(lexer, program, return_node);
-    break;
-  case TOKEN_KW_WHILE:
-    return p_while_statement(lexer, program, return_node);
-    break;
-  case TOKEN_KW_FOR:
-    return p_for_statement(lexer, program, return_node);
-    break;
+    //  TODO: Implement these statement productions, then uncomment their cases
+    //  here. case TOKEN_KW_IF:
+    //    return p_if_statement(lexer, program, function, return_node);
+    //    break;
+    //  case TOKEN_KW_WHILE:
+    //    return p_while_statement(lexer, program, function, return_node);
+    //    break;
+    //  case TOKEN_KW_FOR:
+    //    return p_for_statement(lexer, program, function, return_node);
+    //    break;
+    //  case TOKEN_KW_LIST:
+    //    return p_list_statement(lexer, program, function, return_node);
+    //    break;
   case TOKEN_KW_VAL:
-    return p_val_statement(lexer, program, return_node);
-    break;
+    return p_variable_init_statement(lexer, program, true, function,
+                                     return_node);
   case TOKEN_KW_VAR:
-    return p_var_statement(lexer, program, return_node);
-    break;
+    return p_variable_init_statement(lexer, program, false, function,
+                                     return_node);
   case TOKEN_KW_RETURN:
-    return p_return_statement(lexer, program, return_node);
-    break;
-  case TOKEN_KW_LIST:
-    return p_list_statement(lexer, program, return_node);
-    break;
+    return p_return_statement(lexer, program, function, return_node);
 
   /// Expression
   case TOKEN_IDENTIFIER:
@@ -156,7 +347,7 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_STRING:
   case TOKEN_NOT:
   case TOKEN_MINUS:
-    return p_expression(lexer, program, return_node);
+    return p_expression(lexer, program, function, return_node);
     break;
   default:
     return PARSER_SYNTAX_ERROR;
@@ -170,6 +361,7 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 // Entry: the first token of the block (after INDENT). Exit: the DEDENT closing
 // the block.
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function,
                                  ASTNode **return_node) {
   ParserStatus status;
 
@@ -182,8 +374,8 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   /// Loop over statements until a DEDENT or EOF is reached.
   while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF) {
 
-    if (lexer->token.type != TOKEN_INVALID ||
-        lexer->token.type != TOKEN_KW_DEF) {
+    if (lexer->token.type == TOKEN_INVALID ||
+        lexer->token.type == TOKEN_KW_DEF) {
       return PARSER_SYNTAX_ERROR;
     }
 
@@ -194,14 +386,33 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       if (status != PARSER_OK) {
         return status;
       }
-      continue;
+    }
+
+    /// The separators may have been the last tokens of the block.
+    if (lexer->token.type == TOKEN_DEDENT || lexer->token.type == TOKEN_EOF) {
+      break;
     }
 
     /// Parse the next statement and append it to the block.
     ASTNode *statement = NULL;
-    status = p_statement(lexer, program, &statement);
+    status = p_statement(lexer, program, function, &statement);
     if (status != PARSER_OK) {
       return status;
+    }
+
+    /// Update the block's inferred type based on the return inferred type
+    if (statement->kind == AST_RETURN) {
+      if (statement->inferred_type.type != TYPE_UNKNOWN) {
+        status = parser_status_from_type(type_entity_resolve(
+            &block_node->inferred_type, statement->inferred_type.type));
+      } else {
+        status = parser_status_from_type(type_entity_depend(
+            &statement->inferred_type, &block_node->inferred_type));
+      }
+      if (status != PARSER_OK) {
+        ast_node_destroy(statement);
+        return status;
+      }
     }
 
     ASTStatus ast_status;
@@ -211,19 +422,6 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     }
   }
   *return_node = block_node;
-  return PARSER_OK;
-}
-
-// Parses an implicit return expression on the function header line.
-// Entry: the first token of the expression. Exit: the token after the
-// expression.
-static ParserStatus p_expression(Lexer *lexer, Program *program,
-                                 ASTNode **return_node) {
-  if (lexer == NULL || program == NULL || return_node == NULL) {
-    return PARSER_INVALID_ARGUMENT;
-  }
-
-  /// TODO
   return PARSER_OK;
 }
 
@@ -252,13 +450,14 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return status;
   }
 
+  /// Create the function's local scope for its parameters
+  SymbolTable *local_scope = function_symbol_create_local_scope(function);
+  if (local_scope == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+
   /// Empty parameter list
   if (lexer->token.type != TOKEN_RIGHT_PAREN) {
-    /// Create the function's local scope for its parameters
-    SymbolTable *local_scope = function_symbol_create_local_scope(function);
-    if (local_scope == NULL) {
-      return PARSER_INTERNAL_ERROR;
-    }
 
     size_t arg_count = 0U;
     while (true) {
@@ -270,7 +469,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       /// Add the argument to the function's local scope
       Symbol *arg_symbol;
       switch (symbol_table_define(local_scope, lexer->token.value.string_value,
-                                  TYPE_UNKNOWN, false, &arg_symbol)) {
+                                  TYPE_UNKNOWN, false, false, &arg_symbol)) {
       case SYMTABLE_OK:
         break;
       case SYMTABLE_DUPLICATE:
@@ -286,7 +485,10 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       }
 
       /// Parse the mandatory type annotation for the argument
-      p_type(lexer, &arg_symbol->type, true);
+      status = p_type(lexer, &arg_symbol->type, true);
+      if (status != PARSER_OK) {
+        return status;
+      }
 
       arg_count += 1U;
 
@@ -469,21 +671,30 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 
   /// Parse the function body as a code block and transfer its AST to the
   /// function.
-  // TODO: uncomment once p_code_block is implemented.
-  // status = p_code_block(lexer, program, &block);
-  // if (status != PARSER_OK) {
-  //   return status;
-  // }
-  if (block == NULL) {
-    return PARSER_INTERNAL_ERROR;
+  status = p_code_block(lexer, program, function, &block);
+  if (status != PARSER_OK) {
+    return status;
   }
+
   if (function_symbol_set_ast_root(function, block) != FUNCTION_TABLE_OK) {
     ast_node_destroy(block);
     return PARSER_INTERNAL_ERROR;
   }
 
+  if (block->inferred_type.type != TYPE_UNKNOWN) {
+    status = parser_status_from_type(
+        type_entity_resolve(&function->return_type, block->inferred_type.type));
+  } else {
+    status = parser_status_from_type(
+        type_entity_depend(&block->inferred_type, &function->return_type));
+  }
+  if (status != PARSER_OK) {
+    return status;
+  }
+
   /// Return the parsed function to the caller
   *return_function = function;
+
   /// Consume the matching DEDENT tokens after the function body
   return parser_consume_dedents(lexer, indent_delta);
 }
@@ -532,10 +743,10 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   }
 
   /// Check that the return type is UNIT
-  TypeResolveStatus resolve_status;
-  resolve_status = type_entity_resolve(&function->return_type, TYPE_UNIT);
-  if (resolve_status != TYPE_RESOLVE_OK) {
-    return PARSER_SEMANTIC_ERROR; /// Code 6
+  status = parser_status_from_type(
+      type_entity_resolve(&function->return_type, TYPE_UNIT));
+  if (status != PARSER_OK) {
+    return status; /// Code 6 on a type conflict
   }
 
   /// Mark the function as the main function

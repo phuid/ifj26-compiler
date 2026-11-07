@@ -33,7 +33,7 @@ TEST(FunctionTableTest, ResolvedReturnTypePropagatesToLocalSymbol) {
 
   Symbol *local = nullptr;
   ASSERT_EQ(symbol_table_define(function->local_scope, "b", TYPE_UNKNOWN, true,
-                                &local),
+                                false, &local),
             SYMTABLE_OK);
   ASSERT_EQ(type_entity_depend(&function->return_type, &local->type),
             TYPE_RESOLVE_OK);

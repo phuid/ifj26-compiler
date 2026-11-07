@@ -24,6 +24,7 @@ typedef struct {
   char *name;
   TypeEntity type;
   bool initialized;
+  bool constant;
   SymbolTable *owner;
 } Symbol;
 
@@ -72,6 +73,6 @@ Symbol *symbol_table_resolve(const SymbolTable *start, const char *name);
  */
 SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
                                       DataType type, bool initialized,
-                                      Symbol **symbol);
+                                      bool constant, Symbol **symbol);
 
 #endif // SRC_SYMTABLE_H_
