@@ -152,7 +152,8 @@ static bool token_owns_text(TokenType type) {
 /**
  * @brief Transfers a completed builder into a public token.
  * @details Numeric spellings are normalized by removing separators and a final
- * d/D suffix before conversion. All other token types take ownership of the
+ * d/D suffix before conversion. TOKEN_IDENTIFIER and TOKEN_FUNC drop trailing
+ * spaces and `(`. All other token types take ownership of the
  * preserved source spelling.
  * @param builder Completed token spelling.
  * @param token Output token.
@@ -200,6 +201,13 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
     free(builder->text);
     builder->text = NULL;
     return LEXER_OK;
+  }
+
+  /// Keep only the identifier: drop trailing spaces consumed while looking
+  /// for `(` and the `(` that terminates a function-call identifier.
+  if (type == TOKEN_IDENTIFIER || type == TOKEN_FUNC) {
+    builder->length = strcspn(builder->text, " (");
+    builder->text[builder->length] = '\0';
   }
 
   token->value.string_value = builder->text;

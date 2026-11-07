@@ -28,6 +28,9 @@ typedef enum {
   TOKEN_DOUBLE,
   TOKEN_STRING,
   TOKEN_IDENTIFIER,
+  /** Identifier followed by any number of spaces and `(`; the value holds
+   * only the identifier, the spaces and `(` are consumed but dropped. */
+  TOKEN_FUNC,
   TOKEN_WILDCARD,
   TOKEN_ASSIGN,
   TOKEN_EQUAL,

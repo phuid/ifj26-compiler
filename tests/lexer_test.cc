@@ -237,6 +237,23 @@ TEST(LexerTest, FinalStateLeavesLookaheadForNextToken) {
                         sizeof(expected) / sizeof(expected[0]));
 }
 
+/* Identifier followed by any number of spaces and `(` is one TOKEN_FUNC whose
+ * value is the bare identifier; otherwise it stays TOKEN_IDENTIFIER. */
+TEST(LexerTest, IdentifierFollowedByParenIsFunc) {
+  static const ExpectedToken expected[] = {
+      {TOKEN_FUNC, "foo"},      {TOKEN_IDENTIFIER, "x"},
+      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "_b2"},
+      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "bar"},
+      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "baz"},
+      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_IDENTIFIER, "a"},
+      {TOKEN_PLUS, "+"},        {TOKEN_IDENTIFIER, "b"},
+      {TOKEN_NEWLINE, "\n"},    {TOKEN_IDENTIFIER, "c"},
+      {TOKEN_WILDCARD, "_"},    {TOKEN_LEFT_PAREN, "("},
+  };
+  expect_token_sequence("foo(x) _b2() bar () baz    () a   + b  \nc _(",
+                        expected, sizeof(expected) / sizeof(expected[0]));
+}
+
 /*
  * AI-generated test block — remaining lexer boundary behavior.
  * Model: gpt-5.6-terra (OpenAI Codex via Hermes Agent).

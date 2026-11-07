@@ -148,13 +148,6 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
   if (lexer == NULL || program == NULL || function == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
-  if (lexer->token.type != TOKEN_LEFT_PAREN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
-  if (status != PARSER_OK) {
-    return status;
-  }
 
   /// Empty parameter list
   if (lexer->token.type != TOKEN_RIGHT_PAREN) {
@@ -294,7 +287,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Get the function name and add it to the program's function table.
-  if (lexer->token.type != TOKEN_IDENTIFIER ||
+  /// TOKEN_FUNC also includes the `(`
+  if (lexer->token.type != TOKEN_FUNC ||
       !identifier_is_valid(lexer->token.value.string_value)) {
     return PARSER_SYNTAX_ERROR;
   }

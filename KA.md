@@ -38,6 +38,8 @@ Q_lex = {
   //Identificators
   Underscore,
   I,
+  ISpaces,
+  Func,
 
   //Others
   Q=,
@@ -149,6 +151,10 @@ S -> Underscore [_]
 Underscore -> I [A-Z, a-z, 0-9, _]
 
 I -> I [A-Z, a-z, 0-9, _]
+I -> ISpaces [ ]
+ISpaces -> ISpaces [ ]
+I -> Func [(]
+ISpaces -> Func [(]
 
 //Others
 S -> Q= [=]
@@ -211,6 +217,8 @@ F_lex = {
 
   // Identificators
   I,              // TOKEN_IDENTIFIER(value)
+  ISpaces,        // TOKEN_IDENTIFIER(value, trailing spaces dropped)
+  Func,           // TOKEN_FUNC(identifier, spaces and '(' dropped)
   Underscore,     // TOKEN_WILDCARD
 
   // Operators and special tokens
