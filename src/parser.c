@@ -84,15 +84,20 @@ static ParserStatus parser_advance(Lexer *lexer) {
  * is consumed. Exit: the token after the type identifier.
  * @param lexer Initialized lexer.
  * @param type_entity Type entity resolved to the annotated type.
+ * @param required If true, a type annotation is required.
  * @return PARSER_OK, PARSER_SYNTAX_ERROR, or a translated lexer failure.
  */
-static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity) {
+static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
+                           bool required) {
   ParserStatus status;
 
   if (lexer == NULL || type_entity == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
   if (lexer->token.type != TOKEN_COLON) {
+    if (required) {
+      return PARSER_SYNTAX_ERROR;
+    }
     return PARSER_OK;
   }
 
@@ -153,6 +158,13 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
   /// Empty parameter list
   if (lexer->token.type != TOKEN_RIGHT_PAREN) {
+    /// Create the function's local scope for its parameters
+    SymbolTable *local_scope = function_symbol_create_local_scope(function);
+    if (local_scope == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    size_t arg_count = 0U;
     while (true) {
       /// Argument name must be a valid identifier
       if (lexer->token.type != TOKEN_IDENTIFIER ||
@@ -162,21 +174,28 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
       /// Add the argument to the function's local scope
       Symbol *arg_symbol;
-      SymbolTable *local_scope = function_symbol_create_local_scope(function);
-      if (local_scope == NULL) {
-        return PARSER_INTERNAL_ERROR;
-      }
-      if (symbol_table_define(local_scope, lexer->token.value.string_value,
-                              TYPE_UNKNOWN, false,
-                              &arg_symbol) != SYMTABLE_OK) {
+      switch (symbol_table_define(local_scope, lexer->token.value.string_value,
+                                  TYPE_UNKNOWN, false, &arg_symbol)) {
+      case SYMTABLE_OK:
+        break;
+      case SYMTABLE_DUPLICATE:
+        return PARSER_SEMANTIC_ERROR;
+      default:
         return PARSER_INTERNAL_ERROR;
       }
 
-      /// Expect a comma or closing parenthesis
+      /// Consume the argument name
       status = parser_advance(lexer);
       if (status != PARSER_OK) {
         return status;
       }
+
+      /// Parse the mandatory type annotation for the argument
+      p_type(lexer, &arg_symbol->type, true);
+
+      arg_count += 1U;
+
+      /// Expect a comma or closing parenthesis
       if (lexer->token.type == TOKEN_RIGHT_PAREN) {
         break;
       }
@@ -188,6 +207,8 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
         return status;
       }
     }
+
+    function->argument_count = arg_count;
   }
 
   /// Consume the closing parenthesis by getting the next token.
@@ -261,19 +282,15 @@ static ParserStatus parser_consume_dedents(Lexer *lexer, size_t indent_delta) {
  * function definition.
  * @param lexer Initialized lexer.
  * @param program Program receiving the function.
+ * @param function Output pointer to the parsed function.
  * @return PARSER_OK or the first syntax, semantic, internal or lexer error.
  */
-static ParserStatus p_function(Lexer *lexer, Program *program) {
+static ParserStatus p_function(Lexer *lexer, Program *program,
+                               FunctionSymbol **return_function) {
   ParserStatus status;
 
   if (lexer == NULL || program == NULL) {
     return PARSER_INVALID_ARGUMENT;
-  }
-
-  /// Consume `def`
-  status = parser_advance(lexer);
-  if (status != PARSER_OK) {
-    return status;
   }
 
   /// Get the function name and add it to the program's function table.
@@ -308,7 +325,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
   }
 
   /// Parse the optional return type
-  status = p_type(lexer, &function->return_type);
+  status = p_type(lexer, &function->return_type, false);
   if (status != PARSER_OK) {
     return status;
   }
@@ -371,6 +388,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
     return PARSER_INTERNAL_ERROR;
   }
 
+  /// Return the parsed function to the caller
+  *return_function = function;
   /// Consume the matching DEDENT tokens after the function body
   return parser_consume_dedents(lexer, indent_delta);
 }
@@ -385,11 +404,50 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
  * @return PARSER_OK until the main-function grammar is specified.
  */
 static ParserStatus p_main_function(Lexer *lexer, Program *program) {
+  ParserStatus status;
+
   if (lexer == NULL || program == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  // TODO: parse the main function after the annotation
+  if (lexer->token.type != TOKEN_MAIN_ANNOTATION) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Check if next token is a function definition
+  if (lexer->token.type != TOKEN_IDENTIFIER ||
+      strcmp(lexer->token.value.string_value, "def") != 0) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Consume `def`
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the function definition and get the FunctionSymbol
+  FunctionSymbol *function = NULL;
+  status = p_function(lexer, program, &function);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Check that arg count is zero
+  if (function->argument_count != 0U) {
+    return PARSER_SEMANTIC_ERROR; /// Code 5
+  }
+
+  /// Check that the return type is UNIT
+  TypeResolveStatus resolve_status;
+  resolve_status = type_entity_resolve(&function->return_type, TYPE_UNIT);
+  if (resolve_status != TYPE_RESOLVE_OK) {
+    return PARSER_SEMANTIC_ERROR; /// Code 6
+  }
+
+  /// Mark the function as the main function
+  function->is_main = true;
+
   return parser_advance(lexer);
 }
 
@@ -420,11 +478,24 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
     /// Dispatch only the currently sketched top-level constructs.
     if (lexer->token.type == TOKEN_IDENTIFIER &&
         strcmp(lexer->token.value.string_value, "def") == 0) {
-      status = p_function(lexer, program);
+      /// Consume `def` and parse the function definition
+      status = parser_advance(lexer);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      FunctionSymbol *function = NULL;
+      status = p_function(lexer, program, &function);
     } else if (lexer->token.type == TOKEN_MAIN_ANNOTATION) {
       if (main_function_found) {
-        status = PARSER_SYNTAX_ERROR;
+        status = PARSER_SEMANTIC_ERROR; /// Code 4: redefinition
       } else {
+        /// Consume `@main` and parse the main function
+        status = parser_advance(lexer);
+        if (status != PARSER_OK) {
+          return status;
+        }
+
         main_function_found = true;
         status = p_main_function(lexer, program);
       }

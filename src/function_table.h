@@ -26,6 +26,7 @@ typedef struct FunctionSymbol {
   SymbolTable *local_scope;
   ASTNode *ast_root;
   bool is_defined;
+  bool is_main;
 } FunctionSymbol;
 
 /** Owns the compiler's specialised top-level function namespace. */
