@@ -243,3 +243,43 @@ ADD
 │   └── VARIABLE_REF -> a
 └── VARIABLE_REF -> b
 
+
+# Lookahead token (lexer ↔ parser)
+text
+Lexer:
+  token   // jediný lookahead token, vlastní ho lexer
+
+lexer_pls(lexer):
+  uvolní lexer->token a nahradí ho dalším tokenem
+  LEXER_OK  -> lexer->token je nový token
+  LEXER_EOF -> lexer->token.type == TOKEN_EOF
+  chyba     -> lexer->token.type == TOKEN_INVALID
+
+
+TOKEN_INVALID znamená "žádný platný token": je v lexer->token po lexer_init (ještě nic nenačteno) a po neúspěšném lexer_pls. Sám o sobě není lexikální chybou, ta se hlásí návratovou hodnotou LEXER_INVALID_TOKEN. TOKEN_EOF je běžný token konce vstupu, takže parser nemusí EOF řešit zvlášť.
+
+Parser nikde nedrží vlastní kopii tokenu, vždy čte lexer->token. Pravidlo pro každou funkci p_...:
+
+text
+vstup:  lexer->token je první token dané produkce
+výstup: lexer->token je první token, který produkce nezpracovala (při PARSER_OK)
+
+
+Z toho plyne:
+
+- p_... nevolá lexer_pls na začátku, aby si "načetla" svůj první token, ten už má;
+- token posune (p_advance -> lexer_pls) až poté, co aktuální token zpracovala, a pokud konec produkce token spotřeboval, posune ho ještě před returnem;
+- volitelná část (např. `: Type`), která se neuplatní, nespotřebuje nic;
+- jediný první lexer_pls volá p_program před svou smyčkou, která běží do TOKEN_EOF;
+- p_advance považuje LEXER_EOF za úspěch; neočekávaný TOKEN_EOF pak ohlásí konkrétní produkce jako syntaktickou chybu;
+- při jiném návratu než PARSER_OK obsah lexer->token nic neznamená, volající musí okamžitě skončit s chybou.
+
+Příklad `def foo(x): Int = x`:
+
+text
+p_program     token = def          -> p_function
+p_function    def, foo spotřebuje  -> token = (
+p_def_args    ( x ) spotřebuje     -> token = :
+p_type        : Int spotřebuje     -> token = =
+p_function    = spotřebuje         -> token = x
+p_implicit_return x spotřebuje     -> token = NEWLINE / další

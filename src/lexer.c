@@ -146,7 +146,7 @@ static void discard_lookahead(Lexer *lexer) {
  */
 static bool token_owns_text(TokenType type) {
   return type != TOKEN_INT && type != TOKEN_DOUBLE && type != TOKEN_INDENT &&
-         type != TOKEN_DEDENT;
+         type != TOKEN_DEDENT && type != TOKEN_EOF && type != TOKEN_INVALID;
 }
 
 /**
@@ -224,6 +224,8 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input) {
   lexer->column = 1U;
   lexer->current_indent = 0U;
   lexer->pending_indent_delta = 0;
+  lexer->token = (Token){
+      .type = TOKEN_INVALID, .value.int_value = 0, .line = 0U, .column = 0U};
   return LEXER_OK;
 }
 
@@ -238,10 +240,11 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input) {
  *   string token conversion.
  */
 /**
- * @brief Creates one synthetic indentation token at the current position.
+ * @brief Creates one synthetic text-less token at the current position.
  * @param lexer Lexer providing the source position.
  * @param token Output token to initialize.
- * @param type Either @ref TOKEN_INDENT or @ref TOKEN_DEDENT.
+ * @param type @ref TOKEN_INDENT, @ref TOKEN_DEDENT, @ref TOKEN_EOF or
+ * @ref TOKEN_INVALID.
  */
 static void emit_layout_token(Lexer *lexer, Token *token, TokenType type) {
   token->type = type;
@@ -329,16 +332,24 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
 }
 
 /**
- * @brief Produces raw tokens plus indentation-sensitive layout tokens.
+ * @brief Replaces @c lexer->token with the next raw or layout token.
+ * @details The previous lookahead token is released before scanning.
  * @return LEXER_OK, LEXER_EOF, LEXER_INVALID_TOKEN, or an argument/allocation
  * error.
  */
-LexerStatus lexer_pls(Lexer *lexer, Token *token) {
+LexerStatus lexer_pls(Lexer *lexer) {
   LexerStatus status;
 
-  if (lexer == NULL || token == NULL || lexer->input == NULL) {
+  if (lexer == NULL || lexer->input == NULL) {
     return LEXER_INVALID_ARGUMENT;
   }
+
+  Token *token = &lexer->token;
+
+  /// Release the previous lookahead token text; until a new token is produced
+  /// the lookahead is TOKEN_INVALID so error paths leave a defined state.
+  token_destroy(token);
+  emit_layout_token(lexer, token, TOKEN_INVALID);
 
   /// Emit pending layout tokens before consuming any new raw token.
   if (lexer->pending_indent_delta > 0) {
@@ -354,7 +365,13 @@ LexerStatus lexer_pls(Lexer *lexer, Token *token) {
 
   /// Consume the next raw token.
   status = lexer_next_raw(lexer, token);
+  if (status == LEXER_EOF) {
+    emit_layout_token(lexer, token, TOKEN_EOF);
+    return status;
+  }
   if (status != LEXER_OK) {
+    token_destroy(token);
+    emit_layout_token(lexer, token, TOKEN_INVALID);
     return status;
   }
 
@@ -377,6 +394,7 @@ void lexer_destroy(Lexer *lexer) {
   if (lexer == NULL) {
     return;
   }
+  token_destroy(&lexer->token);
   lexer->input = NULL;
   lexer->lookahead = EOF;
   lexer->line = 0U;

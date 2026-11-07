@@ -9,6 +9,8 @@
 
 #include "parser.h"
 
+#include "ast.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -27,14 +29,6 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
   }
   return PARSER_LEXER_ERROR;
 }
-
-/// TODO: Implement the grammar productions for code blocks
-static ParserStatus p_code_block(Lexer *lexer, Program *program,
-                                 Token *first_token, ASTNode **return_node);
-
-static ParserStatus p_implicit_return(Lexer *lexer, Program *program,
-                                      Token *first_token,
-                                      ASTNode **return_node);
 
 /** Initializes the owned FunctionTable that anchors every parsed function. */
 ParserStatus program_init(Program *program) {
@@ -59,117 +53,241 @@ void program_destroy(Program *program) {
   program->initialized = false;
 }
 
-static ParserStatus p_args(Lexer *lexer, Program *program) {
-  if (lexer == NULL || program == NULL) {
+/**
+ * @brief Replaces @c lexer->token with the next token.
+ * @details End of input is not an error here: @c lexer->token becomes
+ * @ref TOKEN_EOF and the production that does not expect it reports a syntax
+ * error.
+ * @param lexer Initialized lexer.
+ * @return PARSER_OK on a new token or end of input, otherwise a translated
+ * lexer failure.
+ */
+static ParserStatus parser_advance(Lexer *lexer) {
+  LexerStatus status = lexer_pls(lexer);
+  if (status == LEXER_EOF) {
+    return PARSER_OK;
+  }
+  return parser_status_from_lexer(status);
+}
+
+/*
+ * Lookahead rule shared by every p_* production (see specifikace.txt):
+ *   entry: lexer->token is the first token of the production,
+ *   exit (PARSER_OK): lexer->token is the first token the production did not
+ *   process. A production advances with parser_advance only after it has
+ * processed the current token.
+ */
+
+/**
+ * @brief Parses an optional type annotation `: Type`.
+ * @details Entry: @c lexer->token is the possible @c :. Without @c : nothing
+ * is consumed. Exit: the token after the type identifier.
+ * @param lexer Initialized lexer.
+ * @param type_entity Type entity resolved to the annotated type.
+ * @return PARSER_OK, PARSER_SYNTAX_ERROR, or a translated lexer failure.
+ */
+static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity) {
+  ParserStatus status;
+
+  if (lexer == NULL || type_entity == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
+  if (lexer->token.type != TOKEN_COLON) {
+    return PARSER_OK;
+  }
 
-  // Parse brackets and arguments
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+  if (lexer->token.type != TOKEN_IDENTIFIER) {
+    return PARSER_SYNTAX_ERROR;
+  }
 
-  return PARSER_OK;
+  DataType type = type_from_identifier(lexer->token.value.string_value);
+  if (type == TYPE_UNKNOWN) {
+    return PARSER_SYNTAX_ERROR;
+  }
+  type_entity_resolve(type_entity, type);
+
+  return parser_advance(lexer);
+}
+
+// TODO: Implement p_code_block and p_implicit_return, then uncomment these
+// declarations and their calls in p_function.
+//
+// Parses an indented code block.
+// Entry: the first token of the block (after INDENT). Exit: the DEDENT closing
+// the block.
+// static ParserStatus p_code_block(Lexer *lexer, Program *program,
+//                                  ASTNode **return_node);
+//
+// Parses an implicit return expression on the function header line.
+// Entry: the first token of the expression. Exit: the token after the
+// expression.
+// static ParserStatus p_implicit_return(Lexer *lexer, Program *program,
+//                                       ASTNode **return_node);
+
+/**
+ * @brief Parses a parameter list `( [id {, id}] )`.
+ * @details Entry: @c lexer->token is @c (. Exit: the token after @c ).
+ * @param lexer Initialized lexer.
+ * @param program Program owning the function.
+ * @param function Function whose local scope receives the parameters.
+ * @return PARSER_OK, a syntax/internal error, or a translated lexer failure.
+ */
+static ParserStatus p_def_args(Lexer *lexer, Program *program,
+                               FunctionSymbol *function) {
+  ParserStatus status;
+
+  if (lexer == NULL || program == NULL || function == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  if (lexer->token.type != TOKEN_LEFT_PAREN) {
+    return PARSER_SYNTAX_ERROR;
+  }
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Empty parameter list
+  if (lexer->token.type != TOKEN_RIGHT_PAREN) {
+    while (true) {
+      /// Argument name must be a valid identifier
+      if (lexer->token.type != TOKEN_IDENTIFIER ||
+          !identifier_is_valid(lexer->token.value.string_value)) {
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// Add the argument to the function's local scope
+      Symbol *arg_symbol;
+      SymbolTable *local_scope = function_symbol_create_local_scope(function);
+      if (local_scope == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+      if (symbol_table_define(local_scope, lexer->token.value.string_value,
+                              TYPE_UNKNOWN, false,
+                              &arg_symbol) != SYMTABLE_OK) {
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Expect a comma or closing parenthesis
+      status = parser_advance(lexer);
+      if (status != PARSER_OK) {
+        return status;
+      }
+      if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+      if (lexer->token.type != TOKEN_COMMA) {
+        return PARSER_SYNTAX_ERROR;
+      }
+      status = parser_advance(lexer);
+      if (status != PARSER_OK) {
+        return status;
+      }
+    }
+  }
+
+  /// Consume the closing parenthesis by getting the next token.
+  return parser_advance(lexer);
 }
 
 /**
  * @brief Consumes one contiguous lexer-emitted INDENT delta.
- * @details The first token that is not TOKEN_INDENT remains initialized in
- * @p lookahead and transfers to the caller. Every consumed indentation token
- * is released here.
+ * @details Entry: the first possible INDENT. Exit: the first non-INDENT token.
  * @param lexer Initialized lexer producing layout tokens.
- * @param lookahead Output storage receiving the first non-INDENT token.
  * @param indent_delta Output number of consumed TOKEN_INDENT tokens.
  * @return PARSER_OK, PARSER_INVALID_ARGUMENT, PARSER_INTERNAL_ERROR, or a
  * translated lexer failure.
  */
-static ParserStatus parser_consume_indent_delta(Lexer *lexer, Token *lookahead,
+static ParserStatus parser_consume_indent_delta(Lexer *lexer,
                                                 size_t *indent_delta) {
-  LexerStatus lexer_status;
+  ParserStatus status;
 
-  if (lexer == NULL || lookahead == NULL || indent_delta == NULL) {
+  if (lexer == NULL || indent_delta == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
   *indent_delta = 0U;
-  while (true) {
-    lexer_status = lexer_pls(lexer, lookahead);
-    if (lexer_status != LEXER_OK) {
-      return parser_status_from_lexer(lexer_status);
-    }
-    if (lookahead->type != TOKEN_INDENT) {
-      return PARSER_OK;
-    }
+  while (lexer->token.type == TOKEN_INDENT) {
     if (*indent_delta == SIZE_MAX) {
-      token_destroy(lookahead);
       return PARSER_INTERNAL_ERROR;
     }
     *indent_delta += 1U;
-    token_destroy(lookahead);
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
   }
+  return PARSER_OK;
 }
 
 /**
  * @brief Consumes exactly one matching DEDENT delta after a nested construct.
+ * @details Entry: the first expected DEDENT. Exit: the token after the last
+ * consumed DEDENT.
  * @param lexer Initialized lexer producing layout tokens.
  * @param indent_delta Number of TOKEN_DEDENT tokens required.
  * @return PARSER_OK when all requested DEDENTs occur in order, a syntax error
  * for another token, or a translated lexer failure.
  */
 static ParserStatus parser_consume_dedents(Lexer *lexer, size_t indent_delta) {
-  Token lookahead;
-  LexerStatus lexer_status;
+  ParserStatus status;
 
   if (lexer == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
   while (indent_delta > 0U) {
-    lexer_status = lexer_pls(lexer, &lookahead);
-    if (lexer_status != LEXER_OK) {
-      return parser_status_from_lexer(lexer_status);
+    if (lexer->token.type == TOKEN_EOF) {
+      return PARSER_OK;
     }
-    if (lookahead.type != TOKEN_DEDENT) {
-      token_destroy(&lookahead);
+    if (lexer->token.type != TOKEN_DEDENT) {
       return PARSER_SYNTAX_ERROR;
     }
-    token_destroy(&lookahead);
     indent_delta -= 1U;
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
   }
   return PARSER_OK;
 }
 
 /**
- * @brief Parses a function after the top-level parser consumed its @c def.
- * @details This intentionally remains a grammar stub. The future rule will
- * call @ref lexer_pls itself to consume the function name, parameters, type,
- * and body instead of receiving a shared parser lookahead buffer.
- * @param lexer Initialized lexer positioned after @c def.
- * @return PARSER_OK until the function grammar is specified.
+ * @brief Parses a function definition
+ * `def id ( params ) [: Type] = (expr | NEWLINE INDENT block DEDENT)`.
+ * @details Entry: @c lexer->token is @c def. Exit: the token after the
+ * function definition.
+ * @param lexer Initialized lexer.
+ * @param program Program receiving the function.
+ * @return PARSER_OK or the first syntax, semantic, internal or lexer error.
  */
 static ParserStatus p_function(Lexer *lexer, Program *program) {
+  ParserStatus status;
+
   if (lexer == NULL || program == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  Token lookahead;
-  LexerStatus lexer_status = lexer_pls(lexer, &lookahead);
-  ParserStatus parser_status;
-
-  if (lexer_status != LEXER_OK) {
-    return parser_status_from_lexer(lexer_status);
+  /// Consume `def`
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
   }
 
   /// Get the function name and add it to the program's function table.
-  if (lookahead.type != TOKEN_IDENTIFIER ||
-      !identifier_is_valid(lookahead.value.string_value)) {
-    token_destroy(&lookahead);
+  if (lexer->token.type != TOKEN_IDENTIFIER ||
+      !identifier_is_valid(lexer->token.value.string_value)) {
     return PARSER_SYNTAX_ERROR;
   }
 
   FunctionSymbol *function;
   if (function_table_get_or_create(&program->functions,
-                                   lookahead.value.string_value,
+                                   lexer->token.value.string_value,
                                    &function) != FUNCTION_TABLE_OK) {
-    token_destroy(&lookahead);
     return PARSER_INTERNAL_ERROR;
   }
-  token_destroy(&lookahead);
 
   /// Check if the function is not already defined
   if (function->is_defined) {
@@ -177,84 +295,74 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
   }
   function->is_defined = true;
 
+  /// Consume the function name
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
   /// Parse the function's argument list
-  p_args(lexer, program);
-
-  /// Get the return type and verify it is a known type
-  lexer_status = lexer_pls(lexer, &lookahead);
-  if (lexer_status != LEXER_OK) {
-    return parser_status_from_lexer(lexer_status);
+  status = p_def_args(lexer, program, function);
+  if (status != PARSER_OK) {
+    return status;
   }
 
-  if (lookahead.type == TOKEN_COLON) {
-    token_destroy(&lookahead);
-    lexer_status = lexer_pls(lexer, &lookahead);
-    if (lexer_status != LEXER_OK) {
-      return parser_status_from_lexer(lexer_status);
-    }
-
-    if (lookahead.type != TOKEN_IDENTIFIER) {
-      token_destroy(&lookahead);
-      return PARSER_SYNTAX_ERROR;
-    }
-
-    DataType return_type = type_from_identifier(lookahead.value.string_value);
-    if (return_type == TYPE_UNKNOWN) {
-      token_destroy(&lookahead);
-      return PARSER_SYNTAX_ERROR;
-    }
-
-    type_entity_resolve(&function->return_type, return_type);
-    token_destroy(&lookahead);
+  /// Parse the optional return type
+  status = p_type(lexer, &function->return_type);
+  if (status != PARSER_OK) {
+    return status;
   }
 
-  /// Expect = to indicate the start of the function body
-  lexer_status = lexer_pls(lexer, &lookahead);
-  if (lexer_status != LEXER_OK) {
-    return parser_status_from_lexer(lexer_status);
-  }
-  if (lookahead.type != TOKEN_ASSIGN) {
-    token_destroy(&lookahead);
+  /// Consume `=` to indicate the start of the function body
+  if (lexer->token.type != TOKEN_ASSIGN) {
     return PARSER_SYNTAX_ERROR;
+  }
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
   }
 
   /// Check for an implicit return on the same line
-  lexer_status = lexer_pls(lexer, &lookahead);
-  if (lexer_status != LEXER_OK) {
-    return parser_status_from_lexer(lexer_status);
-  }
-  if (lookahead.type != TOKEN_NEWLINE) {
+  if (lexer->token.type != TOKEN_NEWLINE) {
     ASTNode *implicit_return_node = NULL;
-    p_implicit_return(lexer, program, &lookahead, &implicit_return_node);
+    // TODO: uncomment once p_implicit_return is implemented.
+    // status = p_implicit_return(lexer, program, &implicit_return_node);
+    // if (status != PARSER_OK) {
+    //   return status;
+    // }
 
     if (function_symbol_set_ast_root(function, implicit_return_node) !=
         FUNCTION_TABLE_OK) {
       ast_node_destroy(implicit_return_node);
       return PARSER_INTERNAL_ERROR;
     }
-    // TODO: Build AST for implicit return
     return PARSER_OK;
   }
 
-  /// Get the indent and parse the function's body
+  /// Consume the NEWLINE, then get the indent and parse the function's body
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
   size_t indent_delta;
   ASTNode *block = NULL;
 
-  parser_status = parser_consume_indent_delta(lexer, &lookahead, &indent_delta);
-  if (parser_status != PARSER_OK) {
-    return parser_status;
+  status = parser_consume_indent_delta(lexer, &indent_delta);
+  if (status != PARSER_OK) {
+    return status;
   }
   if (indent_delta == 0U) {
-    token_destroy(&lookahead);
     return PARSER_SYNTAX_ERROR;
   }
 
   /// Parse the function body as a code block and transfer its AST to the
   /// function.
-  parser_status = p_code_block(lexer, program, &lookahead, &block);
-  if (parser_status != PARSER_OK) {
-    return parser_status;
-  }
+  // TODO: uncomment once p_code_block is implemented.
+  // status = p_code_block(lexer, program, &block);
+  // if (status != PARSER_OK) {
+  //   return status;
+  // }
   if (block == NULL) {
     return PARSER_INTERNAL_ERROR;
   }
@@ -263,14 +371,17 @@ static ParserStatus p_function(Lexer *lexer, Program *program) {
     return PARSER_INTERNAL_ERROR;
   }
 
-  // Consume the matching DEDENT tokens after the function body
+  /// Consume the matching DEDENT tokens after the function body
   return parser_consume_dedents(lexer, indent_delta);
 }
 
 /**
- * @brief Parses an @c main function after its annotation was consumed.
- * @details The concrete grammar remains deliberately undefined for now.
- * @param lexer Initialized lexer positioned after @c @main.
+ * @brief Parses an @c main function.
+ * @details Entry: @c lexer->token is @c @main. The concrete grammar remains
+ * deliberately undefined for now; only the annotation is consumed.
+ * Exit: the token after the main function.
+ * @param lexer Initialized lexer.
+ * @param program Program receiving the function.
  * @return PARSER_OK until the main-function grammar is specified.
  */
 static ParserStatus p_main_function(Lexer *lexer, Program *program) {
@@ -278,45 +389,39 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  // TODO
-
-  return PARSER_OK;
+  // TODO: parse the main function after the annotation
+  return parser_advance(lexer);
 }
 
 /**
  * @brief Consumes a program directly from its lexer.
- * @details Each future recursive production owns its own @ref lexer_pls call;
- * no shared parser lookahead exists between productions.
- * @param lexer Initialized lexer positioned at the next top-level token.
+ * @details Loads the first lookahead token and dispatches top-level
+ * productions until @ref TOKEN_EOF. Every production leaves the next
+ * unprocessed token in @c lexer->token.
+ * @param lexer Freshly initialized lexer.
  * @param program Initialized output owner for the parsed program.
  * @return PARSER_OK at end of input or the first lexer/parser failure.
  */
 ParserStatus p_program(Lexer *lexer, Program *program) {
   bool main_function_found = false;
-  LexerStatus lexer_status;
+  ParserStatus status;
 
   if (lexer == NULL || program == NULL || !program->initialized) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /** Consume each top-level token directly from the lexer. */
-  for (;;) {
-    Token token;
-    ParserStatus status;
+  /// Load the first lookahead token.
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
 
-    lexer_status = lexer_pls(lexer, &token);
-    if (lexer_status == LEXER_EOF) {
-      return PARSER_OK;
-    }
-    if (lexer_status != LEXER_OK) {
-      return parser_status_from_lexer(lexer_status);
-    }
-
-    /** Dispatch only the currently sketched top-level constructs. */
-    if (token.type == TOKEN_IDENTIFIER &&
-        strcmp(token.value.string_value, "def") == 0) {
+  while (lexer->token.type != TOKEN_EOF) {
+    /// Dispatch only the currently sketched top-level constructs.
+    if (lexer->token.type == TOKEN_IDENTIFIER &&
+        strcmp(lexer->token.value.string_value, "def") == 0) {
       status = p_function(lexer, program);
-    } else if (token.type == TOKEN_MAIN_ANNOTATION) {
+    } else if (lexer->token.type == TOKEN_MAIN_ANNOTATION) {
       if (main_function_found) {
         status = PARSER_SYNTAX_ERROR;
       } else {
@@ -327,10 +432,9 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
       status = PARSER_SYNTAX_ERROR;
     }
 
-    /** Release the token after the selected production processed its kind. */
-    token_destroy(&token);
     if (status != PARSER_OK) {
       return status;
     }
   }
+  return PARSER_OK;
 }

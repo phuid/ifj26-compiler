@@ -41,17 +41,15 @@ void expect_token_sequence(const char *input, const ExpectedToken *expected,
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
   for (size_t index = 0U; index < expected_count; index += 1U) {
-    Token token;
-    ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK) << index;
-    EXPECT_EQ(token.type, expected[index].type) << index;
+    ASSERT_EQ(lexer_pls(&lexer), LEXER_OK) << index;
+    EXPECT_EQ(lexer.token.type, expected[index].type) << index;
     if (expected[index].lexeme != nullptr) {
-      EXPECT_STREQ(token.value.string_value, expected[index].lexeme) << index;
+      EXPECT_STREQ(lexer.token.value.string_value, expected[index].lexeme)
+          << index;
     }
-    token_destroy(&token);
   }
 
-  Token token;
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -73,15 +71,13 @@ TEST(LexerTest, PeriodIsDotWhenNotFollowedByDigit) {
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
 
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_DOT);
-  EXPECT_STREQ(token.value.string_value, ".");
-  EXPECT_EQ(token.line, 1U);
-  EXPECT_EQ(token.column, 1U);
-  token_destroy(&token);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_DOT);
+  EXPECT_STREQ(lexer.token.value.string_value, ".");
+  EXPECT_EQ(lexer.token.line, 1U);
+  EXPECT_EQ(lexer.token.column, 1U);
 
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -93,13 +89,11 @@ TEST(LexerTest, PeriodFollowedByDigitIsDouble) {
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
 
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_DOUBLE);
-  EXPECT_DOUBLE_EQ(token.value.double_value, 0.5);
-  token_destroy(&token);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
+  EXPECT_DOUBLE_EQ(lexer.token.value.double_value, 0.5);
 
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -121,13 +115,11 @@ TEST(LexerTest, IntegerWithDigitSeparatorsIsInteger) {
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
 
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_INT);
-  EXPECT_EQ(token.value.int_value, 1000000);
-  token_destroy(&token);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_INT);
+  EXPECT_EQ(lexer.token.value.int_value, 1000000);
 
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -139,13 +131,11 @@ TEST(LexerTest, DecimalWithExponentSuffixAndSeparatorsIsDouble) {
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
 
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_DOUBLE);
-  EXPECT_DOUBLE_EQ(token.value.double_value, 12.34e56);
-  token_destroy(&token);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
+  EXPECT_DOUBLE_EQ(lexer.token.value.double_value, 12.34e56);
 
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -157,8 +147,7 @@ TEST(LexerTest, SeparatorMustBeBetweenDigits) {
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
 
-  Token token;
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -282,16 +271,15 @@ TEST(LexerTest, NumericFinalStatesAcceptBoundaryForms) {
 
     Lexer lexer;
     ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-    Token token;
-    ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-    EXPECT_EQ(token.type, numeric_case.type);
+    ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+    EXPECT_EQ(lexer.token.type, numeric_case.type);
     if (numeric_case.type == TOKEN_INT) {
-      EXPECT_EQ(token.value.int_value, numeric_case.int_value);
+      EXPECT_EQ(lexer.token.value.int_value, numeric_case.int_value);
     } else {
-      EXPECT_DOUBLE_EQ(token.value.double_value, numeric_case.double_value);
+      EXPECT_DOUBLE_EQ(lexer.token.value.double_value,
+                       numeric_case.double_value);
     }
-    token_destroy(&token);
-    EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+    EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
     lexer_destroy(&lexer);
     fclose(stream);
   }
@@ -309,8 +297,7 @@ TEST(LexerTest, IncompleteNumericFormsAreLexicalErrors) {
 
     Lexer lexer;
     ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-    Token token;
-    EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+    EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
     fclose(stream);
   }
@@ -322,32 +309,25 @@ TEST(LexerTest, NumericFinalStatesPreserveFollowingToken) {
 
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  Token token;
 
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_INT);
-  EXPECT_EQ(token.value.int_value, 42);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_IDENTIFIER);
-  EXPECT_STREQ(token.value.string_value, "foo");
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_DOUBLE);
-  EXPECT_DOUBLE_EQ(token.value.double_value, 1.5);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_IDENTIFIER);
-  EXPECT_STREQ(token.value.string_value, "bar");
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_DOUBLE);
-  EXPECT_DOUBLE_EQ(token.value.double_value, 2000.0);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_PLUS);
-  token_destroy(&token);
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_INT);
+  EXPECT_EQ(lexer.token.value.int_value, 42);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_IDENTIFIER);
+  EXPECT_STREQ(lexer.token.value.string_value, "foo");
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
+  EXPECT_DOUBLE_EQ(lexer.token.value.double_value, 1.5);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_IDENTIFIER);
+  EXPECT_STREQ(lexer.token.value.string_value, "bar");
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
+  EXPECT_DOUBLE_EQ(lexer.token.value.double_value, 2000.0);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_PLUS);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
 
   lexer_destroy(&lexer);
   fclose(stream);
@@ -359,12 +339,10 @@ TEST(LexerTest, NormalStringAcceptsEverySpecifiedEscape) {
 
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_STRING);
-  EXPECT_STREQ(token.value.string_value, "\"\\\\\\\"\\n\\r\\t\"");
-  token_destroy(&token);
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_STRING);
+  EXPECT_STREQ(lexer.token.value.string_value, "\"\\\\\\\"\\n\\r\\t\"");
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -380,8 +358,7 @@ TEST(LexerTest, InvalidOrUnterminatedNormalStringIsLexicalError) {
 
     Lexer lexer;
     ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-    Token token;
-    EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+    EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
     fclose(stream);
   }
@@ -393,12 +370,11 @@ TEST(LexerTest, MultilineStringAllowsQuotesAndLiteralEscapes) {
 
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_STRING);
-  EXPECT_STREQ(token.value.string_value, "\"\"\"one\"\"two\\q\nthree\"\"\"");
-  token_destroy(&token);
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_STRING);
+  EXPECT_STREQ(lexer.token.value.string_value,
+               "\"\"\"one\"\"two\\q\nthree\"\"\"");
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -409,8 +385,7 @@ TEST(LexerTest, UnterminatedMultilineStringIsLexicalError) {
 
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  Token token;
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -435,8 +410,7 @@ TEST(LexerTest, IncompleteMandatoryPrefixesAreLexicalErrors) {
 
     Lexer lexer;
     ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-    Token token;
-    EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+    EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
     fclose(stream);
   }
@@ -478,11 +452,9 @@ TEST(LexerTest, RejectsTabsInPrefixOfNonemptyLine) {
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  Token token;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  token_destroy(&token);
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_INVALID_TOKEN);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
   fclose(stream);
 }
@@ -493,23 +465,49 @@ TEST(LexerTest, TokensReportPositionsAcrossNewline) {
 
   Lexer lexer;
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-  Token token;
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_STRING);
-  EXPECT_EQ(token.line, 1U);
-  EXPECT_EQ(token.column, 1U);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_NEWLINE);
-  EXPECT_EQ(token.line, 1U);
-  EXPECT_EQ(token.column, 4U);
-  token_destroy(&token);
-  ASSERT_EQ(lexer_pls(&lexer, &token), LEXER_OK);
-  EXPECT_EQ(token.type, TOKEN_IDENTIFIER);
-  EXPECT_EQ(token.line, 2U);
-  EXPECT_EQ(token.column, 1U);
-  token_destroy(&token);
-  EXPECT_EQ(lexer_pls(&lexer, &token), LEXER_EOF);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_STRING);
+  EXPECT_EQ(lexer.token.line, 1U);
+  EXPECT_EQ(lexer.token.column, 1U);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_NEWLINE);
+  EXPECT_EQ(lexer.token.line, 1U);
+  EXPECT_EQ(lexer.token.column, 4U);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_IDENTIFIER);
+  EXPECT_EQ(lexer.token.line, 2U);
+  EXPECT_EQ(lexer.token.column, 1U);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(LexerTest, LookaheadTokenIsInvalidAfterInitAndEofAtEnd) {
+  FILE *stream = stream_from("x");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_INVALID);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_IDENTIFIER);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+  EXPECT_EQ(lexer.token.type, TOKEN_EOF);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+  EXPECT_EQ(lexer.token.type, TOKEN_EOF);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(LexerTest, LookaheadTokenIsInvalidAfterLexicalError) {
+  FILE *stream = stream_from("abc &");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
+  EXPECT_EQ(lexer.token.type, TOKEN_INVALID);
   lexer_destroy(&lexer);
   fclose(stream);
 }

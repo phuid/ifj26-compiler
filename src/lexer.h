@@ -58,7 +58,13 @@ typedef enum {
   TOKEN_DOT,
   TOKEN_COMMA,
   TOKEN_UNION,
-  TOKEN_OR
+  TOKEN_OR,
+  /** End of input; set by @ref lexer_pls when it returns LEXER_EOF. */
+  TOKEN_EOF,
+  /** No token loaded yet (after @ref lexer_init) or the last @ref lexer_pls
+   * failed. Not a lexical error by itself; errors are reported through
+   * LEXER_INVALID_TOKEN. */
+  TOKEN_INVALID
 } TokenType;
 
 /**
@@ -103,11 +109,17 @@ typedef enum {
   LEXER_OUT_OF_MEMORY
 } LexerStatus;
 
-/** @brief Stores the borrowed input stream and its current one-byte lookahead.
+/**
+ * @brief Stores the borrowed input stream, its one-byte lookahead and the
+ * current lookahead token.
+ * @details `token` is owned by the lexer. It is valid after @ref lexer_pls
+ * returned LEXER_OK and is replaced (its text released) by the next call to
+ * @ref lexer_pls or by @ref lexer_destroy.
  */
 typedef struct {
   FILE *input;
   int lookahead;
+  Token token;
   size_t line;
   size_t column;
   size_t current_indent;
@@ -123,15 +135,18 @@ typedef struct {
 LexerStatus lexer_init(Lexer *lexer, FILE *input);
 
 /**
- * @brief Produces one token or reports the lexical stopping condition.
+ * @brief Replaces the lexer's lookahead token with the next token.
+ * @details The previous `lexer->token` is released first. On LEXER_OK the new
+ * token is available in `lexer->token`, on LEXER_EOF it is @ref TOKEN_EOF and
+ * on an error status it is @ref TOKEN_INVALID.
  * @param lexer Initialized lexer.
- * @param token Output token storage on LEXER_OK.
  * @return LEXER_OK, LEXER_EOF, or a lexer error status.
  */
-LexerStatus lexer_pls(Lexer *lexer, Token *token);
+LexerStatus lexer_pls(Lexer *lexer);
 
 /**
- * @brief Invalidates lexer state without closing its borrowed stream.
+ * @brief Releases the lookahead token and invalidates lexer state without
+ * closing its borrowed stream.
  * @param lexer Lexer to invalidate; null is accepted.
  */
 void lexer_destroy(Lexer *lexer);
