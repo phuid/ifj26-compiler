@@ -125,8 +125,42 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// TODO
-  return PARSER_OK;
+  switch (lexer->token.type) {
+  case TOKEN_KW_IF:
+    return p_if_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_WHILE:
+    return p_while_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_FOR:
+    return p_for_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_VAL:
+    return p_val_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_VAR:
+    return p_var_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_RETURN:
+    return p_return_statement(lexer, program, return_node);
+    break;
+  case TOKEN_KW_LIST:
+    return p_list_statement(lexer, program, return_node);
+    break;
+
+  /// Expression
+  case TOKEN_IDENTIFIER:
+  case TOKEN_LEFT_PAREN:
+  case TOKEN_INT:
+  case TOKEN_DOUBLE:
+  case TOKEN_STRING:
+  case TOKEN_NOT:
+  case TOKEN_MINUS:
+    return p_expression(lexer, program, return_node);
+    break;
+  default:
+    return PARSER_SYNTAX_ERROR;
+  }
 }
 
 // TODO: Implement p_code_block and p_expression, then uncomment these
@@ -145,29 +179,39 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  /// Loop over statements until a DEDENT, EOF, next func def, or invalid token
-  /// is reached.
-  while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF &&
-         lexer->token.type != TOKEN_INVALID &&
-         lexer->token.type != TOKEN_KW_DEF) {
+  /// Loop over statements until a DEDENT or EOF is reached.
+  while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF) {
 
-    /// Get the string value of the current token
-    char *token_string = lexer->token.value.string_value;
+    if (lexer->token.type != TOKEN_INVALID ||
+        lexer->token.type != TOKEN_KW_DEF) {
+      return PARSER_SYNTAX_ERROR;
+    }
 
-    // switch(token_string) {
-    //   //TODO: Add cases for different statement types (e.g., if, while,
-    //   return, etc.)
-    // }
+    /// Skip any semicolons or newlines before the next statement.
+    while (lexer->token.type == TOKEN_SEMICOLON ||
+           lexer->token.type == TOKEN_NEWLINE) {
+      status = parser_advance(lexer);
+      if (status != PARSER_OK) {
+        return status;
+      }
+      continue;
+    }
 
+    /// Parse the next statement and append it to the block.
     ASTNode *statement = NULL;
     status = p_statement(lexer, program, &statement);
     if (status != PARSER_OK) {
       return status;
     }
 
-    ast_node_block_append_statement(block_node, statement);
+    ASTStatus ast_status;
+    ast_status = ast_node_block_append_statement(block_node, statement);
+    if (ast_status != AST_OK) {
+      return PARSER_INTERNAL_ERROR;
+    }
   }
   *return_node = block_node;
+  return PARSER_OK;
 }
 
 // Parses an implicit return expression on the function header line.
