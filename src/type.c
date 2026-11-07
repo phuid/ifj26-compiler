@@ -3,7 +3,7 @@
  * @brief Semantic type names and dependency resolution.
  * @author Vojtech Ondracek
  * @author Simon Hrouda
- * @note Code in this file was partially generated using an LLM agent based on
+ * @note Code in this file was mostly generated using an LLM agent based on
  *       specifikace.txt.
  */
 
