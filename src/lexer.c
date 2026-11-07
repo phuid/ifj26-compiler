@@ -156,42 +156,26 @@ static bool token_owns_text(TokenType type) {
 
 /**
  * @brief Replaces an identifier-like token with its keyword token.
- * @details Only TOKEN_IDENTIFIER and TOKEN_FUNC are looked up in the keyword
- * table. A TOKEN_FUNC keyword becomes its *_PAREN token, or a syntax error if
- * the keyword must not be followed by `(`. The token keeps its text, which is
- * exactly the keyword spelling.
+ * @details Only TOKEN_IDENTIFIER is looked up in the keyword table. The token
+ * keeps its text, which is exactly the keyword spelling.
  * @param token Freshly scanned token.
- * @return LEXER_OK, or LEXER_SYNTAX_ERROR with @p token left unchanged.
  */
-static LexerStatus apply_keyword(Token *token) {
+static void apply_keyword(Token *token) {
   const Keyword *keyword;
-  TokenType type;
 
-  if (token->type != TOKEN_IDENTIFIER && token->type != TOKEN_FUNC) {
-    return LEXER_OK;
+  if (token->type != TOKEN_IDENTIFIER) {
+    return;
   }
   keyword = keyword_lookup(token->value.string_value);
-  if (keyword == NULL) {
-    return LEXER_OK;
+  if (keyword != NULL) {
+    token->type = keyword->type;
   }
-
-  type = keyword->type;
-  if (token->type == TOKEN_FUNC) {
-    if (keyword->paren_type == TOKEN_INVALID) {
-      return LEXER_SYNTAX_ERROR;
-    }
-    type = keyword->paren_type;
-  }
-
-  token->type = type;
-  return LEXER_OK;
 }
 
 /**
  * @brief Transfers a completed builder into a public token.
  * @details Numeric spellings are normalized by removing separators and a final
- * d/D suffix before conversion. TOKEN_IDENTIFIER and TOKEN_FUNC drop trailing
- * spaces and `(`. All other token types take ownership of the
+ * d/D suffix before conversion. All other token types take ownership of the
  * preserved source spelling.
  * @param builder Completed token spelling.
  * @param token Output token.
@@ -239,13 +223,6 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
     free(builder->text);
     builder->text = NULL;
     return LEXER_OK;
-  }
-
-  /// Keep only the identifier: drop trailing spaces consumed while looking
-  /// for `(` and the `(` that terminates a function-call identifier.
-  if (type == TOKEN_IDENTIFIER || type == TOKEN_FUNC) {
-    builder->length = strcspn(builder->text, " (");
-    builder->text[builder->length] = '\0';
   }
 
   token->value.string_value = builder->text;
@@ -415,15 +392,14 @@ LexerStatus lexer_pls(Lexer *lexer) {
     emit_layout_token(lexer, token, TOKEN_EOF);
     return status;
   }
-  /// Turn identifiers matching the keyword table into keyword tokens.
-  if (status == LEXER_OK) {
-    status = apply_keyword(token);
-  }
   if (status != LEXER_OK) {
     token_destroy(token);
     emit_layout_token(lexer, token, TOKEN_INVALID);
     return status;
   }
+
+  /// Turn identifiers matching the keyword table into keyword tokens.
+  apply_keyword(token);
 
   /// Update indentation state if the token was a newline, otherwise skip
   /// whitespace.

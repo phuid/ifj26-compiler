@@ -237,21 +237,17 @@ TEST(LexerTest, FinalStateLeavesLookaheadForNextToken) {
                         sizeof(expected) / sizeof(expected[0]));
 }
 
-/* Identifier followed by any number of spaces and `(` is one TOKEN_FUNC whose
- * value is the bare identifier; otherwise it stays TOKEN_IDENTIFIER. */
-TEST(LexerTest, IdentifierFollowedByParenIsFunc) {
+/* An identifier and a following `(` are always two separate tokens. */
+TEST(LexerTest, IdentifierAndLeftParenAreSeparateTokens) {
   static const ExpectedToken expected[] = {
-      {TOKEN_FUNC, "foo"},      {TOKEN_IDENTIFIER, "x"},
-      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "_b2"},
-      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "bar"},
-      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_FUNC, "baz"},
-      {TOKEN_RIGHT_PAREN, ")"}, {TOKEN_IDENTIFIER, "a"},
-      {TOKEN_PLUS, "+"},        {TOKEN_IDENTIFIER, "b"},
-      {TOKEN_NEWLINE, "\n"},    {TOKEN_IDENTIFIER, "c"},
-      {TOKEN_WILDCARD, "_"},    {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_IDENTIFIER, "foo"}, {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_IDENTIFIER, "x"},   {TOKEN_RIGHT_PAREN, ")"},
+      {TOKEN_IDENTIFIER, "bar"}, {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_RIGHT_PAREN, ")"},  {TOKEN_WILDCARD, "_"},
+      {TOKEN_LEFT_PAREN, "("},
   };
-  expect_token_sequence("foo(x) _b2() bar () baz    () a   + b  \nc _(",
-                        expected, sizeof(expected) / sizeof(expected[0]));
+  expect_token_sequence("foo(x) bar   () _(", expected,
+                        sizeof(expected) / sizeof(expected[0]));
 }
 
 /*
@@ -531,13 +527,14 @@ TEST(LexerTest, LookaheadTokenIsInvalidAfterLexicalError) {
 
 TEST(LexerKeywordTest, KeywordsBecomeKeywordTokens) {
   const ExpectedToken expected[] = {
-      {TOKEN_KW_DEF, "def"},     {TOKEN_FUNC, "foo"},
-      {TOKEN_IDENTIFIER, "x"},   {TOKEN_COLON, ":"},
-      {TOKEN_KW_INT, "Int"},     {TOKEN_RIGHT_PAREN, ")"},
-      {TOKEN_COLON, ":"},        {TOKEN_KW_UNIT, "Unit"},
-      {TOKEN_ASSIGN, "="},       {TOKEN_IDENTIFIER, "define"},
-      {TOKEN_IDENTIFIER, "Def"}, {TOKEN_KW_IF, "if"},
-      {TOKEN_IDENTIFIER, "x"},   {TOKEN_KW_THEN, "then"},
+      {TOKEN_KW_DEF, "def"},        {TOKEN_IDENTIFIER, "foo"},
+      {TOKEN_LEFT_PAREN, "("},      {TOKEN_IDENTIFIER, "x"},
+      {TOKEN_COLON, ":"},           {TOKEN_KW_INT, "Int"},
+      {TOKEN_RIGHT_PAREN, ")"},     {TOKEN_COLON, ":"},
+      {TOKEN_KW_UNIT, "Unit"},      {TOKEN_ASSIGN, "="},
+      {TOKEN_IDENTIFIER, "define"}, {TOKEN_IDENTIFIER, "Def"},
+      {TOKEN_KW_IF, "if"},          {TOKEN_IDENTIFIER, "x"},
+      {TOKEN_KW_THEN, "then"},
   };
   expect_token_sequence("def foo(x: Int): Unit = define Def if x then",
                         expected, sizeof(expected) / sizeof(*expected));
@@ -559,36 +556,15 @@ TEST(LexerKeywordTest, KeywordTokenOwnsItsSpelling) {
   fclose(stream);
 }
 
-TEST(LexerKeywordTest, ParenKeywordsConsumeLeftParenthesis) {
+/* Whether `(` may follow a keyword is decided by the parser, not the lexer. */
+TEST(LexerKeywordTest, KeywordAndLeftParenAreSeparateTokens) {
   const ExpectedToken expected[] = {
-      {TOKEN_KW_IF_PAREN, "if"},     {TOKEN_IDENTIFIER, "x"},
-      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_WHILE_PAREN, "while"},
-      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_FOR_PAREN, "for"},
-      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_RETURN_PAREN, "return"},
-      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_LIST_PAREN, "List"},
-      {TOKEN_INT, nullptr},          {TOKEN_RIGHT_PAREN, ")"},
-      {TOKEN_KW_CASE_PAREN, "case"}, {TOKEN_RIGHT_PAREN, ")"},
+      {TOKEN_KW_IF, "if"},     {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_IDENTIFIER, "x"}, {TOKEN_RIGHT_PAREN, ")"},
+      {TOKEN_KW_DEF, "def"},   {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_KW_LIST, "List"}, {TOKEN_LEFT_PAREN, "("},
+      {TOKEN_INT, nullptr},    {TOKEN_RIGHT_PAREN, ")"},
   };
-  expect_token_sequence("if (x) while() for   () return() List(1) case ()",
-                        expected, sizeof(expected) / sizeof(*expected));
-}
-
-TEST(LexerKeywordTest, KeywordWithoutParenRejectsLeftParenthesis) {
-  static const char *inputs[] = {
-      "def(",    "do (",       "Double(", "else(", "import(", "Int(",
-      "String(", "then (",     "Unit(",   "val(",  "var(",    "Boolean(",
-      "class(",  "extension(", "match (", "type(",
-  };
-
-  for (const char *input : inputs) {
-    FILE *stream = stream_from(input);
-    ASSERT_NE(stream, nullptr);
-
-    Lexer lexer;
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
-    EXPECT_EQ(lexer_pls(&lexer), LEXER_SYNTAX_ERROR) << input;
-    EXPECT_EQ(lexer.token.type, TOKEN_INVALID) << input;
-    lexer_destroy(&lexer);
-    fclose(stream);
-  }
+  expect_token_sequence("if (x) def( List(1)", expected,
+                        sizeof(expected) / sizeof(*expected));
 }

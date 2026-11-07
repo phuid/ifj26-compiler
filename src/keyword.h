@@ -16,16 +16,10 @@
 #include "lexer.h"
 #include "type.h"
 
-/**
- * @brief One row of the static keyword table.
- * @details @c paren_type is the token emitted when the keyword was scanned as
- * @ref TOKEN_FUNC, i.e. followed by optional spaces and a consumed `(`. It is
- * @ref TOKEN_INVALID for keywords that must not be followed by `(`.
- */
+/** @brief One row of the static keyword table. */
 typedef struct {
   const char *spelling;
   TokenType type;
-  TokenType paren_type;
 } Keyword;
 
 /**

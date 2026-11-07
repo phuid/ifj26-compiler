@@ -27,9 +27,6 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
   if (status == LEXER_INVALID_ARGUMENT) {
     return PARSER_INVALID_ARGUMENT;
   }
-  if (status == LEXER_SYNTAX_ERROR) {
-    return PARSER_SYNTAX_ERROR;
-  }
   return PARSER_LEXER_ERROR;
 }
 
@@ -202,6 +199,15 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
+  /// Consume the opening parenthesis
+  if (lexer->token.type != TOKEN_LEFT_PAREN) {
+    return PARSER_SYNTAX_ERROR;
+  }
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
   /// Empty parameter list
   if (lexer->token.type != TOKEN_RIGHT_PAREN) {
     /// Create the function's local scope for its parameters
@@ -339,8 +345,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Get the function name and add it to the program's function table.
-  /// TOKEN_FUNC also includes the `(`
-  if (lexer->token.type != TOKEN_FUNC) {
+  if (lexer->token.type != TOKEN_IDENTIFIER) {
     return PARSER_SYNTAX_ERROR;
   }
 
