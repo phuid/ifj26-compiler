@@ -62,6 +62,39 @@ typedef enum {
   TOKEN_COMMA,
   TOKEN_UNION,
   TOKEN_OR,
+  /* Keyword tokens produced from TOKEN_IDENTIFIER by the keyword table
+   * (keyword.h). Like identifiers, they own their keyword spelling. */
+  TOKEN_KW_DEF,
+  TOKEN_KW_DO,
+  TOKEN_KW_DOUBLE,
+  TOKEN_KW_ELSE,
+  TOKEN_KW_IF,
+  TOKEN_KW_IMPORT,
+  TOKEN_KW_INT,
+  TOKEN_KW_RETURN,
+  TOKEN_KW_STRING,
+  TOKEN_KW_THEN,
+  TOKEN_KW_UNIT,
+  TOKEN_KW_VAL,
+  TOKEN_KW_VAR,
+  TOKEN_KW_WHILE,
+  TOKEN_KW_BOOLEAN,
+  TOKEN_KW_CASE,
+  TOKEN_KW_CLASS,
+  TOKEN_KW_EXTENSION,
+  TOKEN_KW_FOR,
+  TOKEN_KW_LIST,
+  TOKEN_KW_MATCH,
+  TOKEN_KW_TYPE,
+  /* Keyword immediately followed by optional spaces and `(`; the `(` is
+   * consumed as part of this single token (produced from TOKEN_FUNC). As with
+   * TOKEN_FUNC, the value holds only the keyword, without spaces and `(`. */
+  TOKEN_KW_IF_PAREN,
+  TOKEN_KW_WHILE_PAREN,
+  TOKEN_KW_FOR_PAREN,
+  TOKEN_KW_RETURN_PAREN,
+  TOKEN_KW_LIST_PAREN,
+  TOKEN_KW_CASE_PAREN,
   /** End of input; set by @ref lexer_pls when it returns LEXER_EOF. */
   TOKEN_EOF,
   /** No token loaded yet (after @ref lexer_init) or the last @ref lexer_pls
@@ -109,6 +142,8 @@ typedef enum {
   LEXER_EOF,
   LEXER_INVALID_ARGUMENT,
   LEXER_INVALID_TOKEN,
+  /** A keyword that must not be followed by `(` was scanned with `(`. */
+  LEXER_SYNTAX_ERROR,
   LEXER_OUT_OF_MEMORY
 } LexerStatus;
 

@@ -9,6 +9,7 @@
 
 #include "lexer.h"
 #include "dynamic_array.h"
+#include "keyword.h"
 #include "lexer_dfa.h"
 
 #include <stdbool.h>
@@ -145,11 +146,45 @@ static void discard_lookahead(Lexer *lexer) {
 /**
  * @brief Reports whether a token type owns @c value.string_value.
  * @param type Token kind to inspect.
- * @return True for non-numeric tokens, false for TOKEN_INT and TOKEN_DOUBLE.
+ * @return False for numeric, layout, EOF and invalid tokens; true for every
+ * other token.
  */
 static bool token_owns_text(TokenType type) {
   return type != TOKEN_INT && type != TOKEN_DOUBLE && type != TOKEN_INDENT &&
          type != TOKEN_DEDENT && type != TOKEN_EOF && type != TOKEN_INVALID;
+}
+
+/**
+ * @brief Replaces an identifier-like token with its keyword token.
+ * @details Only TOKEN_IDENTIFIER and TOKEN_FUNC are looked up in the keyword
+ * table. A TOKEN_FUNC keyword becomes its *_PAREN token, or a syntax error if
+ * the keyword must not be followed by `(`. The token keeps its text, which is
+ * exactly the keyword spelling.
+ * @param token Freshly scanned token.
+ * @return LEXER_OK, or LEXER_SYNTAX_ERROR with @p token left unchanged.
+ */
+static LexerStatus apply_keyword(Token *token) {
+  const Keyword *keyword;
+  TokenType type;
+
+  if (token->type != TOKEN_IDENTIFIER && token->type != TOKEN_FUNC) {
+    return LEXER_OK;
+  }
+  keyword = keyword_lookup(token->value.string_value);
+  if (keyword == NULL) {
+    return LEXER_OK;
+  }
+
+  type = keyword->type;
+  if (token->type == TOKEN_FUNC) {
+    if (keyword->paren_type == TOKEN_INVALID) {
+      return LEXER_SYNTAX_ERROR;
+    }
+    type = keyword->paren_type;
+  }
+
+  token->type = type;
+  return LEXER_OK;
 }
 
 /**
@@ -379,6 +414,10 @@ LexerStatus lexer_pls(Lexer *lexer) {
   if (status == LEXER_EOF) {
     emit_layout_token(lexer, token, TOKEN_EOF);
     return status;
+  }
+  /// Turn identifiers matching the keyword table into keyword tokens.
+  if (status == LEXER_OK) {
+    status = apply_keyword(token);
   }
   if (status != LEXER_OK) {
     token_destroy(token);

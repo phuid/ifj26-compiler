@@ -10,10 +10,10 @@
 #include "parser.h"
 
 #include "ast.h"
+#include "keyword.h"
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <string.h>
 
 /**
  * @brief Translates one lexer result to the parser status boundary.
@@ -26,6 +26,9 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
   }
   if (status == LEXER_INVALID_ARGUMENT) {
     return PARSER_INVALID_ARGUMENT;
+  }
+  if (status == LEXER_SYNTAX_ERROR) {
+    return PARSER_SYNTAX_ERROR;
   }
   return PARSER_LEXER_ERROR;
 }
@@ -109,13 +112,8 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
     return status;
   }
 
-  /// Expect a type identifier
-  if (lexer->token.type != TOKEN_IDENTIFIER) {
-    return PARSER_SYNTAX_ERROR;
-  }
-
-  /// Resolve the type from the identifier.
-  DataType type = type_from_identifier(lexer->token.value.string_value);
+  /// Expect a type-name keyword and resolve its type.
+  DataType type = keyword_to_type(lexer->token.type);
   if (type == TYPE_UNKNOWN) {
     return PARSER_SYNTAX_ERROR;
   }
@@ -154,9 +152,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   /// is reached.
   while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF &&
          lexer->token.type != TOKEN_INVALID &&
-         !(lexer->token.type == TOKEN_IDENTIFIER &&
-           lexer->token.value.string_value != NULL &&
-           strcmp(lexer->token.value.string_value, "def") == 0)) {
+         lexer->token.type != TOKEN_KW_DEF) {
 
     /// Get the string value of the current token
     char *token_string = lexer->token.value.string_value;
@@ -167,7 +163,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     // }
 
     ASTNode *statement = NULL;
-    status = p_statement(lexer, program, statement);
+    status = p_statement(lexer, program, &statement);
     if (status != PARSER_OK) {
       return status;
     }
@@ -217,8 +213,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     size_t arg_count = 0U;
     while (true) {
       /// Argument name must be a valid identifier
-      if (lexer->token.type != TOKEN_IDENTIFIER ||
-          !identifier_is_valid(lexer->token.value.string_value)) {
+      if (lexer->token.type != TOKEN_IDENTIFIER) {
         return PARSER_SYNTAX_ERROR;
       }
 
@@ -345,8 +340,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 
   /// Get the function name and add it to the program's function table.
   /// TOKEN_FUNC also includes the `(`
-  if (lexer->token.type != TOKEN_FUNC ||
-      !identifier_is_valid(lexer->token.value.string_value)) {
+  if (lexer->token.type != TOKEN_FUNC) {
     return PARSER_SYNTAX_ERROR;
   }
 
@@ -466,8 +460,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   }
 
   /// Check if next token is a function definition
-  if (lexer->token.type != TOKEN_IDENTIFIER ||
-      strcmp(lexer->token.value.string_value, "def") != 0) {
+  if (lexer->token.type != TOKEN_KW_DEF) {
     return PARSER_SYNTAX_ERROR;
   }
 
@@ -527,8 +520,7 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
 
   while (lexer->token.type != TOKEN_EOF) {
     /// Dispatch only the currently sketched top-level constructs.
-    if (lexer->token.type == TOKEN_IDENTIFIER &&
-        strcmp(lexer->token.value.string_value, "def") == 0) {
+    if (lexer->token.type == TOKEN_KW_DEF) {
       /// Consume `def` and parse the function definition
       status = parser_advance(lexer);
       if (status != PARSER_OK) {

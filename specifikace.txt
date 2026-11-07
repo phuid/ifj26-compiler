@@ -283,3 +283,31 @@ p_def_args    ( x ) spotřebuje     -> token = :
 p_type        : Int spotřebuje     -> token = =
 p_function    = spotřebuje         -> token = x
 p_implicit_return x spotřebuje     -> token = NEWLINE / další
+
+
+# Tabulka klíčových slov (keyword.h / keyword.c)
+text
+Keyword:
+  spelling     // přesný zápis, porovnává se case-sensitive
+  type         // TOKEN_KW_*
+  paren_type   // TOKEN_KW_*_PAREN, nebo TOKEN_INVALID když `(` nesmí následovat
+
+keyword_lookup(spelling)  -> Keyword* | NULL   (lineární průchod statickou tabulkou)
+keyword_to_type(type)     -> Int/Double/String/Unit/Boolean -> DataType, jinak TYPE_UNKNOWN
+
+
+Klíčová slova (22): def do Double else if import Int return String then Unit val var while Boolean case class extension for List match type.
+
+Lexer po každém úspěšném surovém tokenu TOKEN_IDENTIFIER nebo TOKEN_FUNC zavolá apply_keyword:
+
+- žádná shoda -> token zůstává identifikátorem / TOKEN_FUNC;
+- shoda a TOKEN_IDENTIFIER -> token.type = Keyword.type;
+- shoda a TOKEN_FUNC (klíčové slovo, mezery a spotřebovaná `(`):
+  - paren_type != TOKEN_INVALID -> token.type = paren_type, `(` je součástí tohoto jediného tokenu;
+  - jinak lexer_pls vrátí LEXER_SYNTAX_ERROR (parser -> PARSER_SYNTAX_ERROR, kód 2) a token je TOKEN_INVALID;
+- klíčový token vlastní text jako ostatní textové tokeny: string_value je přesně zápis klíčového slova (u *_PAREN bez mezer a `(`, stejně jako u TOKEN_FUNC).
+
+Závorka smí (ale nemusí) následovat po: if, while, for, return, List, case -> TOKEN_KW_IF_PAREN, TOKEN_KW_WHILE_PAREN, TOKEN_KW_FOR_PAREN, TOKEN_KW_RETURN_PAREN, TOKEN_KW_LIST_PAREN, TOKEN_KW_CASE_PAREN.
+Po ostatních klíčových slovech `(` následovat nesmí.
+
+Důsledky pro parser: klíčové slovo nikdy nepřijde jako TOKEN_IDENTIFIER, takže identifikátor nemusí kontrolovat rezervovaná slova; `def` je TOKEN_KW_DEF a typová anotace je klíčový token převedený přes keyword_to_type.

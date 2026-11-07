@@ -528,3 +528,67 @@ TEST(LexerTest, LookaheadTokenIsInvalidAfterLexicalError) {
   lexer_destroy(&lexer);
   fclose(stream);
 }
+
+TEST(LexerKeywordTest, KeywordsBecomeKeywordTokens) {
+  const ExpectedToken expected[] = {
+      {TOKEN_KW_DEF, "def"},     {TOKEN_FUNC, "foo"},
+      {TOKEN_IDENTIFIER, "x"},   {TOKEN_COLON, ":"},
+      {TOKEN_KW_INT, "Int"},     {TOKEN_RIGHT_PAREN, ")"},
+      {TOKEN_COLON, ":"},        {TOKEN_KW_UNIT, "Unit"},
+      {TOKEN_ASSIGN, "="},       {TOKEN_IDENTIFIER, "define"},
+      {TOKEN_IDENTIFIER, "Def"}, {TOKEN_KW_IF, "if"},
+      {TOKEN_IDENTIFIER, "x"},   {TOKEN_KW_THEN, "then"},
+  };
+  expect_token_sequence("def foo(x: Int): Unit = define Def if x then",
+                        expected, sizeof(expected) / sizeof(*expected));
+}
+
+TEST(LexerKeywordTest, KeywordTokenOwnsItsSpelling) {
+  FILE *stream = stream_from("while ");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
+  EXPECT_EQ(lexer.token.type, TOKEN_KW_WHILE);
+  EXPECT_STREQ(lexer.token.value.string_value, "while");
+  EXPECT_EQ(lexer.token.line, 1U);
+  EXPECT_EQ(lexer.token.column, 1U);
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(LexerKeywordTest, ParenKeywordsConsumeLeftParenthesis) {
+  const ExpectedToken expected[] = {
+      {TOKEN_KW_IF_PAREN, "if"},     {TOKEN_IDENTIFIER, "x"},
+      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_WHILE_PAREN, "while"},
+      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_FOR_PAREN, "for"},
+      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_RETURN_PAREN, "return"},
+      {TOKEN_RIGHT_PAREN, ")"},      {TOKEN_KW_LIST_PAREN, "List"},
+      {TOKEN_INT, nullptr},          {TOKEN_RIGHT_PAREN, ")"},
+      {TOKEN_KW_CASE_PAREN, "case"}, {TOKEN_RIGHT_PAREN, ")"},
+  };
+  expect_token_sequence("if (x) while() for   () return() List(1) case ()",
+                        expected, sizeof(expected) / sizeof(*expected));
+}
+
+TEST(LexerKeywordTest, KeywordWithoutParenRejectsLeftParenthesis) {
+  static const char *inputs[] = {
+      "def(",    "do (",       "Double(", "else(", "import(", "Int(",
+      "String(", "then (",     "Unit(",   "val(",  "var(",    "Boolean(",
+      "class(",  "extension(", "match (", "type(",
+  };
+
+  for (const char *input : inputs) {
+    FILE *stream = stream_from(input);
+    ASSERT_NE(stream, nullptr);
+
+    Lexer lexer;
+    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    EXPECT_EQ(lexer_pls(&lexer), LEXER_SYNTAX_ERROR) << input;
+    EXPECT_EQ(lexer.token.type, TOKEN_INVALID) << input;
+    lexer_destroy(&lexer);
+    fclose(stream);
+  }
+}
