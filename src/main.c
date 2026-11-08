@@ -1,3 +1,10 @@
+/**
+ * @file main.c
+ * @brief Program entry point.
+ * @author Vojtech Ondracek
+ * @author Simon Hrouda
+ */
+
 #include "sample_lib.h"
 #include <stdio.h>
 

@@ -1,0 +1,308 @@
+Nejdůležitější zpřesnění: máš dvě propojené, ale odlišné struktury:
+
+1. strom scopeů určuje, odkud lze jméno načíst;
+2. graf typových závislostí určuje, komu později rozšířit zjištěný typ.
+
+Aby se nepletly směry, doporučuji pojmenování:
+
+text
+symbol.type        : známý typ | UNKNOWN
+symbol.dependents  : symboly čekající na typ tohoto symbolu
+
+
+Ne type_dependencies: seznam se prakticky ukládá na zdroj neznámého typu a ukazuje na ty, kteří na něm závisejí.
+
+Model scopeů:
+
+text
+Global scope / FunctionTable
+├── foo : FunctionSymbol
+│   └── local scope foo
+│       ├── arg0
+│       ├── arg1
+│       └── if scope
+│           └── a
+└── fc : FunctionSymbol
+    └── local scope fc
+
+
+Každý SymbolTable reprezentuje právě jeden lexikální scope. Scope uzly tvoří strom přes `parent` a `children`; obsah každého jednotlivého scope je samostatná AVL/BVS z `main`:
+
+text
+parent
+children
+bindings: BST  // source_name -> Symbol*
+
+
+Každý Symbol má minimálně:
+
+text
+name             // jméno ze zdrojového kódu
+identity         // konkrétní Symbol* je identita bindingu; číselné ID není potřeba
+type            // INT, FLOAT, STRING, …, UNKNOWN
+dependents      // Symbol* čekající na můj typ
+initialized     // pro kontrolu použití před inicializací
+
+
+Lookup proměnné b uvnitř if:
+
+text
+if scope -> foo scope -> případně vyšší scope
+
+
+Jakmile ji najdeš, vrátí se přesný Symbol* — ne jen její název. Pokud ji nenajdeš, je to chyba neznámého identifikátoru. Pokud ji najdeš, ale initialized == false, je to samostatná chyba použití před inicializací. Existence symbolu sama o sobě ještě neznamená, že je bezpečné číst jeho hodnotu. Lidé mají překvapivě rádi proměnné, které existují, ale nesmí se použít.
+
+Šíření typů:
+
+text
+a = b
+b = fc()
+fc() = 42
+
+
+Při parsování:
+
+text
+a.type  = UNKNOWN
+b.type  = UNKNOWN
+fc.type = UNKNOWN
+
+b.dependents  += a
+fc.dependents += b
+
+
+Graf:
+
+text
+a  <-  b  <-  fc
+?      ?      ?
+
+
+Po zjištění typu fc:
+
+text
+fc.type = INT
+
+propagate(fc, INT):
+  fc.type = INT
+  b.type  = INT
+  a.type  = INT
+
+
+Obecně:
+
+text
+resolve_type(symbol, type):
+  symbol.type = type
+
+  for each dependent in symbol.dependents:
+    if dependent.type == UNKNOWN:
+      resolve_type(dependent, type)
+
+
+Je dobré dopředu definovat pravidlo pro konflikt: pokud už dependent.type známý je a liší se, jde o sémantickou chybu, ne o důvod jej tiše přepsat.
+
+Funkční tabulka může být specializovaná, protože top-level opravdu obsahuje jen funkce:
+
+text
+Program:
+  functions: FunctionTable  // vlastní všechny funkce, jejich scope trees a AST roots
+
+FunctionSymbol:
+  name
+  return_type
+  dependents          // funkce i lokální symboly čekající na return_type
+  argument_count
+  local_scope         // SymbolTable*
+
+
+To umožňuje řetězec:
+
+text
+a = b
+b = fc()
+
+
+kde fc.dependents obsahuje b a b.dependents obsahuje a. Jakmile se vyřeší návratový typ fc, doběhne propagace až do a.
+
+AST je třetí struktura: nereprezentuje scope ani závislosti, ale význam programu.
+
+text
+Function foo AST
+└── BLOCK
+    └── ASSIGN
+        ├── VARIABLE_REF -> Symbol(a)
+        └── CALL
+            ├── target -> FunctionSymbol(fc)
+            └── arguments
+                ├── expression 0
+                └── expression 1
+
+
+Každá funkce má vlastní kořen AST. Typ uzlu říká, co konstrukce znamená; union drží data relevantní pouze pro daný druh uzlu:
+
+text
+ASTNode:
+  kind
+
+  union data:
+    CONSTANT:
+      value
+
+    VARIABLE_REF:
+      Symbol* symbol
+
+    CALL:
+      FunctionSymbol* function
+      ASTNode** arguments
+      size_t argument_count
+
+    ADD:
+      ASTNode* left
+      ASTNode* right
+
+    IF:
+      ASTNode* condition
+      ASTNode* then_branch
+      ASTNode* else_branch
+
+    ASSIGN:
+      Symbol* target
+      ASTNode* value
+
+
+Klíčové propojení: AST u lokální proměnné nedrží řetězec "a", ale Symbol* na konkrétní záznam v tabulce. Parser tedy jméno vyřeší jednou při stavbě AST; pozdější fáze už nemusejí znovu chodit stromem scopeů.
+
+Parametry funkce zapiš do jejího lokálního scope jako první a v deklarovaném pořadí:
+
+text
+foo(x, y, z)
+
+scope foo:
+  parameter[0] -> Symbol(x)
+  parameter[1] -> Symbol(y)
+  parameter[2] -> Symbol(z)
+
+
+Volání pak nese argumenty také ve zdrojovém pořadí, takže kontrola počtu i přiřazení argumentů parametrům je přímočará:
+
+text
+foo(expr0, expr1, expr2)
+  expr0 -> parameter[0]
+  expr1 -> parameter[1]
+  expr2 -> parameter[2]
+
+
+Mentální zkratka:
+
+text
+Symtable tree = kde jméno žije
+Dependency graph = kdo čeká na typ
+AST = co program dělá
+
+# Fungování (běh parseru)
+text
+Tokeny
+  ↓
+Parser
+  ├── sestaví AST
+  └── vytvoří/vyhledá Symboly a propojí typové závislosti
+  ↓
+Sémantická analýza nad AST
+  ├── vyřeší zbývající UNKNOWN typy
+  ├── ověří povolené operace a návraty
+  ├── ověří argumenty volání
+  └── vloží implicitní konverze
+  ↓
+Typově správné AST
+
+
+Parser při a + b pouze vytvoří:
+
+text
+ADD
+├── VARIABLE_REF -> Symbol(a)
+└── VARIABLE_REF -> Symbol(b)
+
+
+Nemusí hned rozhodnout, zda je operace platná. To udělá až type checker, když zná nebo dopočítal typy obou podstromů:
+
+text
+INT + INT     -> INT
+INT + REAL    -> REAL; vlož INT_TO_REAL kolem levého operandu
+REAL + INT    -> REAL; vlož INT_TO_REAL kolem pravého operandu
+REAL + REAL   -> REAL
+STRING + VOID -> sémantická chyba
+
+
+Po implicitní konverzi:
+
+text
+ADD
+├── INT_TO_REAL
+│   └── VARIABLE_REF -> a
+└── VARIABLE_REF -> b
+
+
+# Lookahead token (lexer ↔ parser)
+text
+Lexer:
+  token   // jediný lookahead token, vlastní ho lexer
+
+lexer_pls(lexer):
+  uvolní lexer->token a nahradí ho dalším tokenem
+  LEXER_OK  -> lexer->token je nový token
+  LEXER_EOF -> lexer->token.type == TOKEN_EOF
+  chyba     -> lexer->token.type == TOKEN_INVALID
+
+
+TOKEN_INVALID znamená "žádný platný token": je v lexer->token po lexer_init (ještě nic nenačteno) a po neúspěšném lexer_pls. Sám o sobě není lexikální chybou, ta se hlásí návratovou hodnotou LEXER_INVALID_TOKEN. TOKEN_EOF je běžný token konce vstupu, takže parser nemusí EOF řešit zvlášť.
+
+Parser nikde nedrží vlastní kopii tokenu, vždy čte lexer->token. Pravidlo pro každou funkci p_...:
+
+text
+vstup:  lexer->token je první token dané produkce
+výstup: lexer->token je první token, který produkce nezpracovala (při PARSER_OK)
+
+
+Z toho plyne:
+
+- p_... nevolá lexer_pls na začátku, aby si "načetla" svůj první token, ten už má;
+- token posune (p_advance -> lexer_pls) až poté, co aktuální token zpracovala, a pokud konec produkce token spotřeboval, posune ho ještě před returnem;
+- volitelná část (např. `: Type`), která se neuplatní, nespotřebuje nic;
+- jediný první lexer_pls volá p_program před svou smyčkou, která běží do TOKEN_EOF;
+- p_advance považuje LEXER_EOF za úspěch; neočekávaný TOKEN_EOF pak ohlásí konkrétní produkce jako syntaktickou chybu;
+- při jiném návratu než PARSER_OK obsah lexer->token nic neznamená, volající musí okamžitě skončit s chybou.
+
+Příklad `def foo(x): Int = x`:
+
+text
+p_program     token = def          -> p_function
+p_function    def, foo spotřebuje  -> token = (
+p_def_args    ( x ) spotřebuje     -> token = :
+p_type        : Int spotřebuje     -> token = =
+p_function    = spotřebuje         -> token = x
+p_implicit_return x spotřebuje     -> token = NEWLINE / další
+
+
+# Tabulka klíčových slov (keyword.h / keyword.c)
+text
+Keyword:
+  spelling     // přesný zápis, porovnává se case-sensitive
+  type         // TOKEN_KW_*
+
+keyword_lookup(spelling)  -> Keyword* | NULL   (lineární průchod statickou tabulkou)
+keyword_to_type(type)     -> Int/Double/String/Unit/Boolean -> DataType, jinak TYPE_UNKNOWN
+
+
+Klíčová slova (22): def do Double else if import Int return String then Unit val var while Boolean case class extension for List match type.
+
+Lexer po každém úspěšném surovém tokenu TOKEN_IDENTIFIER zavolá apply_keyword:
+
+- žádná shoda -> token zůstává TOKEN_IDENTIFIER;
+- shoda -> token.type = Keyword.type;
+- klíčový token vlastní text jako ostatní textové tokeny: string_value je přesně zápis klíčového slova.
+
+Identifikátor (i klíčové slovo) a následující `(` jsou vždy dva samostatné tokeny. Zda smí po klíčovém slově následovat `(`, řeší až parser.
+
+Důsledky pro parser: klíčové slovo nikdy nepřijde jako TOKEN_IDENTIFIER, takže identifikátor nemusí kontrolovat rezervovaná slova; `def` je TOKEN_KW_DEF a typová anotace je klíčový token převedený přes keyword_to_type.

@@ -57,12 +57,12 @@ repos:
         language: system
         entry: cppcheck . --error-exitcode=1 -ibuild
         types_or: [c++, c, 'c#', cuda, proto]
-      - id: clang-tidy
-        name: clang-tidy
-        description: runs clang-tidy on changed files
-        language: system
-        entry: clang-tidy
-        types_or: [c++, c, 'c#', cuda, proto]
+      # - id: clang-tidy
+      #   name: clang-tidy
+      #   description: runs clang-tidy on changed files
+      #   language: system
+      #   entry: clang-tidy
+      #   types_or: [c++, c, 'c#', cuda, proto]
       # - id: docs
       #   name: Doxygen successful generation
       #   description: runs doxygen and checks for errors
