@@ -5,7 +5,6 @@
  * @author Simon Hrouda
  */
 
-#include "sample_lib.h"
 #include <stdio.h>
 
 int main() {
