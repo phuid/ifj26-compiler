@@ -20,8 +20,6 @@ typedef struct ASTNode ASTNode;
 
 /** Identifies the syntax/semantic construct represented by an AST node. */
 typedef enum {
-  /** Function declaration; activates @c data.function. */
-  AST_FUNCTION,
   /** Statement block; activates @c data.block. */
   AST_BLOCK,
   /** Integer literal; activates @c data.int_value. */
@@ -108,10 +106,6 @@ struct ASTNode {
       size_t statement_count;
       size_t statement_capacity;
     } block;
-    struct {
-      FunctionSymbol *function;
-      ASTNode *body;
-    } function;
     struct {
       ASTNode *operand;
     } conversion;
