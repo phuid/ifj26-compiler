@@ -18,7 +18,9 @@
 #include "type.h"
 
 /** Represents one top-level function and owns the root of its BVS-backed local
- * scope tree. */
+ * scope tree.
+ * TODO: Add dynamic array of pointers to Symbols for function arguments
+ * */
 typedef struct FunctionSymbol {
   char *name;
   TypeEntity return_type;

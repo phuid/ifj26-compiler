@@ -247,6 +247,7 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input) {
   lexer->column = 1U;
   lexer->current_indent = 0U;
   lexer->pending_indent_delta = 0;
+  lexer->enable_indent = true;
   lexer->token = (Token){
       .type = TOKEN_INVALID, .value.int_value = 0, .line = 0U, .column = 0U};
   return LEXER_OK;
@@ -290,13 +291,20 @@ static void skip_inline_whitespace(Lexer *lexer) {
  * @brief Derives pending layout tokens from one validated newline lexeme.
  * @details The DFA guarantees that all characters after its last newline are
  * spaces. Their count is compared with @c current_indent to form a signed
- * delta: positive for INDENT and negative for DEDENT.
+ * delta: positive for INDENT and negative for DEDENT. When
+ * @c enable_indent is false (inside parentheses or brackets) the indentation
+ * is ignored and the layout state is left untouched.
  * @param lexer Lexer whose indentation state is updated.
  * @param newline_lexeme Completed @ref TOKEN_NEWLINE spelling from the DFA.
  */
 static void update_indent_delta(Lexer *lexer, const char *newline_lexeme) {
   const char *last_newline = strrchr(newline_lexeme, '\n');
   size_t indent = strlen(last_newline + 1);
+
+  /// Ignore indentation when inside parentheses or brackets
+  if (!lexer->enable_indent) {
+    return;
+  }
 
   if (indent > lexer->current_indent) {
     lexer->pending_indent_delta = (ptrdiff_t)(indent - lexer->current_indent);
