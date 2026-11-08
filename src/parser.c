@@ -446,9 +446,81 @@ static ParserStatus p_if_statement(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// TODO: Parse each branch with p_code_block in its own child scope:
-  ///   SymbolTable *branch_scope = symbol_table_create_child(scope);
+  /// Consume the 'then' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_THEN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    return status;
+  }
 
+  /// Consume at least one newline before the 'then' block
+  status = parser_consume_newlines(lexer, true, false);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    return status;
+  }
+
+  /// Create a new child scope for the 'then' block
+  SymbolTable *then_scope = symbol_table_create_child(scope);
+  if (then_scope == NULL) {
+    ast_node_destroy(expression_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Parse the 'then' block
+  ASTNode *then_block_node = NULL;
+  status = p_code_block(lexer, program, function, then_scope, &then_block_node);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    return status;
+  }
+
+  /// Consume the 'else' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_ELSE);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    return status;
+  }
+
+  /// Consume at least one newline before the 'else' block
+  status = parser_consume_newlines(lexer, true, false);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    return status;
+  }
+
+  /// Create a new child scope for the 'else' block
+  SymbolTable *else_scope = symbol_table_create_child(scope);
+  if (else_scope == NULL) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  /// Parse the 'else' block
+  ASTNode *else_block_node = NULL;
+  status = p_code_block(lexer, program, function, else_scope, &else_block_node);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    ast_node_destroy(else_block_node);
+    return status;
+  }
+
+  ASTNode *if_node =
+      ast_node_create_if(expression_node, then_block_node, else_block_node,
+                         lexer->token.line, lexer->token.column);
+  if (if_node == NULL) {
+    ast_node_destroy(expression_node);
+    ast_node_destroy(then_block_node);
+    ast_node_destroy(else_block_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = if_node;
   return PARSER_OK;
 }
 
