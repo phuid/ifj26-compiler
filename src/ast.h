@@ -192,18 +192,6 @@ ASTNode *ast_node_create_block(size_t line, size_t column);
 ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement);
 
 /**
- * @brief Creates a function-declaration node.
- * @param function Non-null borrowed function record; it must outlive the AST.
- * @param body Non-null body node whose ownership transfers on success only.
- * @param line One-based source line of the declaration.
- * @param column One-based source column of the declaration.
- * @return An owned node with @c kind AST_FUNCTION, or null for an invalid
- * argument or allocation failure.
- */
-ASTNode *ast_node_create_function(FunctionSymbol *function, ASTNode *body,
-                                  size_t line, size_t column);
-
-/**
  * @brief Creates an assignment node for an already resolved target.
  * @param target Non-null borrowed symbol record; it must outlive the AST.
  * @param value Non-null value node whose ownership transfers on success only.

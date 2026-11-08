@@ -623,8 +623,17 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
                                FunctionSymbol **return_function) {
   ParserStatus status;
 
-  if (lexer == NULL || program == NULL) {
+  if (lexer == NULL || program == NULL || return_function == NULL) {
     return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume `def`
+  if (lexer->token.type != TOKEN_KW_DEF) {
+    return PARSER_SYNTAX_ERROR;
+  }
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
   }
 
   /// Get the function name and add it to the program's function table.
@@ -644,6 +653,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
     return PARSER_SEMANTIC_ERROR;
   }
   function->is_defined = true;
+  *return_function = function;
 
   /// Consume the function name
   status = parser_advance(lexer);
@@ -731,21 +741,17 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 
   /// TODO: Last statement in the block must be a return ASTNode
 
-  /// Return the parsed function to the caller
-  *return_function = function;
-
   /// Consume the matching DEDENT tokens after the function body
   return parser_consume_dedents(lexer, indent_delta);
 }
 
 /**
  * @brief Parses an @c main function.
- * @details Entry: @c lexer->token is @c @main. The concrete grammar remains
- * deliberately undefined for now; only the annotation is consumed.
- * Exit: the token after the main function.
+ * @details Grammar: `@main def id () [: Unit] = ...`.
+ * Entry: @c lexer->token is @c @main. Exit: the token after the main function.
  * @param lexer Initialized lexer.
  * @param program Program receiving the function.
- * @return PARSER_OK until the main-function grammar is specified.
+ * @return PARSER_OK or the first syntax, semantic, internal or lexer error.
  */
 static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   ParserStatus status;
@@ -754,22 +760,17 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
     return PARSER_INVALID_ARGUMENT;
   }
 
+  /// Consume `@main`
   if (lexer->token.type != TOKEN_MAIN_ANNOTATION) {
     return PARSER_SYNTAX_ERROR;
   }
-
-  /// Check if next token is a function definition
-  if (lexer->token.type != TOKEN_KW_DEF) {
-    return PARSER_SYNTAX_ERROR;
-  }
-
-  /// Consume `def`
   status = parser_advance(lexer);
   if (status != PARSER_OK) {
     return status;
   }
 
-  /// Parse the function definition and get the FunctionSymbol
+  /// Parse the function definition (p_function consumes `def` itself)
+  /// and get the FunctionSymbol
   FunctionSymbol *function = NULL;
   status = p_function(lexer, program, &function);
   if (status != PARSER_OK) {
@@ -791,7 +792,8 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   /// Mark the function as the main function
   function->is_main = true;
 
-  return parser_advance(lexer);
+  /// p_function already left the next unprocessed token in lexer->token.
+  return PARSER_OK;
 }
 
 /**
@@ -820,24 +822,14 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
   while (lexer->token.type != TOKEN_EOF) {
     /// Dispatch only the currently sketched top-level constructs.
     if (lexer->token.type == TOKEN_KW_DEF) {
-      /// Consume `def` and parse the function definition
-      status = parser_advance(lexer);
-      if (status != PARSER_OK) {
-        return status;
-      }
-
+      /// Parse the function definition (p_function consumes `def`)
       FunctionSymbol *function = NULL;
       status = p_function(lexer, program, &function);
     } else if (lexer->token.type == TOKEN_MAIN_ANNOTATION) {
       if (main_function_found) {
         status = PARSER_SEMANTIC_ERROR; /// Code 4: redefinition
       } else {
-        /// Consume `@main` and parse the main function
-        status = parser_advance(lexer);
-        if (status != PARSER_OK) {
-          return status;
-        }
-
+        /// Parse the main function (p_main_function consumes `@main`)
         main_function_found = true;
         status = p_main_function(lexer, program);
       }
