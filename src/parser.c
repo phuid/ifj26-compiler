@@ -98,6 +98,42 @@ static ParserStatus parser_advance(Lexer *lexer) {
 }
 
 /**
+ * @brief Checks that the current token is @p expected and consumes it.
+ * @details Consuming `(` or `[` disables indentation tracking in the lexer
+ * before the next token is read, consuming `)` or `]` re-enables it, so
+ * newlines inside parentheses and brackets never produce INDENT/DEDENT.
+ * @param lexer Initialized lexer.
+ * @param expected Token type that must be the current token.
+ * @return PARSER_OK, PARSER_SYNTAX_ERROR for another token, or a translated
+ * lexer failure.
+ */
+static ParserStatus parser_expect_and_consume(Lexer *lexer,
+                                              TokenType expected) {
+  if (lexer == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  ParserStatus status;
+
+  if (lexer->token.type != expected) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  if (expected == TOKEN_LEFT_BRACKET || expected == TOKEN_LEFT_PAREN) {
+    lexer->enable_indent = false;
+  } else if (expected == TOKEN_RIGHT_BRACKET || expected == TOKEN_RIGHT_PAREN) {
+    lexer->enable_indent = true;
+  }
+
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  return PARSER_OK;
+}
+
+/**
  * @brief Consumes any number of newlines, optionally requiring at least one.
  * @details If @p required is true, the first token must be a newline or a
  * syntax error is reported. If @p consume_indent_dedent is true, every consumed
@@ -184,7 +220,7 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
   }
 
   /// Consume the `:`
-  status = parser_advance(lexer);
+  status = parser_expect_and_consume(lexer, TOKEN_COLON);
   if (status != PARSER_OK) {
     return status;
   }
@@ -239,10 +275,8 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   }
 
   /// Consume the 'val' or 'var' keyword
-  if (lexer->token.type != TOKEN_KW_VAL && lexer->token.type != TOKEN_KW_VAR) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
+  status =
+      parser_expect_and_consume(lexer, constant ? TOKEN_KW_VAL : TOKEN_KW_VAR);
   if (status != PARSER_OK) {
     return status;
   }
@@ -276,11 +310,8 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// Expect an assignment operator
-  if (lexer->token.type != TOKEN_ASSIGN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
+  /// Consume the assignment operator
+  status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);
   if (status != PARSER_OK) {
     return status;
   }
@@ -331,7 +362,7 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   }
 
   /// Consume the 'return' keyword
-  status = parser_advance(lexer);
+  status = parser_expect_and_consume(lexer, TOKEN_KW_RETURN);
   if (status != PARSER_OK) {
     return status;
   }
@@ -401,13 +432,8 @@ static ParserStatus p_if_statement(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// Expect the 'if' keyword
-  if (lexer->token.type != TOKEN_KW_IF) {
-    return PARSER_SYNTAX_ERROR;
-  }
-
   /// Consume the 'if' keyword
-  ParserStatus status = parser_advance(lexer);
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_IF);
   if (status != PARSER_OK) {
     return status;
   }
@@ -515,7 +541,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
 
     /// Skip any semicolons or newlines before the next statement.
     while (lexer->token.type == TOKEN_SEMICOLON) {
-      status = parser_advance(lexer);
+      status = parser_expect_and_consume(lexer, TOKEN_SEMICOLON);
       if (status != PARSER_OK) {
         return status;
       }
@@ -601,13 +627,9 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// Consume the opening parenthesis; newlines inside the parentheses must not
-  /// change the indentation, so disable it before reading the next token.
-  if (lexer->token.type != TOKEN_LEFT_PAREN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  lexer->enable_indent = false;
-  status = parser_advance(lexer);
+  /// Consume the opening parenthesis (disables indentation inside the
+  /// parentheses)
+  status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
   if (status != PARSER_OK) {
     return status;
   }
@@ -678,10 +700,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       if (lexer->token.type == TOKEN_RIGHT_PAREN) {
         break;
       }
-      if (lexer->token.type != TOKEN_COMMA) {
-        return PARSER_SYNTAX_ERROR;
-      }
-      status = parser_advance(lexer);
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
       if (status != PARSER_OK) {
         return status;
       }
@@ -696,10 +715,8 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
   function->argument_count = arg_count;
 
-  /// Consume the closing parenthesis; re-enable indentation before reading the
-  /// token after it.
-  lexer->enable_indent = true;
-  return parser_advance(lexer);
+  /// Consume the closing parenthesis (re-enables indentation)
+  return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
 }
 
 /**
@@ -723,7 +740,7 @@ static ParserStatus parser_consume_indent_delta(Lexer *lexer,
       return PARSER_INTERNAL_ERROR;
     }
     *indent_delta += 1U;
-    status = parser_advance(lexer);
+    status = parser_expect_and_consume(lexer, TOKEN_INDENT);
     if (status != PARSER_OK) {
       return status;
     }
@@ -750,14 +767,11 @@ static ParserStatus parser_consume_dedents(Lexer *lexer, size_t indent_delta) {
     if (lexer->token.type == TOKEN_EOF) {
       return PARSER_OK;
     }
-    if (lexer->token.type != TOKEN_DEDENT) {
-      return PARSER_SYNTAX_ERROR;
-    }
-    indent_delta -= 1U;
-    status = parser_advance(lexer);
+    status = parser_expect_and_consume(lexer, TOKEN_DEDENT);
     if (status != PARSER_OK) {
       return status;
     }
+    indent_delta -= 1U;
   }
   return PARSER_OK;
 }
@@ -781,10 +795,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Consume `def`
-  if (lexer->token.type != TOKEN_KW_DEF) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
+  status = parser_expect_and_consume(lexer, TOKEN_KW_DEF);
   if (status != PARSER_OK) {
     return status;
   }
@@ -827,10 +838,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Consume `=` to indicate the start of the function body
-  if (lexer->token.type != TOKEN_ASSIGN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
+  status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);
   if (status != PARSER_OK) {
     return status;
   }
@@ -907,10 +915,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   }
 
   /// Consume `@main`
-  if (lexer->token.type != TOKEN_MAIN_ANNOTATION) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_advance(lexer);
+  status = parser_expect_and_consume(lexer, TOKEN_MAIN_ANNOTATION);
   if (status != PARSER_OK) {
     return status;
   }
