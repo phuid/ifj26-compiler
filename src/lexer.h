@@ -10,6 +10,7 @@
 #ifndef SRC_LEXER_H_
 #define SRC_LEXER_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -148,6 +149,11 @@ typedef struct {
   size_t column;
   size_t current_indent;
   ptrdiff_t pending_indent_delta;
+  /// If false, a NEWLINE does not change the indentation: no INDENT or DEDENT
+  /// is emitted and @c current_indent is unchanged. The parser clears it right
+  /// before reading the token after `(` / `[` and sets it again right before
+  /// reading the token after the matching `)` / `]`. Defaults to true.
+  bool enable_indent;
 } Lexer;
 
 /**

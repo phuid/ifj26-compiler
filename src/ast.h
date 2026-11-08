@@ -18,7 +18,10 @@
 typedef struct FunctionSymbol FunctionSymbol;
 typedef struct ASTNode ASTNode;
 
-/** Identifies the syntax/semantic construct represented by an AST node. */
+/** Identifies the syntax/semantic construct represented by an AST node.
+ *  TODO: Add AST_CONSTANT_UNIT (implicit value of type Unit)
+ *  TODO: Add AST_CONSTANT_BOOL (true/false literals)
+ */
 typedef enum {
   /** Statement block; activates @c data.block. */
   AST_BLOCK,
