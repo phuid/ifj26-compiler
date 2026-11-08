@@ -106,8 +106,11 @@ static ParserStatus parser_advance(Lexer *lexer) {
  * always pass the first token to the production, and the function consumes it
  * before processing the rest of the tokens.
  *
- * TODO: p_* functions have to pass localscope between each other,
- * so that they can define variables in the correct scope.
+ * Scope passing rule: Every production that may define or resolve local
+ * variables receives the lexical scope it operates in as @c scope. A function
+ * body uses the function's local scope (which already holds its parameters);
+ * a nested block (e.g. an if branch) receives a child scope created with
+ * symbol_table_create_child, so its definitions shadow but do not leak out.
  */
 
 /**
@@ -158,13 +161,14 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity,
 // Entry: the first token of the expression. Exit: the token after the
 // expression.
 static ParserStatus p_expression(Lexer *lexer, Program *program,
-                                 FunctionSymbol *function,
+                                 FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node) {
-  if (lexer == NULL || program == NULL || return_node == NULL) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// TODO
+  /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
   (void)function;
   return PARSER_OK;
 }
@@ -172,8 +176,14 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
 static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
                                               bool constant,
                                               FunctionSymbol *function,
+                                              SymbolTable *scope,
                                               ASTNode **return_node) {
   ParserStatus status;
+
+  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
 
   /// Consume the 'val' or 'var' keyword
   status = parser_advance(lexer);
@@ -181,12 +191,9 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// Get the function's local scope (always created by p_def_args)
-  SymbolTable *local_scope = function->local_scope;
-
-  /// Add the variable to the function's local scope
+  /// Add the variable to the current lexical scope
   Symbol *var_symbol;
-  switch (symbol_table_define(local_scope, lexer->token.value.string_value,
+  switch (symbol_table_define(scope, lexer->token.value.string_value,
                               TYPE_UNKNOWN, true, constant, &var_symbol)) {
   case SYMTABLE_OK:
     break;
@@ -221,7 +228,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
   /// Parse the expression for the variable's initial value
   ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, &expression_node);
+  status = p_expression(lexer, program, function, scope, &expression_node);
   if (status != PARSER_OK) {
     return status;
   }
@@ -255,8 +262,14 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
 static ParserStatus p_return_statement(Lexer *lexer, Program *program,
                                        FunctionSymbol *function,
+                                       SymbolTable *scope,
                                        ASTNode **return_node) {
   ParserStatus status;
+
+  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
 
   /// Consume the 'return' keyword
   status = parser_advance(lexer);
@@ -268,7 +281,7 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   ASTNode *expression_node = NULL;
   if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
       lexer->token.type != TOKEN_EOF) {
-    status = p_expression(lexer, program, function, &expression_node);
+    status = p_expression(lexer, program, function, scope, &expression_node);
     if (status != PARSER_OK) {
       ast_node_destroy(expression_node);
       return status;
@@ -322,9 +335,10 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
 }
 
 static ParserStatus p_if_statement(Lexer *lexer, Program *program,
-                                   FunctionSymbol *function,
+                                   FunctionSymbol *function, SymbolTable *scope,
                                    ASTNode **return_node) {
-  if (lexer == NULL || program == NULL || return_node == NULL) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
@@ -336,44 +350,48 @@ static ParserStatus p_if_statement(Lexer *lexer, Program *program,
 
   /// Parse the boolean expression
   ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, &expression_node);
+  status = p_expression(lexer, program, function, scope, &expression_node);
   if (status != PARSER_OK) {
     ast_node_destroy(expression_node);
     return status;
   }
 
+  /// TODO: Parse each branch with p_code_block in its own child scope:
+  ///   SymbolTable *branch_scope = symbol_table_create_child(scope);
+
   return PARSER_OK;
 }
 
 static ParserStatus p_statement(Lexer *lexer, Program *program,
-                                FunctionSymbol *function,
+                                FunctionSymbol *function, SymbolTable *scope,
                                 ASTNode **return_node) {
-  if (lexer == NULL || program == NULL || return_node == NULL) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
   switch (lexer->token.type) {
     //  TODO: Implement these statement productions, then uncomment their cases
     //  here. case TOKEN_KW_IF:
-    //    return p_if_statement(lexer, program, function, return_node);
+    //    return p_if_statement(lexer, program, function, scope, return_node);
     //    break;
     //  case TOKEN_KW_WHILE:
-    //    return p_while_statement(lexer, program, function, return_node);
-    //    break;
+    //    return p_while_statement(lexer, program, function, scope,
+    //    return_node); break;
     //  case TOKEN_KW_FOR:
-    //    return p_for_statement(lexer, program, function, return_node);
+    //    return p_for_statement(lexer, program, function, scope, return_node);
     //    break;
     //  case TOKEN_KW_LIST:
-    //    return p_list_statement(lexer, program, function, return_node);
+    //    return p_list_statement(lexer, program, function, scope, return_node);
     //    break;
   case TOKEN_KW_VAL:
-    return p_variable_init_statement(lexer, program, true, function,
+    return p_variable_init_statement(lexer, program, true, function, scope,
                                      return_node);
   case TOKEN_KW_VAR:
-    return p_variable_init_statement(lexer, program, false, function,
+    return p_variable_init_statement(lexer, program, false, function, scope,
                                      return_node);
   case TOKEN_KW_RETURN:
-    return p_return_statement(lexer, program, function, return_node);
+    return p_return_statement(lexer, program, function, scope, return_node);
 
   /// Expression
   case TOKEN_IDENTIFIER:
@@ -383,7 +401,7 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_STRING:
   case TOKEN_NOT:
   case TOKEN_MINUS:
-    return p_expression(lexer, program, function, return_node);
+    return p_expression(lexer, program, function, scope, return_node);
     break;
   default:
     return PARSER_SYNTAX_ERROR;
@@ -397,9 +415,14 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 // Entry: the first token of the block (after INDENT). Exit: the DEDENT closing
 // the block.
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
-                                 FunctionSymbol *function,
+                                 FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node) {
   ParserStatus status;
+
+  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
 
   ASTNode *block_node =
       ast_node_create_block(lexer->token.line, lexer->token.column);
@@ -432,7 +455,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
 
     /// Parse the next statement and append it to the block.
     ASTNode *statement = NULL;
-    status = p_statement(lexer, program, function, &statement);
+    status = p_statement(lexer, program, function, scope, &statement);
     if (status != PARSER_OK) {
       return status;
     }
@@ -686,7 +709,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   if (lexer->token.type != TOKEN_NEWLINE) {
     ASTNode *implicit_return_node = NULL;
     // TODO: uncomment once p_expression is implemented.
-    // status = p_expression(lexer, program, &implicit_return_node);
+    // status = p_expression(lexer, program, function, function->local_scope,
+    //                       &implicit_return_node);
     // if (status != PARSER_OK) {
     //   return status;
     // }
@@ -718,7 +742,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 
   /// Parse the function body as a code block and transfer its AST to the
   /// function.
-  status = p_code_block(lexer, program, function, &block);
+  status =
+      p_code_block(lexer, program, function, function->local_scope, &block);
   if (status != PARSER_OK) {
     return status;
   }
