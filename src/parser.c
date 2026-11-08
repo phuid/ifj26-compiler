@@ -99,6 +99,15 @@ static ParserStatus parser_advance(Lexer *lexer) {
  *   exit (PARSER_OK): lexer->token is the first token the production did not
  *   process. A production advances with parser_advance only after it has
  * processed the current token.
+ *
+ * First token consumption rule: The first token of each p_* function
+ * is always cosumed by the function itself, not by the caller. The caller may
+ * load the token and decide which p_function to call based on it, but has to
+ * always pass the first token to the production, and the function consumes it
+ * before processing the rest of the tokens.
+ *
+ * TODO: p_* functions have to pass localscope between each other,
+ * so that they can define variables in the correct scope.
  */
 
 /**
@@ -281,6 +290,9 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
+  /// The function's return type is dependent on the return node's inferred type
+  type_entity_depend(&return_node_local->inferred_type, &function->return_type);
+
   /// Resolve the return statement's inferred type based on the expression's
   /// inferred type or create a dependency
   if (expression_node != NULL) {
@@ -305,6 +317,30 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
 
   /// Return the return statement node to the caller
   *return_node = return_node_local;
+
+  return PARSER_OK;
+}
+
+static ParserStatus p_if_statement(Lexer *lexer, Program *program,
+                                   FunctionSymbol *function,
+                                   ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume the 'if' keyword
+  ParserStatus status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the boolean expression
+  ASTNode *expression_node = NULL;
+  status = p_expression(lexer, program, function, &expression_node);
+  if (status != PARSER_OK) {
+    ast_node_destroy(expression_node);
+    return status;
+  }
 
   return PARSER_OK;
 }
@@ -374,11 +410,6 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   /// Loop over statements until a DEDENT or EOF is reached.
   while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF) {
 
-    if (lexer->token.type == TOKEN_INVALID ||
-        lexer->token.type == TOKEN_KW_DEF) {
-      return PARSER_SYNTAX_ERROR;
-    }
-
     /// Skip any semicolons or newlines before the next statement.
     while (lexer->token.type == TOKEN_SEMICOLON ||
            lexer->token.type == TOKEN_NEWLINE) {
@@ -386,6 +417,12 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       if (status != PARSER_OK) {
         return status;
       }
+    }
+
+    if (lexer->token.type == TOKEN_INVALID ||
+        lexer->token.type == TOKEN_KW_DEF ||
+        lexer->token.type == TOKEN_INDENT) {
+      return PARSER_SYNTAX_ERROR;
     }
 
     /// The separators may have been the last tokens of the block.
@@ -691,6 +728,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     return status;
   }
+
+  /// TODO: Last statement in the block must be a return ASTNode
 
   /// Return the parsed function to the caller
   *return_function = function;

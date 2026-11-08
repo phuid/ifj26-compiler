@@ -45,7 +45,7 @@ struct SymbolTable {
   SymbolTable **children;
   size_t child_count;
   size_t child_capacity;
-  BST *bindings;
+  BST *bindings; /// BVS of Symbol bindings in this scope; owned by the table
 };
 
 /** Creates an owned root scope with an empty BVS for its bindings. */
