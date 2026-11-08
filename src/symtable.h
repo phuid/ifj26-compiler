@@ -22,6 +22,7 @@ typedef struct SymbolTable SymbolTable;
  */
 typedef struct {
   char *name;
+  int assemblerSuffix;
   TypeEntity type;
   bool initialized;
   bool constant;

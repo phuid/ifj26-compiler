@@ -179,6 +179,7 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
 
   /// Create a temporary candidate symbol to insert into the BVS.
   candidate.name = (char *)name;
+  candidate.assemblerSuffix = -1;
   type_entity_init(&candidate.type);
   candidate.type.type = type;
   candidate.initialized = initialized;
