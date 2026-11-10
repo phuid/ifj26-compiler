@@ -26,6 +26,10 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
                                  FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node);
 
+static ParserStatus p_expression(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function, SymbolTable *scope,
+                                 ASTNode **return_node);
+
 /**
  * @brief Translates one lexer result to the parser status boundary.
  * @param status Lexer result returned by @ref lexer_pls.
@@ -247,6 +251,150 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
   }
 
   return parser_advance(lexer);
+}
+
+static ParserStatus p_call_args(Lexer *lexer, Program *program,
+                                FunctionSymbol *function, SymbolTable *scope,
+                                ASTNode *call_node) {
+  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
+      call_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume the opening parenthesis
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the function call arguments
+  while (lexer->token.type != TOKEN_RIGHT_PAREN &&
+         lexer->token.type != TOKEN_EOF) {
+    ASTNode *arg_node = NULL;
+    status = p_expression(lexer, program, function, scope, &arg_node);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    /// Add the argument node to the call node's argument list
+    if (ast_node_call_append_argument(call_node, arg_node) != AST_OK) {
+      ast_node_destroy(arg_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    /// If the next token is a comma, consume it and continue parsing arguments
+    if (lexer->token.type == TOKEN_COMMA) {
+      status = parser_advance(lexer);
+      if (status != PARSER_OK) {
+        return status;
+      }
+    } else {
+      break; // No more arguments
+    }
+  }
+
+  return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+}
+
+static ParserStatus p_operand(Lexer *lexer, Program *program,
+                              SymbolTable *scope, ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  ParserStatus status;
+  switch (lexer->token.type) {
+  case TOKEN_INT:
+    *return_node = ast_node_create_int(lexer->token.value.int_value,
+                                       lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+  case TOKEN_DOUBLE:
+    *return_node = ast_node_create_real(lexer->token.value.double_value,
+                                        lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_STRING:
+    *return_node =
+        ast_node_create_string(lexer->token.value.string_value,
+                               lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+  case TOKEN_IDENTIFIER:
+    char *name = lexer->token.value.string_value;
+    size_t line = lexer->token.line;
+    size_t column = lexer->token.column;
+
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    if (lexer->token.type == TOKEN_LEFT_PAREN) {
+      /// Function call
+
+      FunctionSymbol *function;
+      if (function_table_get_or_create(&program->functions, name, &function) !=
+          FUNCTION_TABLE_OK) {
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      ASTNode *call_node =
+          ast_node_create_function_call(function, line, column);
+      if (call_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Parse the function call arguments
+      status = p_call_args(lexer, program, function, scope, call_node);
+      if (status != PARSER_OK) {
+        ast_node_destroy(call_node);
+        return status;
+      }
+
+      status = parser_status_from_type(type_entity_depend(
+          &function->return_type, &call_node->inferred_type));
+      if (status != PARSER_OK) {
+        ast_node_destroy(call_node);
+        return status;
+      }
+
+      *return_node = call_node;
+      return PARSER_OK;
+    } else {
+      /// Variable reference
+      Symbol *symbol = symbol_table_resolve(scope, name);
+      if (symbol == NULL) {
+        return PARSER_SEMANTIC_ERROR;
+      }
+      ASTNode *variable_node =
+          ast_node_create_variable_ref(symbol, line, column);
+      if (variable_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+      status = parser_status_from_type(
+          type_entity_depend(&symbol->type, &variable_node->inferred_type));
+      if (status != PARSER_OK) {
+        ast_node_destroy(variable_node);
+        return status;
+      }
+
+      *return_node = variable_node;
+      return PARSER_OK;
+    }
+    break;
+
+  default:
+    return PARSER_SYNTAX_ERROR;
+  }
 }
 
 // Parses an implicit return expression on the function header line.
