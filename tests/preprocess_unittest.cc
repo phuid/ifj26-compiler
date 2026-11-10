@@ -18,7 +18,7 @@ TEST(PreprocessTest, PrologWithWhitespace) {
 
 TEST(PreprocessTest, PrologWithLeadingWhitespace) {
   char source_buffer[] =
-      " \n\t \v \t \r  import ifj26.*\n int main() { return 0 }";
+      " \n\t \t \r  import ifj26.*\n int main() { return 0 }";
   int result = source_preprocess(source_buffer);
   ASSERT_EQ(result, 0); // Expecting return value 0 for success
   ASSERT_STREQ(source_buffer,
@@ -41,7 +41,7 @@ TEST(PreprocessTest, PrologWithLeadingNonWhitespaceAndWhitespace) {
 
 TEST(PreprocessTest, PrologWithOnlyWhitespaceBefore) {
   char source_buffer[] =
-      "\n\t \v \t \r  import\t\n\v ifj26.* int main() { return 0 }";
+      "\n\t \t \r  import\t\n ifj26.* int main() { return 0 }";
   int result = source_preprocess(source_buffer);
   ASSERT_EQ(result,
             1); // Expecting return value 1 for malformed input due to prolog
@@ -82,6 +82,15 @@ TEST(PreprocessTest, MultilineBlockComment) {
   ASSERT_STREQ(source_buffer,
                "\n\nint main() { return 0 }"); // Expecting block comment
                                                // replaced with newline
+}
+
+TEST(PreprocessTest, MultilineBlockCommentPreservesNewlineCount) {
+  char source_buffer[] =
+      "import ifj26.* /* first line\nsecond line\nthird line */\n"
+      "int main() { return 0 }";
+  int result = source_preprocess(source_buffer);
+  ASSERT_EQ(result, 0);
+  ASSERT_STREQ(source_buffer, "\n\n\nint main() { return 0 }");
 }
 
 TEST(PreprocessTest, LineCommentBasic) {

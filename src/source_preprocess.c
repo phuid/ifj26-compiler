@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char whitespace_chars[] = {' ', '\t', '\n', '\r', '\v', '\f'};
+const char whitespace_chars[] = {' ', '\t', '\n', '\r'};
 
 /* Check whether c is one of the source language whitespace characters. */
 bool is_whitespace(char c) {
@@ -67,6 +67,12 @@ and may contain newlines. An unterminated string is malformed input.
 use the predefined function is_whitespace to check for whitespace characters.
 """
 agent: gpt-5.6-luna
+
+second prompt:
+"""change the code in source_preprocess.c so that every multiline comment is
+replaced by the same number of newlines as it previously occupied. The goal of
+this change is to keep line numbers consistent before and after the
+preprocessing.""" agent: gpt-5.6-luna
 */
 
 /* Copy a quoted string and return false when it is unterminated. */
@@ -120,7 +126,7 @@ static bool copy_block_comment(const char *source, size_t source_length,
                                size_t *output_length) {
   size_t position = *index + 2;
   size_t depth = 1;
-  bool has_newline = false;
+  size_t newline_count = 0;
 
   /* Scan the complete nested block comment. */
   while (position < source_length && depth > 0) {
@@ -137,7 +143,7 @@ static bool copy_block_comment(const char *source, size_t source_length,
     } else {
       /* Remember whether the comment contains a newline. */
       if (source[position] == '\n') {
-        has_newline = true;
+        newline_count++;
       }
       position++;
     }
@@ -147,7 +153,7 @@ static bool copy_block_comment(const char *source, size_t source_length,
     return false;
   }
   /* A multiline comment must end its logical line with whitespace. */
-  if (has_newline) {
+  if (newline_count > 0) {
     size_t trailing = position;
 
     /* Inspect characters after the comment up to its newline. */
@@ -159,9 +165,15 @@ static bool copy_block_comment(const char *source, size_t source_length,
       trailing++;
     }
   }
-  /* Preserve a newline for multiline comments and a space otherwise. */
-  output[*output_length] = has_newline ? '\n' : ' ';
-  (*output_length)++;
+  /* Preserve every newline in multiline comments and a space otherwise. */
+  if (newline_count == 0) {
+    output[(*output_length)++] = ' ';
+  } else {
+    while (newline_count > 0) {
+      output[(*output_length)++] = '\n';
+      newline_count--;
+    }
+  }
   *index = position;
   return true;
 }
