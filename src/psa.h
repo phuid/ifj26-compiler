@@ -20,6 +20,7 @@ typedef enum {
   TERMINAL_OPERAND, // variables, literals, function calls, ...
   TERMINAL_DOLLAR,  // $ stack bottom / end of input
   TERMINAL_HANDLE,  // < reduction handle
+  TERMINAL_INVALID
 } TerminalType;
 
 typedef struct {
