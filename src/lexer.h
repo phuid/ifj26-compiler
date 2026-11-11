@@ -153,7 +153,6 @@ typedef struct {
   /// is emitted and @c current_indent is unchanged. The parser clears it right
   /// before reading the token after `(` / `[` and sets it again right before
   /// reading the token after the matching `)` / `]`. Defaults to true.
-  bool enable_indent;
 } Lexer;
 
 /**
@@ -163,6 +162,17 @@ typedef struct {
  * @return LEXER_OK or LEXER_INVALID_ARGUMENT.
  */
 LexerStatus lexer_init(Lexer *lexer, FILE *input);
+
+/**
+ * @brief Adjusts the current indentation level.
+ * @details A negative delta is rejected when it would make
+ * @c current_indent negative. Positive overflow of the @c size_t counter is
+ * rejected as well. Pending INDENT/DEDENT tokens are not changed.
+ * @param lexer Initialized lexer.
+ * @param indent_delta Signed indentation adjustment.
+ * @return LEXER_OK, or LEXER_INVALID_ARGUMENT for an invalid adjustment.
+ */
+LexerStatus lexer_change_current_indent(Lexer *lexer, int indent_delta);
 
 /**
  * @brief Replaces the lexer's lookahead token with the next token.

@@ -82,6 +82,24 @@ TEST(LexerTest, PeriodIsDotWhenNotFollowedByDigit) {
   fclose(stream);
 }
 
+TEST(LexerTest, CurrentIndentCanBeAdjustedSafely) {
+  FILE *stream = stream_from("");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+
+  EXPECT_EQ(lexer_change_current_indent(&lexer, 4), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, 4U);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, -3), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, 1U);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, -2), LEXER_INVALID_ARGUMENT);
+  EXPECT_EQ(lexer.current_indent, 1U);
+
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
 TEST(LexerTest, PeriodFollowedByDigitIsDouble) {
   FILE *stream = stream_from(".5");
   ASSERT_NE(stream, nullptr);

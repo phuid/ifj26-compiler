@@ -14,6 +14,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -247,9 +248,40 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input) {
   lexer->column = 1U;
   lexer->current_indent = 0U;
   lexer->pending_indent_delta = 0;
-  lexer->enable_indent = true;
   lexer->token = (Token){
       .type = TOKEN_INVALID, .value.int_value = 0, .line = 0U, .column = 0U};
+  return LEXER_OK;
+}
+
+/**
+ * @brief Adjusts the current indentation level.
+ * @details A negative delta is rejected when it would make
+ * @c current_indent negative. Positive overflow of the @c size_t counter is
+ * rejected as well. Pending INDENT/DEDENT tokens are not changed.
+ * @param lexer Initialized lexer.
+ * @param indent_delta Signed indentation adjustment.
+ * @return LEXER_OK, or LEXER_INVALID_ARGUMENT for an invalid adjustment.
+ */
+LexerStatus lexer_change_current_indent(Lexer *lexer, ptrdiff_t indent_delta) {
+  if (lexer == NULL) {
+    return LEXER_INVALID_ARGUMENT;
+  }
+
+  if (indent_delta < 0) {
+    // Prevent underflow when converting to size_t
+    size_t decrease = (size_t)(-(indent_delta + 1)) + 1U;
+    if (decrease > lexer->current_indent) {
+      return LEXER_INVALID_ARGUMENT;
+    }
+    lexer->current_indent -= decrease;
+  } else {
+    size_t increase = (size_t)indent_delta;
+    if (increase > SIZE_MAX - lexer->current_indent) {
+      return LEXER_INVALID_ARGUMENT;
+    }
+    lexer->current_indent += increase;
+  }
+
   return LEXER_OK;
 }
 
@@ -300,11 +332,6 @@ static void skip_inline_whitespace(Lexer *lexer) {
 static void update_indent_delta(Lexer *lexer, const char *newline_lexeme) {
   const char *last_newline = strrchr(newline_lexeme, '\n');
   size_t indent = strlen(last_newline + 1);
-
-  /// Ignore indentation when inside parentheses or brackets
-  if (!lexer->enable_indent) {
-    return;
-  }
 
   if (indent > lexer->current_indent) {
     lexer->pending_indent_delta = (ptrdiff_t)(indent - lexer->current_indent);
