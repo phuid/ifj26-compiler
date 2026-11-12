@@ -333,3 +333,12 @@ TEST_F(SemanticTest, MainReturningIntIsError6) {
   add(m, integer(1));
   EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
 }
+
+TEST_F(SemanticTest, RedefinitionOfBuiltinIsError4) {
+  // def print(x: Int) = x
+  def_main();
+  FunctionSymbol *p = def("print", TYPE_UNKNOWN, {TYPE_INT});
+  Symbol *x = param(p, "x", TYPE_INT);
+  add(p, ref_var(x));
+  EXPECT_EQ(check(), SEMANTIC_REDEFINITION);
+}

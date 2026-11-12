@@ -31,7 +31,8 @@ typedef enum {
 /**
  * @brief Type-checks a parsed program and fills in all inferred types.
  * @details Runs after parsing, when every function signature is known:
- *  1. builtin functions that are called get their signatures,
+ *  1. builtin functions that are called get their signatures; a user
+ *     definition of a builtin name is a redefinition (error 4),
  *  2. every called function must be defined and @main must exist,
  *  3. the call graph (function -> called functions) is built from the ASTs,
  *  4. a function without an explicit return type must not contain `return`
