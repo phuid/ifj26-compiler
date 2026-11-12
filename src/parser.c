@@ -13,6 +13,7 @@
 #include "function_table.h"
 #include "keyword.h"
 #include "lexer.h"
+#include "psa.h"
 #include "symtable.h"
 #include "type.h"
 
@@ -27,8 +28,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
                                  ASTNode **return_node);
 
 static ParserStatus p_expression(Lexer *lexer, Program *program,
-                                 FunctionSymbol *function, SymbolTable *scope,
-                                 ASTNode **return_node,
+                                 SymbolTable *scope, ASTNode **return_node,
                                  bool consume_newlines_indents,
                                  ptrdiff_t *local_indent);
 
@@ -326,8 +326,8 @@ static ParserStatus p_call_args(Lexer *lexer, Program *program,
       }
 
       ASTNode *arg_node = NULL;
-      status = p_expression(lexer, program, function, scope, &arg_node, true,
-                            &local_indent);
+      status =
+          p_expression(lexer, program, scope, &arg_node, true, &local_indent);
       if (status != PARSER_OK) {
         return status;
       }
@@ -377,6 +377,138 @@ static ParserStatus p_call_args(Lexer *lexer, Program *program,
   }
 
   return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+}
+
+static ParserStatus p_if_expression(Lexer *lexer, Program *program,
+                                    SymbolTable *scope, ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Remember the position of the 'if' keyword for the AST node
+  size_t if_line = lexer->token.line;
+  size_t if_column = lexer->token.column;
+
+  /// Consume the 'if' keyword
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_IF);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the boolean expression
+  ASTNode *condition_node = NULL;
+  status = p_expression(lexer, program, scope, &condition_node, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Parse the 'then' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_THEN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Consume any number of newlines
+  status = parser_consume_newlines(lexer, false, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Count indentation level for the 'then' branch
+  size_t indent_delta = 0;
+  status = parser_consume_indent_delta(lexer, &indent_delta);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Parse the 'then' branch
+  ASTNode *then_branch_node = NULL;
+  status = p_expression(lexer, program, scope, &then_branch_node, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Consume any number of newlines after the 'then' branch
+  status = parser_consume_newlines(lexer, false, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Consume dedents that match the indentation of the 'then' branch
+  status = parser_consume_dedents(lexer, indent_delta);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Consume the 'else' keyword (mandatory in expression if)
+  status = parser_expect_and_consume(lexer, TOKEN_KW_ELSE);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Consume any number of newlines after the 'else' keyword
+  status = parser_consume_newlines(lexer, false, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Consume indentation for the 'else' branch
+  indent_delta = 0;
+  status = parser_consume_indent_delta(lexer, &indent_delta);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Parse the 'else' branch
+  ASTNode *else_branch_node = NULL;
+  status = p_expression(lexer, program, scope, &else_branch_node, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    ast_node_destroy(else_branch_node);
+    return status;
+  }
+
+  /// Consume any number of newlines after the 'else' branch
+  status = parser_consume_newlines(lexer, false, false, NULL);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    ast_node_destroy(else_branch_node);
+    return status;
+  }
+
+  /// Consume dedents that match the indentation of the 'else' branch
+  status = parser_consume_dedents(lexer, indent_delta);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    ast_node_destroy(else_branch_node);
+    return status;
+  }
+
+  /// Create the if-expression AST node
+  // ASTNode *if_node = ; // FIXME: ast_node_create_if_expression(line, column,
+  // nodes) check status *return_node = if_node;
+
+  return PARSER_OK;
 }
 
 static ParserStatus p_operand(Lexer *lexer, Program *program,
@@ -475,6 +607,9 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
     }
     break;
 
+  case TOKEN_KW_IF:
+    return p_if_expression(lexer, program, scope, return_node);
+
   default:
     return PARSER_SYNTAX_ERROR;
   }
@@ -484,8 +619,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
 // Entry: the first token of the expression. Exit: the token after the
 // expression.
 static ParserStatus p_expression(Lexer *lexer, Program *program,
-                                 FunctionSymbol *function, SymbolTable *scope,
-                                 ASTNode **return_node,
+                                 SymbolTable *scope, ASTNode **return_node,
                                  bool consume_newlines_indents,
                                  ptrdiff_t *local_indent) {
   if (lexer == NULL || program == NULL || scope == NULL ||
@@ -496,8 +630,18 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
+  TerminalStack stack;
+  terminal_stack_init(&stack);
+
+  terminal_stack_push(&stack,
+                      (Terminal){.type = TERMINAL_DOLLAR, .node = NULL});
+
+  do {
+  } while (stack != "$operand$")
+
+      terminal_stack_destroy(&stack);
+
   /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
-  (void)function;
   return PARSER_OK;
 }
 
@@ -557,8 +701,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
   /// Parse the expression for the variable's initial value
   ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, scope, &expression_node,
-                        false, NULL);
+  status = p_expression(lexer, program, scope, &expression_node, false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -611,8 +754,7 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   ASTNode *expression_node = NULL;
   if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
       lexer->token.type != TOKEN_EOF) {
-    status = p_expression(lexer, program, function, scope, &expression_node,
-                          false, NULL);
+    status = p_expression(lexer, program, scope, &expression_node, false, NULL);
     if (status != PARSER_OK) {
       ast_node_destroy(expression_node);
       return status;
@@ -665,6 +807,8 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   return PARSER_OK;
 }
 
+// TODO: the if_statement could be used as an if_expression at the return of the
+// function;
 static ParserStatus p_if_statement(Lexer *lexer, Program *program,
                                    FunctionSymbol *function, SymbolTable *scope,
                                    ASTNode **return_node) {
@@ -685,8 +829,7 @@ static ParserStatus p_if_statement(Lexer *lexer, Program *program,
 
   /// Parse the boolean expression
   ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, scope, &expression_node,
-                        false, NULL);
+  status = p_expression(lexer, program, scope, &expression_node, false, NULL);
   if (status != PARSER_OK) {
     ast_node_destroy(expression_node);
     return status;
@@ -821,8 +964,7 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_STRING:
   case TOKEN_NOT:
   case TOKEN_MINUS:
-    return p_expression(lexer, program, function, scope, return_node, false,
-                        NULL);
+    return p_expression(lexer, program, scope, return_node, false, NULL);
     break;
   default:
     return PARSER_SYNTAX_ERROR;
