@@ -100,6 +100,21 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
 }
 
 /**
+ * @brief Constructs an owned Unit literal `()`.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new Unit node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_unit(size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_UNIT, line, column);
+
+  if (node != NULL) {
+    type_entity_resolve(&node->inferred_type, TYPE_UNIT);
+  }
+  return node;
+}
+
+/**
  * @brief Constructs an owned reference to a borrowed resolved symbol.
  * @param symbol Non-null semantic binding borrowed by the new node.
  * @param line One-based source line.
@@ -281,8 +296,19 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   if (left == NULL || right == NULL) {
     return NULL;
   }
-  if (kind != AST_ADD && kind != AST_SUBTRACT && kind != AST_MULTIPLY &&
-      kind != AST_DIVIDE) {
+  switch (kind) {
+  case AST_ADD:
+  case AST_SUBTRACT:
+  case AST_MULTIPLY:
+  case AST_DIVIDE:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+    break;
+  default:
     return NULL;
   }
   node = ast_node_create(kind, line, column);
@@ -350,6 +376,12 @@ void ast_node_destroy(ASTNode *node) {
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
     ast_node_destroy(node->data.binary_op.left);
     ast_node_destroy(node->data.binary_op.right);
     break;
@@ -364,6 +396,7 @@ void ast_node_destroy(ASTNode *node) {
     break;
   case AST_CONSTANT_INT:
   case AST_CONSTANT_REAL:
+  case AST_CONSTANT_UNIT:
   case AST_VARIABLE_REF:
     break;
   }

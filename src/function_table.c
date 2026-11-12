@@ -55,6 +55,8 @@ void function_table_destroy(FunctionTable *table) {
     ast_node_destroy(table->functions[index]->ast_root);
     type_entity_destroy(&table->functions[index]->return_type);
     symbol_table_destroy(table->functions[index]->local_scope);
+    free(table->functions[index]->parameter_types);
+    free(table->functions[index]->callees);
     free(table->functions[index]->name);
     free(table->functions[index]);
   }
@@ -148,5 +150,44 @@ FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
   }
 
   function->ast_root = ast_root;
+  return FUNCTION_TABLE_OK;
+}
+
+FunctionTableStatus function_symbol_add_parameter(FunctionSymbol *function,
+                                                  DataType type) {
+  if (function == NULL) {
+    return FUNCTION_TABLE_INVALID_ARGUMENT;
+  }
+  if (dynamic_array_reserve(
+          (void **)&function->parameter_types, &function->parameter_capacity,
+          function->argument_count + 1U,
+          sizeof(*function->parameter_types)) != DYNAMIC_ARRAY_OK) {
+    return FUNCTION_TABLE_OUT_OF_MEMORY;
+  }
+  function->parameter_types[function->argument_count] = type;
+  function->argument_count += 1U;
+  return FUNCTION_TABLE_OK;
+}
+
+FunctionTableStatus function_symbol_add_callee(FunctionSymbol *function,
+                                               FunctionSymbol *callee) {
+  size_t index;
+
+  if (function == NULL || callee == NULL) {
+    return FUNCTION_TABLE_INVALID_ARGUMENT;
+  }
+  for (index = 0U; index < function->callee_count; index += 1U) {
+    if (function->callees[index] == callee) {
+      return FUNCTION_TABLE_OK;
+    }
+  }
+  if (dynamic_array_reserve((void **)&function->callees,
+                            &function->callee_capacity,
+                            function->callee_count + 1U,
+                            sizeof(*function->callees)) != DYNAMIC_ARRAY_OK) {
+    return FUNCTION_TABLE_OUT_OF_MEMORY;
+  }
+  function->callees[function->callee_count] = callee;
+  function->callee_count += 1U;
   return FUNCTION_TABLE_OK;
 }

@@ -172,7 +172,7 @@ LexerStatus lexer_init(Lexer *lexer, FILE *input);
  * @param indent_delta Signed indentation adjustment.
  * @return LEXER_OK, or LEXER_INVALID_ARGUMENT for an invalid adjustment.
  */
-LexerStatus lexer_change_current_indent(Lexer *lexer, int indent_delta);
+LexerStatus lexer_change_current_indent(Lexer *lexer, ptrdiff_t indent_delta);
 
 /**
  * @brief Replaces the lexer's lookahead token with the next token.

@@ -17,18 +17,41 @@
 #include "symtable.h"
 #include "type.h"
 
+/** Progress of the semantic pass over one function (memoized DFS). */
+typedef enum {
+  FUNCTION_UNCHECKED,
+  FUNCTION_CHECKING,
+  FUNCTION_CHECKED
+} FunctionCheckState;
+
 /** Represents one top-level function and owns the root of its BVS-backed local
  * scope tree.
- * TODO: Add dynamic array of pointers to Symbols for function arguments
  * */
 typedef struct FunctionSymbol {
   char *name;
   TypeEntity return_type;
+  /// True when the header contains `: type`. Only then may the function take
+  /// part in (mutual) recursion or contain `return` (spec 2.3).
+  bool has_explicit_return_type;
   size_t argument_count;
+  /// Declared parameter types in source order; @c argument_count items.
+  DataType *parameter_types;
+  size_t parameter_capacity;
   SymbolTable *local_scope;
   ASTNode *ast_root;
   bool is_defined;
   bool is_main;
+  bool is_builtin;
+
+  /// Semantic-analysis data, filled by semantic_check().
+  /// Call-graph edges: distinct functions called anywhere in the body
+  /// (borrowed).
+  struct FunctionSymbol **callees;
+  size_t callee_count;
+  size_t callee_capacity;
+  bool contains_return;
+  FunctionCheckState check_state;
+  unsigned visit_mark; ///< Scratch mark for graph traversals.
 } FunctionSymbol;
 
 /** Owns the compiler's specialised top-level function namespace. */
@@ -66,5 +89,13 @@ SymbolTable *function_symbol_create_local_scope(FunctionSymbol *function);
 /** Replaces the function-owned AST root and destroys a previous root. */
 FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
                                                  ASTNode *ast_root);
+
+/** Appends one declared parameter type to the function signature. */
+FunctionTableStatus function_symbol_add_parameter(FunctionSymbol *function,
+                                                  DataType type);
+
+/** Records a call-graph edge @p function -> @p callee (duplicates ignored). */
+FunctionTableStatus function_symbol_add_callee(FunctionSymbol *function,
+                                               FunctionSymbol *callee);
 
 #endif // SRC_FUNCTION_TABLE_H_

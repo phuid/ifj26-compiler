@@ -20,7 +20,10 @@ typedef enum {
   TYPE_REAL,
   TYPE_STRING,
   TYPE_UNIT,
-  TYPE_BOOL
+  TYPE_BOOL,
+  /** Placeholder parameter type of builtins accepting any value (print, toStr).
+   */
+  TYPE_ANY
 } DataType;
 
 /** Reports the result of a type dependency or resolution operation. */

@@ -563,26 +563,17 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// Resolve the variable's type based on the expression's inferred type or
-  /// create a dependency
-  if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
-    status = parser_status_from_type(type_entity_resolve(
-        &var_symbol->type, expression_node->inferred_type.type));
-  } else {
-    status = parser_status_from_type(
-        type_entity_depend(&expression_node->inferred_type, &var_symbol->type));
-  }
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
+  /// The variable's type (if not annotated) is inferred later by the semantic
+  /// pass (semantic.c), once the types of all called functions are known.
 
   /// Create an assignment node for the variable initialization
   ASTNode *assignment_node = ast_node_create_assign(
       var_symbol, expression_node, lexer->token.line, lexer->token.column);
   if (assignment_node == NULL) {
+    ast_node_destroy(expression_node);
     return PARSER_INTERNAL_ERROR;
   }
+  assignment_node->data.assignment.is_definition = true;
 
   /// Return the assignment node to the caller
   *return_node = assignment_node;
@@ -617,13 +608,8 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
       ast_node_destroy(expression_node);
       return status;
     }
-
-    /// If the function's return type is unit, discard the expression and set it
-    /// to null
-    if (function->return_type.type == TYPE_UNIT) {
-      ast_node_destroy(expression_node);
-      expression_node = NULL;
-    }
+    /// The expression is kept even in a Unit function: it is still evaluated
+    /// (and type-checked, and may call functions), only its value is dropped.
   }
 
   /// Create a return statement node
@@ -634,30 +620,8 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  /// The function's return type is dependent on the return node's inferred type
-  type_entity_depend(&return_node_local->inferred_type, &function->return_type);
-
-  /// Resolve the return statement's inferred type based on the expression's
-  /// inferred type or create a dependency
-  if (expression_node != NULL) {
-    if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
-      status = parser_status_from_type(
-          type_entity_resolve(&return_node_local->inferred_type,
-                              expression_node->inferred_type.type));
-    } else {
-      status = parser_status_from_type(type_entity_depend(
-          &expression_node->inferred_type, &return_node_local->inferred_type));
-    }
-    /// If there is no expression, resolve the return statement's inferred type
-    /// to unit
-  } else {
-    status = parser_status_from_type(
-        type_entity_resolve(&return_node_local->inferred_type, TYPE_UNIT));
-  }
-  if (status != PARSER_OK) {
-    ast_node_destroy(return_node_local);
-    return status;
-  }
+  /// Compatibility with the function's return type is checked by the
+  /// semantic pass (semantic.c).
 
   /// Return the return statement node to the caller
   *return_node = return_node_local;
@@ -697,13 +661,7 @@ static ParserStatus p_if_statement(Lexer *lexer, Program *program,
     return PARSER_SYNTAX_ERROR;
   }
 
-  /// The condition must be of type Boolean (type error 6 otherwise)
-  status = parser_status_from_type(
-      type_entity_resolve(&expression_node->inferred_type, TYPE_BOOL));
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
+  /// The condition must be of type Boolean; checked by the semantic pass.
 
   /// Consume the 'then' keyword
   status = parser_expect_and_consume(lexer, TOKEN_KW_THEN);
@@ -911,21 +869,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     /// newline follows it.
     bool ends_with_block = statement->kind == AST_IF;
 
-    /// Update the block's inferred type based on the return inferred type
-    if (statement->kind == AST_RETURN) {
-      if (statement->inferred_type.type != TYPE_UNKNOWN) {
-        status = parser_status_from_type(type_entity_resolve(
-            &block_node->inferred_type, statement->inferred_type.type));
-      } else {
-        status = parser_status_from_type(type_entity_depend(
-            &statement->inferred_type, &block_node->inferred_type));
-      }
-      if (status != PARSER_OK) {
-        ast_node_destroy(statement);
-        ast_node_destroy(block_node);
-        return status;
-      }
-    }
+    /// The block's result type is determined by the semantic pass.
 
     ASTStatus ast_status;
     ast_status = ast_node_block_append_statement(block_node, statement);
@@ -999,8 +943,6 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return status;
   }
 
-  size_t arg_count = 0U;
-
   /// If not an empty parameter list
   if (lexer->token.type != TOKEN_RIGHT_PAREN) {
 
@@ -1012,8 +954,9 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
       /// Add the argument to the function's local scope
       Symbol *arg_symbol;
+      /// Parameters behave as immutable, initialized local variables.
       switch (symbol_table_define(local_scope, lexer->token.value.string_value,
-                                  TYPE_UNKNOWN, false, false, &arg_symbol)) {
+                                  TYPE_UNKNOWN, true, true, &arg_symbol)) {
       case SYMTABLE_OK:
         break;
       case SYMTABLE_DUPLICATE:
@@ -1040,7 +983,11 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
         return status;
       }
 
-      arg_count += 1U;
+      /// Record the parameter type in the signature (in source order).
+      if (function_symbol_add_parameter(function, arg_symbol->type.type) !=
+          FUNCTION_TABLE_OK) {
+        return PARSER_INTERNAL_ERROR;
+      }
 
       /// Consume any number of newlines before the next comma or closing
       /// parenthesis
@@ -1079,7 +1026,6 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     return status;
   }
-  function->argument_count = arg_count;
 
   /// Consume the closing parenthesis (re-enables indentation)
   return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
@@ -1202,6 +1148,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     return status;
   }
+  function->has_explicit_return_type =
+      function->return_type.type != TYPE_UNKNOWN;
 
   /// Consume `=` to indicate the start of the function body
   status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);
@@ -1248,19 +1196,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  if (block->inferred_type.type != TYPE_UNKNOWN) {
-    status = parser_status_from_type(
-        type_entity_resolve(&function->return_type, block->inferred_type.type));
-  } else {
-    status = parser_status_from_type(
-        type_entity_depend(&block->inferred_type, &function->return_type));
-  }
-  if (status != PARSER_OK) {
-    return status;
-  }
-
-  /// TODO: Last statement in the block must be a return ASTNode if the last
-  /// statement doesnt have value it is implicitly returning unit.
+  /// The return type (if not annotated) is inferred by the semantic pass.
 
   return PARSER_OK;
 }
@@ -1305,12 +1241,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
     return PARSER_SEMANTIC_ERROR; /// Code 5
   }
 
-  /// Check that the return type is UNIT
-  status = parser_status_from_type(
-      type_entity_resolve(&function->return_type, TYPE_UNIT));
-  if (status != PARSER_OK) {
-    return status; /// Code 6 on a type conflict
-  }
+  /// The Unit result type is checked by the semantic pass (code 6).
 
   /// Mark the function as the main function
   function->is_main = true;

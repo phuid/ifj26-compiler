@@ -10,6 +10,7 @@
 #ifndef SRC_AST_H_
 #define SRC_AST_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "symtable.h"
@@ -19,7 +20,6 @@ typedef struct FunctionSymbol FunctionSymbol;
 typedef struct ASTNode ASTNode;
 
 /** Identifies the syntax/semantic construct represented by an AST node.
- *  TODO: Add AST_CONSTANT_UNIT (implicit value of type Unit)
  *  TODO: Add AST_CONSTANT_BOOL (true/false literals)
  */
 typedef enum {
@@ -31,6 +31,8 @@ typedef enum {
   AST_CONSTANT_REAL,
   /** Owned string literal; activates @c data.string_value. */
   AST_CONSTANT_STRING,
+  /** Unit literal `()`; has no payload. */
+  AST_CONSTANT_UNIT,
   /** Borrowed resolved variable binding; activates @c data.variable. */
   AST_VARIABLE_REF,
   /** Function call with owned argument nodes; activates @c data.call. */
@@ -49,6 +51,18 @@ typedef enum {
   AST_MULTIPLY,
   /** Division; activates @c data.binary_op. */
   AST_DIVIDE,
+  /** Relational `<`; activates @c data.binary_op. */
+  AST_LESS,
+  /** Relational `<=`; activates @c data.binary_op. */
+  AST_LESS_EQUAL,
+  /** Relational `>`; activates @c data.binary_op. */
+  AST_GREATER,
+  /** Relational `>=`; activates @c data.binary_op. */
+  AST_GREATER_EQUAL,
+  /** Equality `==`; activates @c data.binary_op. */
+  AST_EQUAL,
+  /** Inequality `!=`; activates @c data.binary_op. */
+  AST_NOT_EQUAL,
   /** Compiler-inserted conversion; activates @c data.conversion. */
   AST_IMPLICIT_INT_TO_REAL
 } ASTNodeKind;
@@ -95,6 +109,8 @@ struct ASTNode {
     struct {
       Symbol *target;
       ASTNode *value;
+      /** True for the initialization in `val`/`var`, false for `id = ...`. */
+      bool is_definition;
     } assignment;
     struct {
       ASTNode *value;
@@ -147,6 +163,15 @@ ASTNode *ast_node_create_real(double value, size_t line, size_t column);
  * invalid argument or allocation failure.
  */
 ASTNode *ast_node_create_string(const char *value, size_t line, size_t column);
+
+/**
+ * @brief Creates a Unit-literal `()` node.
+ * @param line One-based source line of the literal.
+ * @param column One-based source column of the literal.
+ * @return An owned node with @c kind AST_CONSTANT_UNIT, or null on allocation
+ * failure.
+ */
+ASTNode *ast_node_create_unit(size_t line, size_t column);
 
 /**
  * @brief Creates a variable-reference node for an already resolved binding.
@@ -232,9 +257,11 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
                             ASTNode *else_branch, size_t line, size_t column);
 
 /**
- * @brief Creates a binary arithmetic node.
+ * @brief Creates a binary arithmetic or relational node.
  * @details Ownership of both operands transfers on success only.
- * @param kind One of AST_ADD, AST_SUBTRACT, AST_MULTIPLY, or AST_DIVIDE.
+ * @param kind One of AST_ADD, AST_SUBTRACT, AST_MULTIPLY, AST_DIVIDE,
+ * AST_LESS, AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_EQUAL or
+ * AST_NOT_EQUAL.
  * @param left Non-null left operand.
  * @param right Non-null right operand.
  * @param line One-based source line of the operator.
