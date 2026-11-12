@@ -49,6 +49,25 @@ typedef enum {
   AST_MULTIPLY,
   /** Division; activates @c data.binary_op. */
   AST_DIVIDE,
+  /** Concatenation; activates @c data.binary_op. */
+  AST_CONCAT,
+  /** Equality; activates @c data.binary_op. */
+  AST_EQUAL, // ==
+  /** Inequality; activates @c data.binary_op. */
+  AST_NOT_EQUAL, // !=
+  /** Less than; activates @c data.binary_op. */
+  AST_LESS, // <
+  /** Less than or equal; activates @c data.binary_op. */
+  AST_LESS_EQUAL, // <=
+  /** Greater than; activates @c data.binary_op. */
+  AST_GREATER, // >
+  /** Greater than or equal; activates @c data.binary_op. */
+  AST_GREATER_EQUAL, // >=
+  /** Logical AND; activates @c data.binary_op. */
+  AST_AND, // &&
+  /** Logical OR; activates @c data.binary_op. */
+  AST_OR, // ||
+
   /** Compiler-inserted conversion; activates @c data.conversion. */
   AST_IMPLICIT_INT_TO_REAL
 } ASTNodeKind;

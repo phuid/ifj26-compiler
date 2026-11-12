@@ -67,20 +67,20 @@ static TerminalType token_to_terminal(TokenType token) {
 #define I PREC_INVALID
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-    /* Stack \ Input: +  -  *  /  ++ <= == (  )  && || i  $  */
-    /* +          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* -          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* *          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* /          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* ++         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* (          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* )          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* i          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* $          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* Stack \ Input: +  -  *  /  ++ <= == && || i  $  */
+    /* +          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* -          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* *          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* /          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ++         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* (          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* )          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* i          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* $          */ {I, I, I, I, I, I, I, I, I, I, I},
 };
 #undef T
 #undef R
@@ -213,4 +213,87 @@ PRECEDENCE get_precedence(TerminalType stackTerminal, TokenType input) {
   }
 
   return precedence_table[stackTerminal][inputTerminal];
+}
+
+static ASTNode *create_binary_node(Terminal op, ASTNode *left, ASTNode *right) {
+  ASTNodeKind kind;
+  switch (op.token.type) {
+  case TOKEN_PLUS:
+    kind = AST_ADD;
+    break;
+  case TOKEN_MINUS:
+    kind = AST_SUBTRACT;
+    break;
+  case TOKEN_MULTIPLY:
+    kind = AST_MULTIPLY;
+    break;
+  case TOKEN_DIVIDE:
+    kind = AST_DIVIDE;
+    break;
+  case TOKEN_LIST_CONCAT:
+    kind = AST_CONCAT;
+    break;
+  case TOKEN_EQUAL:
+    kind = AST_EQUAL;
+    break;
+  case TOKEN_NOT_EQUAL:
+    kind = AST_NOT_EQUAL;
+    break;
+  case TOKEN_LESS:
+    kind = AST_LESS;
+    break;
+  case TOKEN_LESS_EQUAL:
+    kind = AST_LESS_EQUAL;
+    break;
+  case TOKEN_GREATER:
+    kind = AST_GREATER;
+    break;
+  case TOKEN_GREATER_EQUAL:
+    kind = AST_GREATER_EQUAL;
+    break;
+  case TOKEN_AND:
+    kind = AST_AND;
+    break;
+  case TOKEN_OR:
+    kind = AST_OR;
+    break;
+  default:
+    return NULL;
+  }
+  return ast_node_create_binary_op(kind, left, right, op.token.line,
+                                   op.token.column);
+}
+
+static ParserStatus psa_reduce(TerminalStack *stack) {
+  // Reduction pattern must be exactly 4 items: '<' OPERAND op OPERAND
+  if (stack->size < 4U) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  size_t top_idx = stack->size - 1U;
+  Terminal right = stack->data[top_idx];
+  Terminal op = stack->data[top_idx - 1U];
+  Terminal left = stack->data[top_idx - 2U];
+  Terminal handle = stack->data[top_idx - 3U];
+
+  if (handle.type != TERMINAL_HANDLE || left.type != TERMINAL_OPERAND ||
+      op.type == TERMINAL_OPERAND || right.type != TERMINAL_OPERAND) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  ASTNode *bin_node = create_binary_node(op, left.node, right.node);
+  if (bin_node == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  // Pop '<', left, op, right (4 items)
+  stack->size -= 4U;
+
+  // Push resulting evaluated operand
+  Terminal result = {.type = TERMINAL_OPERAND,
+                     .token = (Token){.type = TOKEN_INVALID,
+                                      .line = op.token.line,
+                                      .column = op.token.column},
+                     .node = bin_node};
+  return terminal_stack_push(stack, result);
 }
