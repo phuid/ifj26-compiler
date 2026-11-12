@@ -2,13 +2,10 @@
  * @file bst.c
  * @brief Height-balanced binary search tree implementation
  * @author Milan Novák
- * @todo Error handling is not decided yet. Should functions only return NULL,
- *       or also pass some sort of error code? Needs to be decided together.
  */
 
 #include "bst.h"
 #include "impl_bst.h"
-#include <stdbool.h>
 #include <stdlib.h>
 
 /**
@@ -41,7 +38,6 @@ static Node *createNode(void *value) {
   node->left = NULL;
   node->right = NULL;
   node->value = value;
-  node->balance = 0;
   return node;
 }
 
@@ -50,10 +46,14 @@ static Node *createNode(void *value) {
  *
  * @param tree Tree that owns the node values.
  * @param root Root of the subtree to destroy.
+ * @return BST_OK on success or BST_INVALID_PARAMS if tree is NULL.
  */
-static void destroySubtree(BST *tree, Node *root) {
+static BST_STATUS destroySubtree(BST *tree, Node *root) {
+  if (tree == NULL) {
+    return BST_INVALID_PARAMS;
+  }
   if (root == NULL) {
-    return;
+    return BST_OK;
   }
 
   destroySubtree(tree, root->left);
@@ -61,6 +61,8 @@ static void destroySubtree(BST *tree, Node *root) {
 
   tree->destroyData(root->value);
   free(root);
+
+  return BST_OK;
 }
 
 /**
@@ -114,9 +116,7 @@ static Node *rotateRight(Node *root) {
   newRoot->right = root;
 
   root->height = calculateHeight(root);
-  root->balance = calculateBalance(root);
   newRoot->height = calculateHeight(newRoot);
-  newRoot->balance = calculateBalance(newRoot);
   return newRoot;
 }
 
@@ -135,9 +135,7 @@ static Node *rotateLeft(Node *root) {
   newRoot->left = root;
 
   root->height = calculateHeight(root);
-  root->balance = calculateBalance(root);
   newRoot->height = calculateHeight(newRoot);
-  newRoot->balance = calculateBalance(newRoot);
   return newRoot;
 }
 
@@ -149,16 +147,16 @@ static Node *rotateLeft(Node *root) {
  */
 static Node *bstRebalance(Node *root) {
   root->height = calculateHeight(root);
-  root->balance = calculateBalance(root);
+  int balance = calculateBalance(root);
 
-  if (root->balance > 1) {
+  if (balance > 1) {
     if (calculateBalance(root->right) < 0) {
       root->right = rotateRight(root->right);
     }
     return rotateLeft(root);
   }
 
-  if (root->balance < -1) {
+  if (balance < -1) {
     if (calculateBalance(root->left) > 0) {
       root->left = rotateLeft(root->left);
     }
@@ -173,41 +171,56 @@ static Node *bstRebalance(Node *root) {
  * @param tree Tree that defines the data operations.
  * @param root Current subtree root.
  * @param value Value to insert.
+ * @param err Output status. BST_OK on success, BST_INVALID_PARAMS if tree is
+ *            NULL, BST_ALLOCATION_FAIL if copying or node allocation fails,
+ *            or BST_VALUE_OVERWRITTEN if a value is replaced.
  * @return Updated subtree root or NULL for errors.
  */
-static Node *insertValue(BST *tree, Node *root, const void *value) {
+static Node *insertValue(BST *tree, Node *root, const void *value,
+                         BST_STATUS *err) {
+  if (err == NULL) {
+    return NULL;
+  }
   if (tree == NULL) {
+    *err = BST_INVALID_PARAMS;
     return NULL;
   }
 
   if (root == NULL) {
     void *copy = tree->copyData(value);
     if (copy == NULL) {
-      // TODO integrate error handling
+      *err = BST_ALLOCATION_FAIL;
       return NULL;
     }
     Node *node = createNode(copy);
     if (node == NULL) {
+      *err = BST_ALLOCATION_FAIL;
       tree->destroyData(copy);
+      return NULL;
     }
     return node;
   }
 
-  int cmp = tree->compareData(root->value, value);
+  int cmp = tree->compareData(value, root->value);
 
   if (cmp < 0) {
-    root->left = insertValue(tree, root->left, value);
+    root->left = insertValue(tree, root->left, value, err);
   } else if (cmp > 0) {
-    root->right = insertValue(tree, root->right, value);
+    root->right = insertValue(tree, root->right, value, err);
   } else {
     // Cleanup old data, replace with new
     void *copy = tree->copyData(value);
     if (copy == NULL) {
-      // TODO integrate error handling
+      *err = BST_ALLOCATION_FAIL;
       return root;
     }
     tree->destroyData(root->value);
     root->value = copy;
+    *err = BST_VALUE_OVERWRITTEN;
+    return root;
+  }
+
+  if (*err != BST_OK) {
     return root;
   }
 
@@ -227,7 +240,7 @@ static Node *search(const BST *tree, Node *root, const void *value) {
     return NULL;
   }
 
-  const int cmp = tree->compareData(root->value, value);
+  const int cmp = tree->compareData(value, root->value);
 
   if (cmp == 0) {
     return root;
@@ -260,14 +273,21 @@ static Node *findMin(Node *root) {
  * @param tree Tree that defines the data operations.
  * @param root Current subtree root.
  * @param value Value to remove.
- * @return Updated subtree root or NULL for NULL root.
+ * @param err Output status. BST_OK on success, BST_NOT_FOUND if the value is
+ *            missing or BST_ALLOCATION_FAIL if copying a successor fails.
+ * @return Updated subtree root or NULL for NULL root
  */
-static Node *remove(BST *tree, Node *root, const void *value) {
+static Node *removeValue(BST *tree, Node *root, const void *value,
+                         BST_STATUS *err) {
+  if (err == NULL) {
+    return NULL;
+  }
   if (root == NULL) {
+    *err = BST_NOT_FOUND;
     return NULL;
   }
 
-  const int cmp = tree->compareData(root->value, value);
+  const int cmp = tree->compareData(value, root->value);
 
   if (cmp == 0) {
     if (root->left != NULL && root->right != NULL) {
@@ -275,82 +295,104 @@ static Node *remove(BST *tree, Node *root, const void *value) {
       Node *min = findMin(root->right);
       void *successorCopy = tree->copyData(min->value);
       if (successorCopy == NULL) {
-        // TODO integrate error hanling
+        *err = BST_ALLOCATION_FAIL;
         return root;
       }
       tree->destroyData(root->value);
       root->value = successorCopy;
-      root->right = remove(tree, root->right, min->value);
+      root->right = removeValue(tree, root->right, min->value, err);
+      if (*err != BST_OK) {
+        return root;
+      }
     } else {
       // this also covers the case when both are NULL
       Node *tmp = root->left == NULL ? root->right : root->left;
       tree->destroyData(root->value);
       free(root);
+      *err = BST_OK;
       return tmp;
     }
   } else if (cmp < 0) {
-    root->left = remove(tree, root->left, value);
+    root->left = removeValue(tree, root->left, value, err);
+    if (*err == BST_NOT_FOUND) {
+      return root;
+    }
   } else {
-    root->right = remove(tree, root->right, value);
+    root->right = removeValue(tree, root->right, value, err);
+    if (*err == BST_NOT_FOUND) {
+      return root;
+    }
+  }
+
+  if (*err != BST_OK) {
+    return root;
   }
 
   return bstRebalance(root);
 }
 
-BST *bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
-               BSTDestroyValueFn destroy) {
-  if (compare == NULL || copy == NULL || destroy == NULL) {
-    // TODO integrate error handling
-    return NULL;
+BST_STATUS bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
+                     BSTDestroyValueFn destroy, BST **bst) {
+  if (compare == NULL || copy == NULL || destroy == NULL || bst == NULL) {
+    return BST_INVALID_PARAMS;
   }
 
+  *bst = NULL;
+
   BST *tree = malloc(sizeof(BST));
-  if (!tree) {
-    // TODO integrate error handling
-    return NULL;
+  if (tree == NULL) {
+    return BST_ALLOCATION_FAIL;
   }
 
   tree->root = NULL;
   tree->compareData = compare;
   tree->copyData = copy;
   tree->destroyData = destroy;
-  return tree;
+  *bst = tree;
+  return BST_OK;
 }
 
-void bstDestroy(BST **tree) {
+BST_STATUS bstDestroy(BST **tree) {
   if (tree == NULL || *tree == NULL) {
-    return;
+    return BST_INVALID_PARAMS;
   }
 
   destroySubtree(*tree, (*tree)->root);
   free(*tree);
   *tree = NULL;
+  return BST_OK;
 }
 
-void bstInsert(BST *tree, const void *value) {
+BST_STATUS bstInsert(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
-    // TODO integrate error handling
-
-    return;
+    return BST_INVALID_PARAMS;
   }
 
-  tree->root = insertValue(tree, tree->root, value);
+  BST_STATUS err = BST_OK;
+  tree->root = insertValue(tree, tree->root, value, &err);
+  return err;
 }
 
-void *bstSearch(const BST *tree, const void *value) {
-  if (tree == NULL || value == NULL) {
-    // TODO integrate error handling
-    return NULL;
+BST_STATUS bstSearch(const BST *tree, const void *value, const void **result) {
+  if (tree == NULL || value == NULL || result == NULL) {
+    return BST_INVALID_PARAMS;
   }
 
+  *result = NULL;
   Node *res = search(tree, tree->root, value);
-  return res == NULL ? NULL : res->value;
+  if (res == NULL) {
+    return BST_NOT_FOUND;
+  }
+
+  *result = res->value;
+  return BST_OK;
 }
 
-void bstRemove(BST *tree, const void *value) {
+BST_STATUS bstRemove(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
-    // TODO integrate error handling
-    return;
+    return BST_INVALID_PARAMS;
   }
-  tree->root = remove(tree, tree->root, value);
+  BST_STATUS err = BST_OK;
+  tree->root = removeValue(tree, tree->root, value, &err);
+  return err;
 }
