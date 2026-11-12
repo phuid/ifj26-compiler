@@ -1,3 +1,9 @@
+/**
+ * @file preprocess_unittest.cc
+ * @brief Unit tests for the IFJ26 source preprocessor.
+ * @author Simon Hrouda
+ */
+
 #include "../src/source_preprocess.h"
 #include <gtest/gtest.h>
 

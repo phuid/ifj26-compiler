@@ -1,3 +1,11 @@
+/**
+ * @file source_preprocess.c
+ * @brief IFJ26 source preprocessing - import and comment removal
+ * @author Simon Hrouda
+ * @note Code in this file was partially generated using an LLM agent, see note
+ * below.
+ */
+
 #include "source_preprocess.h"
 
 #include <stdio.h>
