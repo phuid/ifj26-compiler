@@ -160,8 +160,11 @@ void handle_call(const ASTNode *node) {
 }
 
 void handle_return(const ASTNode *node) {
-  // TODO wait for changes to return - should call child handler, then print
-  // return
+  const ASTNode *return_expression = node->data.return_statement.value;
+  ASTNodeHandler handler = ast_handlers[return_expression->kind];
+  handler(return_expression);
+  print_POPFRAME();
+  print_RETURN();
 }
 
 void handle_function_definition(const FunctionSymbol *function) {
@@ -189,7 +192,19 @@ void convert_AST_to_assembler(Program *program) {
   // TODO global var definitions
 
   // TODO what is the name of the main function?
-  print_CALL("");
+  FunctionSymbol *main = NULL;
+  for (size_t i = 0; i < program->functions.function_count; i++) {
+    if (program->functions.functions[i]->is_main) {
+      main = program->functions.functions[i];
+      break;
+    }
+  }
+  if (main == NULL) {
+    // TODO error
+    return;
+  }
+
+  print_CALL(main->name);
   print_EXIT(0);
 
   for (size_t i = 0; i < program->functions.function_count; i++) {
