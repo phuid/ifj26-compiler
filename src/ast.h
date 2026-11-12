@@ -138,6 +138,8 @@ struct ASTNode {
     struct {
       Symbol *target;
       ASTNode *value;
+      /** True for the initialization in `val`/`var`, false for `id = ...`. */
+      bool is_definition;
     } assignment;
     struct {
       ASTNode *value;
