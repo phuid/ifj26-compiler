@@ -8,12 +8,10 @@
 #define IMPL_BST_H
 
 #include "bst.h"
-#include <stdlib.h>
 
 typedef struct Node {
   void *value;
   int height;
-  int balance;
   struct Node *left;
   struct Node *right;
 } Node;
