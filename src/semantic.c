@@ -87,8 +87,13 @@ static SemanticStatus register_builtins(Program *program) {
 
     /// Reference only when the function is used in the program; otherwise, it
     /// is not an error to leave it undefined.
-    if (function == NULL || function->is_defined) {
+    if (function == NULL) {
       continue;
+    }
+    /// A user definition of a builtin name (e.g. `def print(...)`) is a
+    /// second definition of that function; overloading is not supported.
+    if (function->is_defined) {
+      return SEMANTIC_REDEFINITION;
     }
     function->is_defined = true;
     function->is_builtin = true;
