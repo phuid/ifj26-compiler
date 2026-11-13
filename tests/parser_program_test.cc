@@ -159,3 +159,71 @@ TEST(ParserProgramTest, MainWithParameterIsSemanticError) {
 
   program_destroy(&program);
 }
+
+/*
+ * AI-generated test block — function and parameter redefinition.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Add whole-program parser tests for function redefinition in the same
+ *   style as the tests above. P7: two or three different functions
+ *   `(): Unit = return`, one of them with parameters, parse with PARSER_OK,
+ *   function_count matches and function_table_lookup finds each of them; it
+ *   is the control case for P8. P8: `def f` defined twice (a different
+ *   signature is fine) gives PARSER_SEMANTIC_ERROR. P9: a duplicate parameter
+ *   name such as `def f(x: Int, x: Int)` gives PARSER_SEMANTIC_ERROR; a
+ *   different duplicate type or a duplicate in the third position is fine.
+ *   Use own names, types and counts instead of the smallest possible input.
+ */
+TEST(ParserProgramTest, TwoDifferentFunctionsAreBothStored) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "def open_log(): Unit =\n"
+                       "  return\n"
+                       "\n"
+                       "def write_entry(level: Int, text: String, "
+                       "ratio: Double): Unit =\n"
+                       "  return\n"
+                       "\n"
+                       "def close_log(): Unit =\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_OK);
+  EXPECT_EQ(program.functions.function_count, 3U);
+
+  EXPECT_NE(function_table_lookup(&program.functions, "open_log"), nullptr);
+  EXPECT_NE(function_table_lookup(&program.functions, "close_log"), nullptr);
+  FunctionSymbol *write_entry =
+      function_table_lookup(&program.functions, "write_entry");
+  ASSERT_NE(write_entry, nullptr);
+  EXPECT_EQ(write_entry->argument_count, 3U);
+
+  program_destroy(&program);
+}
+
+TEST(ParserProgramTest, DuplicateFunctionIsSemanticError) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "def reset_counter(): Unit =\n"
+                       "  return\n"
+                       "\n"
+                       "def reset_counter(start: Int): Unit =\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(program.functions.function_count, 1U);
+
+  program_destroy(&program);
+}
+
+TEST(ParserProgramTest, DuplicateParameterIsSemanticError) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source =
+      "def blend(weight: Double, name: String, weight: Int): Unit =\n"
+      "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(program.functions.function_count, 1U);
+
+  program_destroy(&program);
+}
