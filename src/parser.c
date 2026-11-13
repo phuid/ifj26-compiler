@@ -653,12 +653,12 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
   }
 
   TerminalStack stack;
-  terminal_stack_init(&stack);
+  terminal_stack_init(&stack); // FIXME: check status
 
-  terminal_stack_push(&stack,
-                      (Terminal){.type = TERMINAL_DOLLAR, .node = NULL});
+  terminal_stack_push(&stack, (Terminal){.type = TERMINAL_DOLLAR,
+                                         .node = NULL}); // FIXME: check status
 
-  terminal_stack_destroy(&stack);
+  terminal_stack_destroy(&stack); // FIXME: check status
 
   /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
   return PARSER_OK;

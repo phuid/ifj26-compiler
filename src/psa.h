@@ -17,6 +17,13 @@ typedef enum PRECEDENCE {
   PREC_INTERNAL_ERROR
 } PRECEDENCE;
 
+typedef enum PSA_STATUS {
+  PSA_OK,
+  PSA_INVALID_ARGUMENT,
+  PSA_SYNTAX_ERROR,
+  PSA_INTERNAL_ERROR
+} PsaStatus;
+
 typedef enum {
   // Terminals that can be looked up in the precedence table
   TERMINAL_PLUS,    // +
@@ -51,13 +58,13 @@ typedef struct {
   size_t capacity;
 } TerminalStack;
 
-ParserStatus terminal_stack_init(TerminalStack *stack);
-ParserStatus terminal_stack_destroy(TerminalStack *stack);
-ParserStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
-ParserStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
-ParserStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal);
-ParserStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
-                                      Terminal terminal);
-ParserStatus stack_insert_handle_after_top_terminal(TerminalStack *stack);
+PsaStatus terminal_stack_init(TerminalStack *stack);
+PsaStatus terminal_stack_destroy(TerminalStack *stack);
+PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
+PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
+PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal);
+PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
+                                   Terminal terminal);
+PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack);
 
 #endif // SRC_PSA_H

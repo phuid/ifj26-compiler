@@ -89,91 +89,91 @@ static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
  * Prompt:
 """
 generate these terminalStack handling functions
-ParserStatus terminal_stack_init(TerminalStack *stack);
-ParserStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
-ParserStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
-ParserStatus terminal_stack_peek(TerminalStack *stack, Terminal *terminal);
+PsaStatus terminal_stack_init(TerminalStack *stack);
+PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
+PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
+PsaStatus terminal_stack_peek(TerminalStack *stack, Terminal *terminal);
 
 use the types from psa.h and function from dynamic_array.c for allocation
 """
 
 peek was later replaced by terminal_stack_get_top_terminal, by hand
  */
-ParserStatus terminal_stack_init(TerminalStack *stack) {
+PsaStatus terminal_stack_init(TerminalStack *stack) {
   if (stack == NULL) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
 
   stack->data = NULL;
   stack->size = 0U;
   stack->capacity = 0U;
-  return PARSER_OK;
+  return PSA_OK;
 }
 
-ParserStatus terminal_stack_destroy(TerminalStack *stack) {
+PsaStatus terminal_stack_destroy(TerminalStack *stack) {
   if (stack == NULL) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
 
   free(stack->data);
   stack->data = NULL;
   stack->size = 0U;
   stack->capacity = 0U;
-  return PARSER_OK;
+  return PSA_OK;
 }
 
-ParserStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
+PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
   if (stack == NULL) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
   if (stack->size == SIZE_MAX) {
-    return PARSER_INTERNAL_ERROR;
+    return PSA_INTERNAL_ERROR;
   }
   if (dynamic_array_reserve((void **)&stack->data, &stack->capacity,
                             stack->size + 1U,
                             sizeof(*stack->data)) != DYNAMIC_ARRAY_OK) {
-    return PARSER_INTERNAL_ERROR;
+    return PSA_INTERNAL_ERROR;
   }
 
   stack->data[stack->size] = terminal;
   stack->size += 1U;
-  return PARSER_OK;
+  return PSA_OK;
 }
 
 // TODO: should pop remove the stack top, or the top terminal (not operand)?
-ParserStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal) {
+PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal) {
   if (stack == NULL || terminal == NULL || stack->size == 0U) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
 
   stack->size -= 1U;
   *terminal = stack->data[stack->size];
-  return PARSER_OK;
+  return PSA_OK;
 }
 
-ParserStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
+PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
   if (stack == NULL || stack->size == 0U) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
   for (size_t i = stack->size; i > 0U; i--) {
     TerminalType type = stack->data[i - 1U].type;
     if (type != TERMINAL_OPERAND && type != TERMINAL_HANDLE) {
       *terminal = stack->data[i - 1U];
-      return PARSER_OK;
+      return PSA_OK;
     }
   }
-  return PARSER_INVALID_ARGUMENT;
+  return PSA_INVALID_ARGUMENT;
 }
 
-ParserStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
-                                      Terminal terminal) {
+PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
+                                   Terminal terminal) {
   if (stack == NULL || index > stack->size) {
-    return PARSER_INVALID_ARGUMENT;
+    return PSA_INVALID_ARGUMENT;
   }
   if (dynamic_array_reserve((void **)&stack->data, &stack->capacity,
                             stack->size + 1U,
                             sizeof(*stack->data)) != DYNAMIC_ARRAY_OK) {
-    return PARSER_INTERNAL_ERROR;
+    return PSA_INTERNAL_ERROR;
   }
 
   // Shift elements to the right to make space for the new terminal
@@ -183,10 +183,10 @@ ParserStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
 
   stack->data[index] = terminal;
   stack->size += 1U;
-  return PARSER_OK;
+  return PSA_OK;
 }
 
-ParserStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
+PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
   // 1. Find index of top terminal
   size_t idx = stack->size;
   for (size_t i = stack->size; i > 0U; i--) {
@@ -210,57 +210,56 @@ PRECEDENCE get_precedence(TerminalType stack, TerminalType input) {
   return precedence_table[stack][input];
 }
 
-ParserStatus token_to_binary_op(TokenType token_type,
-                                ASTNodeKind *return_kind) {
+PsaStatus token_to_binary_op(TokenType token_type, ASTNodeKind *return_kind) {
   switch (token_type) {
   case TOKEN_PLUS:
     *return_kind = AST_ADD;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_MINUS:
     *return_kind = AST_SUBTRACT;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_MULTIPLY:
     *return_kind = AST_MULTIPLY;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_DIVIDE:
     *return_kind = AST_DIVIDE;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_LIST_CONCAT:
     *return_kind = AST_CONCAT;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_EQUAL:
     *return_kind = AST_EQUAL;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_NOT_EQUAL:
     *return_kind = AST_NOT_EQUAL;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_LESS:
     *return_kind = AST_LESS;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_LESS_EQUAL:
     *return_kind = AST_LESS_EQUAL;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_GREATER:
     *return_kind = AST_GREATER;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_GREATER_EQUAL:
     *return_kind = AST_GREATER_EQUAL;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_AND:
     *return_kind = AST_AND;
-    return PARSER_OK;
+    return PSA_OK;
   case TOKEN_OR:
     *return_kind = AST_OR;
-    return PARSER_OK;
+    return PSA_OK;
   default:
-    return PARSER_INVALID_ARGUMENT; // Invalid token for binary operation
+    return PSA_INVALID_ARGUMENT; // Invalid token for binary operation
   }
 }
 
-static ParserStatus psa_reduce(TerminalStack *stack) {
+static PsaStatus psa_reduce(TerminalStack *stack) {
   // Reduction pattern must be exactly 4 items: '<' OPERAND op OPERAND
   if (stack->size < 4U) {
-    return PARSER_SYNTAX_ERROR;
+    return PSA_SYNTAX_ERROR;
   }
 
   size_t top_idx = stack->size - 1U;
@@ -271,18 +270,18 @@ static ParserStatus psa_reduce(TerminalStack *stack) {
 
   if (handle.type != TERMINAL_HANDLE || left.type != TERMINAL_OPERAND ||
       op.type == TERMINAL_OPERAND || right.type != TERMINAL_OPERAND) {
-    return PARSER_SYNTAX_ERROR;
+    return PSA_SYNTAX_ERROR;
   }
 
   ASTNodeKind op_kind;
-  if (token_to_binary_op(op.token.type, &op_kind) != PARSER_OK) {
-    return PARSER_SYNTAX_ERROR;
+  if (token_to_binary_op(op.token.type, &op_kind) != PSA_OK) {
+    return PSA_SYNTAX_ERROR;
   }
 
   ASTNode *bin_node = ast_node_create_binary_op(op_kind, left.node, right.node,
                                                 op.token.line, op.token.column);
   if (bin_node == NULL) {
-    return PARSER_INTERNAL_ERROR;
+    return PSA_INTERNAL_ERROR;
   }
 
   // Pop '<', left, op, right (4 items)
