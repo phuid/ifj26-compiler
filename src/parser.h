@@ -15,15 +15,39 @@
 #include "function_table.h"
 #include "lexer.h"
 
-/** Reports parser and lexer outcomes observed during syntactic analysis. */
+/**
+ * @brief Reports parser and lexer outcomes observed during syntactic analysis.
+ * @details Every value that corresponds to an error of the compiled program
+ * equals the compiler exit code from the specification (section 6). Use
+ * @ref parser_status_exit_code to obtain the exit code of any status.
+ */
 typedef enum {
-  PARSER_OK,
-  PARSER_SYNTAX_ERROR,
-  PARSER_SEMANTIC_ERROR,
-  PARSER_LEXER_ERROR,
-  PARSER_INVALID_ARGUMENT,
-  PARSER_INTERNAL_ERROR
+  PARSER_OK = 0,
+  /** Lexical error (exit code 1). */
+  PARSER_LEXER_ERROR = 1,
+  /** Syntax error (exit code 2). */
+  PARSER_SYNTAX_ERROR = 2,
+  /** Use of an undefined or not yet defined variable (exit code 3). */
+  PARSER_UNDEFINED_ERROR = 3,
+  /** Redefinition of a function, variable or parameter (exit code 4). */
+  PARSER_REDEFINITION_ERROR = 4,
+  /** Disallowed parameters of the @c main function (exit code 5). */
+  PARSER_BAD_CALL_ERROR = 5,
+  /** Type compatibility or inference error (exit code 6). */
+  PARSER_TYPE_ERROR = 6,
+  /** Internal compiler error, e.g. failed allocation (exit code 99). */
+  PARSER_INTERNAL_ERROR = 99,
+  /** API misuse by the caller; reported as an internal error (exit code 99).
+   */
+  PARSER_INVALID_ARGUMENT = 100
 } ParserStatus;
+
+/**
+ * @brief Converts a parser status to the compiler exit code.
+ * @param status Status returned by a parser function.
+ * @return The exit code defined by the specification.
+ */
+int parser_status_exit_code(ParserStatus status);
 
 /**
  * @brief Owns all semantic structures produced while parsing one source file.

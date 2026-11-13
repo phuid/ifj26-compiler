@@ -52,13 +52,25 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
   if (status == LEXER_INVALID_ARGUMENT) {
     return PARSER_INVALID_ARGUMENT;
   }
+  /// A failed allocation is not caused by the input program (exit code 99).
+  if (status == LEXER_OUT_OF_MEMORY) {
+    return PARSER_INTERNAL_ERROR;
+  }
   return PARSER_LEXER_ERROR;
+}
+
+/** Maps every status to its exit code; API misuse is an internal error. */
+int parser_status_exit_code(ParserStatus status) {
+  if (status == PARSER_INVALID_ARGUMENT) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  return (int)status;
 }
 
 /**
  * @brief Translates a type resolution result to the parser status boundary.
  * @param status Result of @ref type_entity_resolve or @ref type_entity_depend.
- * @return PARSER_OK on success, PARSER_SEMANTIC_ERROR on a type conflict,
+ * @return PARSER_OK on success, PARSER_TYPE_ERROR on a type conflict,
  * otherwise an invalid-argument or internal error.
  */
 static ParserStatus parser_status_from_type(TypeResolveStatus status) {
@@ -66,7 +78,7 @@ static ParserStatus parser_status_from_type(TypeResolveStatus status) {
   case TYPE_RESOLVE_OK:
     return PARSER_OK;
   case TYPE_RESOLVE_CONFLICT:
-    return PARSER_SEMANTIC_ERROR;
+    return PARSER_TYPE_ERROR;
   case TYPE_RESOLVE_INVALID_ARGUMENT:
     return PARSER_INVALID_ARGUMENT;
   default:
@@ -175,6 +187,7 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
                                             bool consume_indent_dedent,
                                             ptrdiff_t *indent_delta) {
   ParserStatus status = PARSER_OK;
+  bool newline_consumed = false;
 
   if (lexer == NULL) {
     return PARSER_INVALID_ARGUMENT;
@@ -182,6 +195,7 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
 
   /// Consume newlines until the first non-newline token is reached.
   if (lexer->token.type == TOKEN_NEWLINE) {
+    newline_consumed = true;
     status = parser_advance(lexer);
     /// If the newline is required but not present, report a syntax error.
   } else if (required) {
@@ -213,6 +227,14 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
       }
       status = parser_advance(lexer);
     }
+  }
+
+  /// A line following a newline inside parentheses must be indented more than
+  /// the line with the opening parenthesis. A line with the same indentation
+  /// emits no layout token, so it has to be checked here.
+  if (status == PARSER_OK && newline_consumed && consume_indent_dedent &&
+      indent_delta != NULL && *indent_delta <= 0) {
+    return PARSER_SYNTAX_ERROR;
   }
 
   return status;
@@ -1044,8 +1066,10 @@ static ParserStatus p_primary(Lexer *lexer, Program *program,
     /// A resolved identifier stays a primary variable reference. Any following
     /// parenthesis is left for the postfix-indexing parser.
     free(name);
-    if (symbol == NULL) {
-      return PARSER_SEMANTIC_ERROR;
+    /// An undefined variable, or one used inside its own initializer
+    /// (`val x = x`), is a use before definition (code 3).
+    if (symbol == NULL || !symbol->initialized) {
+      return PARSER_UNDEFINED_ERROR;
     }
     ASTNode *variable_node = ast_node_create_variable_ref(symbol, line, column);
     if (variable_node == NULL) {
@@ -1522,14 +1546,15 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return PARSER_SYNTAX_ERROR;
   }
 
-  /// Add the variable to the current lexical scope
+  /// Add the variable to the current lexical scope. It stays uninitialized
+  /// until its initializer is parsed, so the initializer cannot refer to it.
   Symbol *var_symbol;
   switch (symbol_table_define(scope, lexer->token.value.string_value,
-                              type_unknown(), true, constant, &var_symbol)) {
+                              type_unknown(), false, constant, &var_symbol)) {
   case SYMTABLE_OK:
     break;
   case SYMTABLE_DUPLICATE:
-    return PARSER_SEMANTIC_ERROR;
+    return PARSER_REDEFINITION_ERROR;
   default:
     return PARSER_INTERNAL_ERROR;
   }
@@ -1559,6 +1584,9 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     return status;
   }
+
+  /// The variable is visible from the end of its definition on.
+  var_symbol->initialized = true;
 
   /// The variable's type (if not annotated) is inferred later by the semantic
   /// pass (semantic.c), once the types of all called functions are known.
@@ -1598,9 +1626,11 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   /// Parse the optional return expression
   ASTNode *expression_node = NULL;
   /// A bare `return` is followed by the end of the statement: a newline, a
-  /// statement separator, or the end of the block/file.
+  /// statement separator, the end of the block/file, or (CONTROL one-line
+  /// branches) the `else` keyword.
   if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
-      lexer->token.type != TOKEN_EOF && lexer->token.type != TOKEN_SEMICOLON) {
+      lexer->token.type != TOKEN_EOF && lexer->token.type != TOKEN_SEMICOLON &&
+      lexer->token.type != TOKEN_KW_ELSE) {
     status = p_expression(lexer, program, function, scope, &expression_node,
                           false, NULL);
     if (status != PARSER_OK) {
@@ -1951,7 +1981,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       case SYMTABLE_OK:
         break;
       case SYMTABLE_DUPLICATE:
-        return PARSER_SEMANTIC_ERROR;
+        return PARSER_REDEFINITION_ERROR;
       default:
         return PARSER_INTERNAL_ERROR;
       }
@@ -2119,7 +2149,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 
   /// Check if the function is not already defined
   if (function->is_defined) {
-    return PARSER_SEMANTIC_ERROR;
+    return PARSER_REDEFINITION_ERROR;
   }
   function->is_defined = true;
   *return_function = function;
@@ -2153,19 +2183,21 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   /// Check for an implicit return on the same line
   if (lexer->token.type != TOKEN_NEWLINE) {
     ASTNode *implicit_return_node = NULL;
-    // TODO: uncomment once p_expression is implemented.
-    // status = p_expression(lexer, program, function, function->local_scope,
-    //                       &implicit_return_node);
-    // if (status != PARSER_OK) {
-    //   return status;
-    // }
+    status = p_expression(lexer, program, function, function->local_scope,
+                          &implicit_return_node, false, NULL);
+    if (status != PARSER_OK) {
+      ast_node_destroy(implicit_return_node);
+      return status;
+    }
 
     if (function_symbol_set_ast_root(function, implicit_return_node) !=
         FUNCTION_TABLE_OK) {
       ast_node_destroy(implicit_return_node);
       return PARSER_INTERNAL_ERROR;
     }
-    return PARSER_OK;
+
+    /// The one-line body must end the logical line (or the file).
+    return parser_consume_newlines(lexer, true, false, NULL);
   }
 
   /// Consume the NEWLINE
@@ -2232,7 +2264,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
 
   /// Check that arg count is zero
   if (function->argument_count != 0U) {
-    return PARSER_SEMANTIC_ERROR; /// Code 5
+    return PARSER_BAD_CALL_ERROR; /// Code 5
   }
 
   /// The Unit result type is checked by the semantic pass (code 6).
@@ -2267,11 +2299,14 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
     return status;
   }
 
-  while (lexer->token.type != TOKEN_EOF) {
-    /// Consume any number of newlines before the next top-level construct.
+  while (true) {
+    /// Skip newlines between (and before) the top-level definitions.
     status = parser_consume_newlines(lexer, false, false, NULL);
     if (status != PARSER_OK) {
       return status;
+    }
+    if (lexer->token.type == TOKEN_EOF) {
+      break;
     }
 
     /// Dispatch only the currently sketched top-level constructs.
@@ -2281,7 +2316,7 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
       status = p_function(lexer, program, &function);
     } else if (lexer->token.type == TOKEN_MAIN_ANNOTATION) {
       if (main_function_found) {
-        status = PARSER_SEMANTIC_ERROR; /// Code 4: redefinition
+        status = PARSER_REDEFINITION_ERROR; /// Code 4: redefinition
       } else {
         /// Parse the main function (p_main_function consumes `@main`)
         main_function_found = true;
@@ -2295,5 +2330,10 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
       return status;
     }
   }
+
+  if (!main_function_found) {
+    return PARSER_UNDEFINED_ERROR; /// Code 3: missing main function
+  }
+
   return PARSER_OK;
 }
