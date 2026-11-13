@@ -100,6 +100,38 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
 }
 
 /**
+ * @brief Constructs an owned boolean literal.
+ * @param value Literal value.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new boolean node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_bool(bool value, size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_BOOL, line, column);
+
+  if (node != NULL) {
+    node->data.bool_value = value;
+    type_entity_resolve(&node->inferred_type, TYPE_BOOL);
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned unit literal.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new unit node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_unit(size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_UNIT, line, column);
+
+  if (node != NULL) {
+    type_entity_resolve(&node->inferred_type, TYPE_UNIT);
+  }
+  return node;
+}
+
+/**
  * @brief Constructs an owned reference to a borrowed resolved symbol.
  * @param symbol Non-null semantic binding borrowed by the new node.
  * @param line One-based source line.
@@ -294,6 +326,29 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
 }
 
 /**
+ * @brief Creates a logical NOT node.
+ * @details Ownership of the operand transfers on success only.
+ * @param operand Non-null operand whose ownership transfers on success only.
+ * @param line One-based source line of the operator.
+ * @param column One-based source column of the operator.
+ * @return An owned node with @c kind AST_NOT, or null for an invalid argument
+ * or allocation failure.
+ */
+ASTNode *ast_node_create_not(ASTNode *operand, size_t line, size_t column) {
+  ASTNode *node;
+
+  if (operand == NULL) {
+    return NULL;
+  }
+  node = ast_node_create(AST_NOT, line, column);
+  if (node != NULL) {
+    node->data.unary_op.operand = operand;
+    type_entity_resolve(&node->inferred_type, TYPE_BOOL);
+  }
+  return node;
+}
+
+/**
  * @brief Wraps an owned expression in an implicit Int-to-Double conversion.
  * @details On failure, @p operand remains owned by the caller.
  * @param operand Non-null owned expression to transfer on success.
@@ -350,6 +405,15 @@ void ast_node_destroy(ASTNode *node) {
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
+  case AST_CONCAT:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_AND:
+  case AST_OR:
     ast_node_destroy(node->data.binary_op.left);
     ast_node_destroy(node->data.binary_op.right);
     break;
@@ -362,8 +426,13 @@ void ast_node_destroy(ASTNode *node) {
   case AST_IMPLICIT_INT_TO_REAL:
     ast_node_destroy(node->data.conversion.operand);
     break;
+  case AST_NOT:
+    ast_node_destroy(node->data.unary_op.operand);
+    break;
   case AST_CONSTANT_INT:
   case AST_CONSTANT_REAL:
+  case AST_CONSTANT_BOOL:
+  case AST_CONSTANT_UNIT:
   case AST_VARIABLE_REF:
     break;
   }

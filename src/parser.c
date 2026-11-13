@@ -504,9 +504,14 @@ static ParserStatus p_if_expression(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// Create the if-expression AST node
-  // ASTNode *if_node = ; // FIXME: ast_node_create_if_expression(line, column,
-  // nodes) check status *return_node = if_node;
+  ASTNode *if_node = ast_node_create_if(condition_node, then_branch_node,
+                                        else_branch_node, if_line, if_column);
+  if (if_node == NULL) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    ast_node_destroy(else_branch_node);
+    return PARSER_INTERNAL_ERROR;
+  }
 
   return PARSER_OK;
 }
@@ -543,6 +548,23 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
     return parser_advance(lexer);
+
+  case TOKEN_KW_TRUE:
+    *return_node =
+        ast_node_create_bool(true, lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_KW_FALSE:
+    *return_node =
+        ast_node_create_bool(false, lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
   case TOKEN_IDENTIFIER:
     char *name = lexer->token.value.string_value;
     size_t line = lexer->token.line;
@@ -636,10 +658,7 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
   terminal_stack_push(&stack,
                       (Terminal){.type = TERMINAL_DOLLAR, .node = NULL});
 
-  do {
-  } while (stack != "$operand$")
-
-      terminal_stack_destroy(&stack);
+  terminal_stack_destroy(&stack);
 
   /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
   return PARSER_OK;
@@ -963,6 +982,8 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_DOUBLE:
   case TOKEN_STRING:
   case TOKEN_NOT:
+  case TOKEN_KW_TRUE:
+  case TOKEN_KW_FALSE:
   case TOKEN_MINUS:
     return p_expression(lexer, program, scope, return_node, false, NULL);
     break;
@@ -1051,7 +1072,9 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     /// A statement ending with its own nested block (e.g. if) has already
     /// consumed the NEWLINE preceding the block's DEDENT, so no further
     /// newline follows it.
-    bool ends_with_block = statement->kind == AST_IF;
+    bool ends_with_block =
+        statement->kind == AST_IF; // FIXME: add other statement kinds that end
+                                   // with a block (while, for, etc?)
 
     /// Update the block's inferred type based on the return inferred type
     if (statement->kind == AST_RETURN) {

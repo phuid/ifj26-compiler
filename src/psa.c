@@ -6,7 +6,9 @@
 
 #include "psa.h"
 
+#include "ast.h"
 #include "dynamic_array.h"
+#include "lexer.h"
 #include <stdint.h>
 
 static TerminalType token_to_terminal(TokenType token) {
@@ -21,6 +23,10 @@ static TerminalType token_to_terminal(TokenType token) {
     return TERMINAL_DIV;
   case TOKEN_LIST_CONCAT:
     return TERMINAL_CONCAT;
+  case TOKEN_AND:
+    return TERMINAL_AND;
+  case TOKEN_OR:
+    return TERMINAL_OR;
 
   // Relational operators all share one precedence level
   case TOKEN_LESS:
@@ -31,25 +37,14 @@ static TerminalType token_to_terminal(TokenType token) {
   case TOKEN_EQUAL:
   case TOKEN_NOT_EQUAL:
     return TERMINAL_EQUAL;
-  case TOKEN_LEFT_PAREN:
-    return TERMINAL_LPAREN;
-  case TOKEN_RIGHT_PAREN:
-    return TERMINAL_RPAREN;
-
-  // Operands
-  case TOKEN_INT:
-  case TOKEN_DOUBLE:
-  case TOKEN_STRING:
-  case TOKEN_IDENTIFIER:
-    return TERMINAL_OPERAND;
 
   // Delimiters that mark the end of an expression -> act as '$'
   case TOKEN_EOF:
+  case TOKEN_RIGHT_PAREN:
   case TOKEN_NEWLINE:
   case TOKEN_SEMICOLON:
   case TOKEN_COMMA:
   case TOKEN_COLON:
-  case TOKEN_RIGHT_BRACKET:
   case TOKEN_DEDENT:
   case TOKEN_KW_THEN:
   case TOKEN_KW_DO:
@@ -57,6 +52,9 @@ static TerminalType token_to_terminal(TokenType token) {
     return TERMINAL_DOLLAR;
 
   default:
+    // This also applies to Tokens with which operands start, since they are not
+    // included in the precedence table and will be handled in the "expecting
+    // operand" state of the parser.
     return TERMINAL_INVALID;
   }
 }
@@ -75,8 +73,6 @@ static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
     /* ++         */ {I, I, I, I, I, I, I, I, I, I, I},
     /* <=         */ {I, I, I, I, I, I, I, I, I, I, I},
     /* ==         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* (          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* )          */ {I, I, I, I, I, I, I, I, I, I, I},
     /* &&         */ {I, I, I, I, I, I, I, I, I, I, I},
     /* ||         */ {I, I, I, I, I, I, I, I, I, I, I},
     /* i          */ {I, I, I, I, I, I, I, I, I, I, I},
@@ -144,7 +140,7 @@ ParserStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
   return PARSER_OK;
 }
 
-// TODO: should pop remove the terminal top, or the top terminal (not operand)?
+// TODO: should pop remove the stack top, or the top terminal (not operand)?
 ParserStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal) {
   if (stack == NULL || terminal == NULL || stack->size == 0U) {
     return PARSER_INVALID_ARGUMENT;
@@ -159,10 +155,10 @@ ParserStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
   if (stack == NULL || stack->size == 0U) {
     return PARSER_INVALID_ARGUMENT;
   }
-  for (size_t i = stack->size - 1; i >= 0U; i--) {
-    TerminalType type = stack->data[i].type;
+  for (size_t i = stack->size; i > 0U; i--) {
+    TerminalType type = stack->data[i - 1U].type;
     if (type != TERMINAL_OPERAND && type != TERMINAL_HANDLE) {
-      *terminal = stack->data[i];
+      *terminal = stack->data[i - 1U];
       return PARSER_OK;
     }
   }
@@ -206,62 +202,59 @@ ParserStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
   return terminal_stack_insert_at(stack, idx, handle);
 }
 
-PRECEDENCE get_precedence(TerminalType stackTerminal, TokenType input) {
-  TerminalType inputTerminal = token_to_terminal(input);
-  if (stackTerminal >= TERMINAL_COUNT || inputTerminal >= TERMINAL_COUNT) {
-    return PREC_INTERNAL_ERROR;
+PRECEDENCE get_precedence(TerminalType stack, TerminalType input) {
+  if (stack >= TERMINAL_COUNT || input >= TERMINAL_COUNT) {
+    return PREC_INVALID;
   }
 
-  return precedence_table[stackTerminal][inputTerminal];
+  return precedence_table[stack][input];
 }
 
-static ASTNode *create_binary_node(Terminal op, ASTNode *left, ASTNode *right) {
-  ASTNodeKind kind;
-  switch (op.token.type) {
+ParserStatus token_to_binary_op(TokenType token_type,
+                                ASTNodeKind *return_kind) {
+  switch (token_type) {
   case TOKEN_PLUS:
-    kind = AST_ADD;
-    break;
+    *return_kind = AST_ADD;
+    return PARSER_OK;
   case TOKEN_MINUS:
-    kind = AST_SUBTRACT;
-    break;
+    *return_kind = AST_SUBTRACT;
+    return PARSER_OK;
   case TOKEN_MULTIPLY:
-    kind = AST_MULTIPLY;
-    break;
+    *return_kind = AST_MULTIPLY;
+    return PARSER_OK;
   case TOKEN_DIVIDE:
-    kind = AST_DIVIDE;
-    break;
+    *return_kind = AST_DIVIDE;
+    return PARSER_OK;
   case TOKEN_LIST_CONCAT:
-    kind = AST_CONCAT;
-    break;
+    *return_kind = AST_CONCAT;
+    return PARSER_OK;
   case TOKEN_EQUAL:
-    kind = AST_EQUAL;
-    break;
+    *return_kind = AST_EQUAL;
+    return PARSER_OK;
   case TOKEN_NOT_EQUAL:
-    kind = AST_NOT_EQUAL;
-    break;
+    *return_kind = AST_NOT_EQUAL;
+    return PARSER_OK;
   case TOKEN_LESS:
-    kind = AST_LESS;
-    break;
+    *return_kind = AST_LESS;
+    return PARSER_OK;
   case TOKEN_LESS_EQUAL:
-    kind = AST_LESS_EQUAL;
-    break;
+    *return_kind = AST_LESS_EQUAL;
+    return PARSER_OK;
   case TOKEN_GREATER:
-    kind = AST_GREATER;
-    break;
+    *return_kind = AST_GREATER;
+    return PARSER_OK;
   case TOKEN_GREATER_EQUAL:
-    kind = AST_GREATER_EQUAL;
-    break;
+    *return_kind = AST_GREATER_EQUAL;
+    return PARSER_OK;
   case TOKEN_AND:
-    kind = AST_AND;
-    break;
+    *return_kind = AST_AND;
+    return PARSER_OK;
   case TOKEN_OR:
-    kind = AST_OR;
-    break;
+    *return_kind = AST_OR;
+    return PARSER_OK;
   default:
-    return NULL;
+    return PARSER_INVALID_ARGUMENT; // Invalid token for binary operation
   }
-  return ast_node_create_binary_op(kind, left, right, op.token.line,
-                                   op.token.column);
 }
 
 static ParserStatus psa_reduce(TerminalStack *stack) {
@@ -281,7 +274,13 @@ static ParserStatus psa_reduce(TerminalStack *stack) {
     return PARSER_SYNTAX_ERROR;
   }
 
-  ASTNode *bin_node = create_binary_node(op, left.node, right.node);
+  ASTNodeKind op_kind;
+  if (token_to_binary_op(op.token.type, &op_kind) != PARSER_OK) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  ASTNode *bin_node = ast_node_create_binary_op(op_kind, left.node, right.node,
+                                                op.token.line, op.token.column);
   if (bin_node == NULL) {
     return PARSER_INTERNAL_ERROR;
   }

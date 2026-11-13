@@ -75,26 +75,30 @@ flowchart TD
 
 ### 1. Stack Item Representation ([`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h))
 
-Because `(` and `)` are factored out of the precedence table entirely, the precedence table requires only **7 terminals** (the operators and the delimiter `$`).
+Because `(` and `)` are factored out of the precedence table entirely, the precedence table requires only the operators, operand symbol, and delimiter `$` (**11 terminals**).
 
-To keep the precedence table compact, operators with identical precedence and associativity (e.g. all 6 relational operators `<`, `<=`, `>`, `>=`, `==`, `!=`) are grouped under a single `TerminalType` (`TERMINAL_REL`). To preserve the exact operation and source coordinates for AST construction without enlarging the precedence table, `Terminal` stores the original `Token`:
+To keep the precedence table compact, operators with identical precedence and associativity are grouped under a shared `TerminalType` (e.g. relational operators `<`, `<=`, `>`, `>=` share `TERMINAL_REL`, and equality operators `==`, `!=` share `TERMINAL_EQUAL`). To preserve the exact operation and source coordinates for AST construction without enlarging the precedence table, `Terminal` stores the original `Token`:
 
 ```c
 typedef enum {
-  // Terminals participating in the precedence table (indices 0 to 6)
+  // Terminals that can be looked up in the precedence table
   TERMINAL_PLUS,    // +
   TERMINAL_MINUS,   // -
   TERMINAL_MUL,     // *
   TERMINAL_DIV,     // /
   TERMINAL_CONCAT,  // ++
-  TERMINAL_REL,     // <, <=, >, >=, ==, !=
-  TERMINAL_DOLLAR,  // $ stack bottom / end of expression delimiter (\n, ;, ,, ), etc.)
-  TERMINAL_COUNT,   // = 7 (dimension of precedence table)
+  TERMINAL_REL,     // <, <=, >, >=
+  TERMINAL_EQUAL,   // ==, !=
+  TERMINAL_AND,     // &&
+  TERMINAL_OR,      // ||
+  TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST
+                    // node)
+  TERMINAL_DOLLAR,  // $ stack bottom / end of expression delimiter
+  TERMINAL_COUNT,   // = 11 (dimension of precedence table)
 
-  // Stack symbols (never looked up in precedence table)
-  TERMINAL_OPERAND, // Evaluated AST node (literal, variable, call, parenthesized expr)
+  // Stack-only symbols (never looked up in table)
   TERMINAL_HANDLE,  // '<' reduction handle marker
-  TERMINAL_INVALID  // Sentinel for syntax errors
+  TERMINAL_INVALID  // sentinel for syntax errors
 } TerminalType;
 
 typedef struct {
@@ -130,14 +134,30 @@ static TerminalType token_to_terminal(TokenType token) {
   case TOKEN_LIST_CONCAT:
     return TERMINAL_CONCAT;
 
-  // Relational operators all share the same precedence level
-  case TOKEN_EQUAL:
-  case TOKEN_NOT_EQUAL:
+  // Relational operators (<, <=, >, >=)
   case TOKEN_LESS:
   case TOKEN_GREATER:
   case TOKEN_LESS_EQUAL:
   case TOKEN_GREATER_EQUAL:
     return TERMINAL_REL;
+
+  // Equality operators (==, !=)
+  case TOKEN_EQUAL:
+  case TOKEN_NOT_EQUAL:
+    return TERMINAL_EQUAL;
+
+  // Logical operators
+  case TOKEN_AND:
+    return TERMINAL_AND;
+  case TOKEN_OR:
+    return TERMINAL_OR;
+
+  // Operands
+  case TOKEN_INT:
+  case TOKEN_DOUBLE:
+  case TOKEN_STRING:
+  case TOKEN_IDENTIFIER:
+    return TERMINAL_OPERAND;
 
   // Delimiters marking the end of an expression -> act as '$'
   case TOKEN_EOF:
@@ -145,7 +165,6 @@ static TerminalType token_to_terminal(TokenType token) {
   case TOKEN_SEMICOLON:
   case TOKEN_COMMA:
   case TOKEN_COLON:
-  case TOKEN_RIGHT_BRACKET:
   case TOKEN_RIGHT_PAREN:  // Ends inner parenthesized expression or call argument!
   case TOKEN_DEDENT:
   case TOKEN_KW_THEN:
@@ -318,34 +337,44 @@ if (status != PARSER_OK) {
 
 ---
 
-### 4. Compact 7x7 Precedence Table ([`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c))
+### 4. Compact 11x11 Precedence Table ([`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c))
 
 Operator precedence hierarchy (from highest to lowest):
 1. Multiplicative: `*`, `/` (Left-associative)
 2. Additive: `+`, `-` (Left-associative)
 3. Concatenation: `++` (Right-associative: `a ++ b ++ c` $\to$ `a ++ (b ++ c)`)
-4. Relational: `<`, `<=`, `>`, `>=`, `==`, `!=` (Non-associative: `a < b < c` is a syntax error)
-5. Delimiter: `$` (Stack bottom / end of expression)
+4. Relational: `<`, `<=`, `>`, `>=` (Non-associative: `a < b < c` is a syntax error)
+5. Equality: `==`, `!=` (Non-associative: `a == b == c` is a syntax error)
+6. Logical AND: `&&` (Left-associative)
+7. Logical OR: `||` (Left-associative)
+8. Operand: `i` (`TERMINAL_OPERAND`, stack-managed / invalid when expecting operator)
+9. Delimiter: `$` (Stack bottom / end of expression)
 
-The resulting table is **7 $\times$ 7**:
+The resulting table is **11 $\times$ 11** (`TERMINAL_COUNT` $\times$ `TERMINAL_COUNT`):
 
 ```c
 #define T PREC_TAKE    // '<' (shift operator)
 #define R PREC_REDUCE  // '>' (reduce handle)
+#define E PREC_EQUAL   // '=' (handle equivalence)
 #define I PREC_INVALID // ' ' (syntax error / acceptance)
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-/* Stack \ Input:  +   -   *   /  ++  rel  $  */
-/* +       */   {  R,  R,  T,  T,  R,  R,  R  },
-/* -       */   {  R,  R,  T,  T,  R,  R,  R  },
-/* *       */   {  R,  R,  R,  R,  R,  R,  R  },
-/* /       */   {  R,  R,  R,  R,  R,  R,  R  },
-/* ++      */   {  T,  T,  T,  T,  T,  R,  R  },
-/* rel     */   {  T,  T,  T,  T,  T,  I,  R  },
-/* $       */   {  T,  T,  T,  T,  T,  T,  I  },
+    /* Stack \ Input: +  -  *  /  ++ <= == && || i  $  */
+    /* +          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* -          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* *          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* /          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ++         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* i          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* $          */ {I, I, I, I, I, I, I, I, I, I, I},
 };
 #undef T
 #undef R
+#undef E
 #undef I
 ```
 
@@ -658,7 +687,7 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
 | Phase | Description | Files |
 | :--- | :--- | :--- |
 | **Phase 1: Atomic `p_operand`** | Keep `p_operand` atomic; verify it handles literals, variables, calls, and if-expressions without `local_indent` | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
-| **Phase 2: Precedence Table & Terminals** | Define 7 table terminals + stack symbols in `psa.h`; update `token_to_terminal` and 7x7 `precedence_table` | [`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h), [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
+| **Phase 2: Precedence Table & Terminals** | Define 11 table terminals + stack symbols in `psa.h`; update `token_to_terminal` and 11x11 `precedence_table` | [`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h), [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
 | **Phase 3: Stack Helpers & Reducer** | Implement `stack_get_top_terminal`, `stack_insert_handle_after_top_terminal`, and binary `psa_reduce` | [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
 | **Phase 4: Main Loop in `p_expression`** | Implement `p_expression` main loop with nested `(` dispatch, indentation reset, and acceptance | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
 | **Phase 5: Tests** | Add unit tests for `1 + 2 * 3`, `(1 + 2) * 3`, nested `((1 + 2) * (3 + 4))`, multiline indentation within parens, and syntax errors | `tests/psa_test.cc` |
