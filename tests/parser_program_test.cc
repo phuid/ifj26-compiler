@@ -82,3 +82,80 @@ TEST(ParserProgramTest, UninitializedProgramIsRejected) {
   program.initialized = true;
   program_destroy(&program);
 }
+
+/*
+ * AI-generated test block — @main function rules.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Add whole-program parser tests for the @main function in the same style
+ *   as the tests above. P4: a @main `def main(): Unit = return`, preceded by
+ *   a helper function and with blank lines between @main and def, parses with
+ *   PARSER_OK; function_table_lookup finds main with is_main, is_defined and
+ *   has_explicit_return_type set, return type TYPE_UNIT and no arguments.
+ *   P5: two functions annotated with @main (main and other) give
+ *   PARSER_SEMANTIC_ERROR. P6: a @main function with a typed parameter gives
+ *   PARSER_SEMANTIC_ERROR. Check function_count in every test and use own
+ *   names, types and counts instead of the smallest possible input.
+ */
+TEST(ParserProgramTest, MainWithUnitReturnTypeIsAccepted) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "def print_total(total: Double): Unit =\n"
+                       "  return\n"
+                       "\n"
+                       "@main\n"
+                       "\n"
+                       "\n"
+                       "def main(): Unit =\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_OK);
+  EXPECT_EQ(program.functions.function_count, 2U);
+
+  FunctionSymbol *main_function =
+      function_table_lookup(&program.functions, "main");
+  ASSERT_NE(main_function, nullptr);
+  EXPECT_TRUE(main_function->is_main);
+  EXPECT_TRUE(main_function->is_defined);
+  EXPECT_TRUE(main_function->has_explicit_return_type);
+  EXPECT_EQ(main_function->return_type.type, TYPE_UNIT);
+  EXPECT_EQ(main_function->argument_count, 0U);
+
+  FunctionSymbol *helper =
+      function_table_lookup(&program.functions, "print_total");
+  ASSERT_NE(helper, nullptr);
+  EXPECT_FALSE(helper->is_main);
+
+  program_destroy(&program);
+}
+
+TEST(ParserProgramTest, SecondMainIsSemanticError) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "@main\n"
+                       "def main(): Unit =\n"
+                       "  return\n"
+                       "\n"
+                       "@main\n"
+                       "def other(): Unit =\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(program.functions.function_count, 1U);
+  EXPECT_EQ(function_table_lookup(&program.functions, "other"), nullptr);
+
+  program_destroy(&program);
+}
+
+TEST(ParserProgramTest, MainWithParameterIsSemanticError) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "@main\n"
+                       "def main(count: Int, label: String): Unit =\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(program.functions.function_count, 1U);
+
+  program_destroy(&program);
+}
