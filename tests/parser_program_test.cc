@@ -227,3 +227,62 @@ TEST(ParserProgramTest, DuplicateParameterIsSemanticError) {
 
   program_destroy(&program);
 }
+
+/*
+ * AI-generated test block — expressions not yet supported by the parser.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Add two whole-program parser tests for expressions in the same style as
+ *   the tests above and keep both DISABLED_ with a short comment explaining
+ *   why. P10: `def f(): Unit =\n  val a = 1\n  return\n` parses with
+ *   PARSER_OK and symbol_table_lookup_local(f->local_scope, "a") returns a
+ *   symbol of type TYPE_INT with constant set; today it returns
+ *   PARSER_INTERNAL_ERROR. P11: `def f() =\n  1\n` parses with PARSER_OK and
+ *   f->ast_root is not null; today it crashes the process. Use own names
+ *   and values instead of the smallest possible input.
+ */
+
+// Disabled: p_expression is not implemented yet, so the parser returns
+// PARSER_INTERNAL_ERROR for a `val` initializer. Enable once it lands.
+TEST(ParserProgramTest, DISABLED_ValInitializerInfersIntConstant) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "def setup_limits(): Unit =\n"
+                       "  val max_retries = 42\n"
+                       "  return\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_OK);
+  EXPECT_EQ(program.functions.function_count, 1U);
+
+  FunctionSymbol *function =
+      function_table_lookup(&program.functions, "setup_limits");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->local_scope, nullptr);
+  Symbol *symbol =
+      symbol_table_lookup_local(function->local_scope, "max_retries");
+  ASSERT_NE(symbol, nullptr);
+  EXPECT_EQ(symbol->type.type, TYPE_INT);
+  EXPECT_TRUE(symbol->constant);
+
+  program_destroy(&program);
+}
+
+// Disabled: a literal as the last expression of a function body crashes the
+// process (segmentation fault) because expressions are not parsed yet.
+// Enable once p_expression is implemented.
+TEST(ParserProgramTest, DISABLED_LiteralAsLastExpressionParses) {
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+
+  const char *source = "def answer() =\n"
+                       "  2026\n";
+  EXPECT_EQ(parse_text(source, &program), PARSER_OK);
+  EXPECT_EQ(program.functions.function_count, 1U);
+
+  FunctionSymbol *function =
+      function_table_lookup(&program.functions, "answer");
+  ASSERT_NE(function, nullptr);
+  EXPECT_NE(function->ast_root, nullptr);
+
+  program_destroy(&program);
+}
