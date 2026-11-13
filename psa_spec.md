@@ -2,42 +2,40 @@
 
 This document specifies the complete architecture and implementation plan for the bottom-up operator precedence parser across [psa.h](file:///home/edword/ifj26-compiler/src/psa.h), [psa.c](file:///home/edword/ifj26-compiler/src/psa.c), and [parser.c](file:///home/edword/ifj26-compiler/src/parser.c).
 
-Under this design, **nested parentheses are handled directly within [`p_expression`](file:///home/edword/ifj26-compiler/src/parser.c#L621)** whenever an opening parenthesis `(` is encountered during operand intake. [`p_operand`](file:///home/edword/ifj26-compiler/src/parser.c#L514) is kept strictly atomic (handling literals, variable references, function calls, and if-expressions), completely freeing it from indentation tracking and layout tokens.
+Under this design, **all subexpressions and primary operands are parsed by [`p_operand`](file:///home/edword/ifj26-compiler/src/parser.c#L519)**, which also handles parenthesized subexpressions `(expr)` and unit literals `()`. Unary prefix operators (`-`, `+`, `!`) are checked in [`p_expression`](file:///home/edword/ifj26-compiler/src/parser.c#L643) when expecting an operand, and are immediately followed by an operand intake via `p_operand`.
 
 ---
 
 ### High-Level Architecture Overview & Rationale
 
-#### 1. Why Nested Parentheses Belong in `p_expression`, Not `p_operand`
-* **Clean Abstraction in [`p_operand`](file:///home/edword/ifj26-compiler/src/parser.c#L514)**:
-  `p_operand` is responsible exclusively for leaf/primary operands: literals (`Int`, `Double`, `String`), variable references, function calls, and `if` expressions.
-  Function calls already manage their own argument list parentheses internally (`p_call_args`).
-  Therefore, by removing parenthesized expressions from `p_operand`, `p_operand` never needs `local_indent` or `consume_newlines_indents` passed to it, and never encounters multiline layout tokens (`TOKEN_NEWLINE`, `TOKEN_INDENT`, `TOKEN_DEDENT`).
-* **Indentation Belongs to the Parenthesis Scope in [`p_expression`](file:///home/edword/ifj26-compiler/src/parser.c#L621)**:
-  `p_expression` already takes `bool consume_newlines_indents` and `ptrdiff_t *local_indent`.
-  According to the language layout rules, lines inside parentheses must be indented deeper than the line with the opening parenthesis, and **nested parentheses must track their indentation separately**:
-  ```scala
-  if ( (bool) &&
-          ( bool
-            ) // valid code: indent in nested parentheses is tracked independently
-    ) then statement;
-  ```
-  When `(` is encountered in `p_expression`, it spins up a fresh `ptrdiff_t nested_indent = 0`, parses the sub-expression recursively via `p_expression(..., true, &nested_indent)`, resets indentation via `lexer_change_current_indent(lexer, (-1) * nested_indent)`, and consumes `)`.
-* **Zero Parenthesis Overhead in Precedence Table**:
-  Neither `(` nor `)` exist in the operator precedence table.
-  To the inner `p_expression`, `)` acts as `TERMINAL_DOLLAR` (an expression boundary).
-  To the outer `p_expression`, the entire parenthesized expression `( ... )` enters the precedence stack directly as an evaluated `TERMINAL_OPERAND`.
+#### 1. Why Subexpressions and Unit Literals Belong in `p_operand`
+* **Unified Operand Parsing**:
+  `p_operand` is responsible for parsing any primary operand: literals (`Int`, `Double`, `String`, `Boolean`, and `Unit` `()`), variable references, function calls, `if` expressions, and parenthesized subexpressions `(expr)`.
+* **Clean Handling of Unit Literal `()` vs `(expr)`**:
+  The unit literal in IFJ26 is defined as `()`. When `p_operand` encounters `(`, it consumes `(` and inspects the immediate next token:
+  - If it is `)`, it consumes `)` and returns a node created via `ast_node_create_unit(line, column)`.
+  - If it is not `)`, it establishes a nested indentation scope and recursively calls `p_expression(..., true, &nested_indent)`.
+* **Simplifying Unary Operators (`-`, `+`, `!`)**:
+  By having `p_operand` handle both atomic operands and parenthesized subexpressions, unary prefix operators (`-`, `+`, `!`) can simply delegate to `p_operand` to parse their target (e.g. `-5` or `-(a + b)`), without needing duplicate subexpression dispatch logic.
+* **Parameter Passing to `p_operand`**:
+  Because `p_operand` manages parenthesized subexpressions and multiline layout, it accepts `bool consume_newlines_indents` and `ptrdiff_t *local_indent` just like other parser subroutines.
 
 #### 2. The State Alternation Model (`expecting_operand`)
 Expressions strictly alternate between operands and operators:
 1. `expecting_operand == true`:
-   The next token must be an operand. If it is `(`, `p_expression` handles the nested sub-expression directly. Otherwise, `p_operand` parses the atomic token. The resulting AST node is pushed onto the stack as `TERMINAL_OPERAND`, and the state switches to `expecting_operand = false`.
-   Any unexpected token (such as a bare operator or delimiter) produces an immediate syntax error.
+   - Consume leading newlines/indents if `consume_newlines_indents` is enabled.
+   - Check for unary prefix operators (`-`, `+`, `!`): if present, consume the operator token and consume any following newlines. Right after, an operand must follow.
+   - Call `p_operand(lexer, program, scope, &operand_node, consume_newlines_indents, local_indent)`.
+   - If a unary operator was present, wrap `operand_node` with the appropriate unary node (e.g. `ast_node_create_not` for `!`, or unary minus).
+   - Push the resulting AST node onto the stack as `TERMINAL_OPERAND`, and transition to `expecting_operand = false`.
+   - Any unexpected token (such as a bare binary operator or delimiter without an operand) produces an immediate syntax error.
 2. `expecting_operand == false`:
-   The next token must be an operator or delimiter. We inspect the top terminal on the stack (skipping `TERMINAL_OPERAND` and `TERMINAL_HANDLE`) and compare it against the input terminal in the precedence table:
-   * **Accept**: Top is `$` and Input is `$`. The expression is complete.
-   * **Shift (`<`)**: Insert `<` handle after the top terminal, push the operator terminal, advance the lexer, and transition back to `expecting_operand = true`.
-   * **Reduce (`>`)**: Invoke `psa_reduce`, which pops `< left op right`, constructs a binary `ASTNode`, pushes the resulting `TERMINAL_OPERAND`, and stays in `expecting_operand = false` (lexer is not advanced).
+   - The next token must be an operator or delimiter.
+   - Incoming tokens are converted via `token_to_terminal(lexer->token.type)`. Tokens that start operands return `TERMINAL_INVALID`, immediately triggering a syntax error on consecutive operands (e.g. `1 2` or `x y`).
+   - We inspect the top terminal on the stack (skipping `TERMINAL_OPERAND` and `TERMINAL_HANDLE` via `stack_get_top_terminal`) and compare it against the input terminal in the 10x10 precedence table:
+     * **Accept**: Top is `$` and Input is `$`. The expression is complete.
+     * **Shift (`<`)**: Insert `<` handle after the top terminal, push the operator terminal, advance the lexer, and transition back to `expecting_operand = true`.
+     * **Reduce (`>`)**: Invoke `psa_reduce`, which pops `< left op right`, constructs a binary `ASTNode`, pushes the resulting `TERMINAL_OPERAND`, and stays in `expecting_operand = false` (lexer is not advanced).
 
 ```mermaid
 flowchart TD
@@ -45,19 +43,22 @@ flowchart TD
     InitStack --> StateOp["State: expecting_operand = true"]
 
     StateOp --> ConsumeNewlinesOp["If consume_newlines_indents:<br/>parser_consume_newlines(local_indent)"]
-    ConsumeNewlinesOp --> CheckParen{"Token is '(' ?"}
+    ConsumeNewlinesOp --> CheckUnary{"Token is unary<br/>'-', '+', or '!' ?"}
 
-    CheckParen -- Yes --> NestedParen["Nested Parentheses in p_expression:<br/>1. parser_expect_and_consume('(')<br/>2. nested_indent = 0<br/>3. parser_consume_newlines(&nested_indent)<br/>4. Recurse: p_expression(..., true, &nested_indent)<br/>5. parser_consume_newlines(&nested_indent)<br/>6. lexer_change_current_indent(-nested_indent)<br/>7. parser_expect_and_consume(')')"]
-    CheckParen -- No --> AtomicOp["Call p_operand(lexer, program, scope, &node)<br/>(literals, variables, function calls, if-exprs)"]
+    CheckUnary -- Yes --> ConsumeUnary["Record unary op<br/>parser_advance(lexer)<br/>parser_consume_newlines(local_indent)"]
+    CheckUnary -- No --> CallOperand["Call p_operand(lexer, program, scope, &node, ...)<br/>(literals, variables, calls, if, unit '()', or parens)"]
+    ConsumeUnary --> CallOperand
 
-    NestedParen --> PushOperand["Push (Terminal){.type = TERMINAL_OPERAND, .node = result}<br/>expecting_operand = false"]
-    AtomicOp --> PushOperand
+    CallOperand --> WrapUnary{"Unary op was present?"}
+    WrapUnary -- Yes --> ApplyUnary["Wrap node: ast_node_create_not or unary minus"]
+    WrapUnary -- No --> PushOperand["Push (Terminal){.type = TERMINAL_OPERAND, .node = result}<br/>expecting_operand = false"]
+    ApplyUnary --> PushOperand
 
     PushOperand --> StateAfterOp["State: expecting_operand = false"]
     StateAfterOp --> ConsumeNewlinesAfter["If consume_newlines_indents:<br/>parser_consume_newlines(local_indent)"]
 
     ConsumeNewlinesAfter --> TopTerm["Get top terminal from stack<br/>(skip TERMINAL_OPERAND and TERMINAL_HANDLE)"]
-    TopTerm --> InputTerm["input_terminal = token_to_terminal(lexer->token.type)"]
+    TopTerm --> InputTerm["input_terminal = token_to_terminal(lexer->token.type)<br/>(Operand tokens return TERMINAL_INVALID)"]
     InputTerm --> CheckFinish{"Top is $ AND Input is $?"}
 
     CheckFinish -- Yes --> Success["Accept: Stack has [$ OPERAND]<br/>*return_node = stack.data[1].node<br/>Return PARSER_OK"]
@@ -75,28 +76,27 @@ flowchart TD
 
 ### 1. Stack Item Representation ([`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h))
 
-Because `(` and `)` are factored out of the precedence table entirely, the precedence table requires only the operators, operand symbol, and delimiter `$` (**11 terminals**).
+Because `(` and `)` are factored out of the precedence table entirely, and because `TERMINAL_OPERAND` is never compared to any terminal (operands enter the stack evaluated and `stack_get_top_terminal` skips them), the precedence table requires only the 9 operator categories and delimiter `$` (**10 terminals**).
 
 To keep the precedence table compact, operators with identical precedence and associativity are grouped under a shared `TerminalType` (e.g. relational operators `<`, `<=`, `>`, `>=` share `TERMINAL_REL`, and equality operators `==`, `!=` share `TERMINAL_EQUAL`). To preserve the exact operation and source coordinates for AST construction without enlarging the precedence table, `Terminal` stores the original `Token`:
 
 ```c
 typedef enum {
   // Terminals that can be looked up in the precedence table
-  TERMINAL_PLUS,    // +
-  TERMINAL_MINUS,   // -
-  TERMINAL_MUL,     // *
-  TERMINAL_DIV,     // /
-  TERMINAL_CONCAT,  // ++
-  TERMINAL_REL,     // <, <=, >, >=
-  TERMINAL_EQUAL,   // ==, !=
-  TERMINAL_AND,     // &&
-  TERMINAL_OR,      // ||
-  TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST
-                    // node)
-  TERMINAL_DOLLAR,  // $ stack bottom / end of expression delimiter
-  TERMINAL_COUNT,   // = 11 (dimension of precedence table)
+  TERMINAL_PLUS,   // +
+  TERMINAL_MINUS,  // -
+  TERMINAL_MUL,    // *
+  TERMINAL_DIV,    // /
+  TERMINAL_CONCAT, // ++
+  TERMINAL_REL,    // <, <=, >, >=
+  TERMINAL_EQUAL,  // ==, !=
+  TERMINAL_AND,    // &&
+  TERMINAL_OR,     // ||
+  TERMINAL_DOLLAR, // $ stack bottom / end of expression delimiter
+  TERMINAL_COUNT,  // = 10 (dimension of precedence table)
 
   // Stack-only symbols (never looked up in table)
+  TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST node)
   TERMINAL_HANDLE,  // '<' reduction handle marker
   TERMINAL_INVALID  // sentinel for syntax errors
 } TerminalType;
@@ -118,7 +118,9 @@ typedef struct {
 
 ### 2. Token Mapping in `token_to_terminal` ([`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c))
 
-When the parser is in `expecting_operand == false`, incoming tokens are mapped to their operator terminal or `TERMINAL_DOLLAR`. Operands and `TOKEN_LEFT_PAREN` map to `TERMINAL_INVALID` in this state, preventing consecutive operand errors (e.g. `1 2` or `x ( y )`).
+When the parser is in `expecting_operand == false`, incoming tokens are mapped to their operator terminal or `TERMINAL_DOLLAR`. `token_to_terminal` is **only** called in this state.
+
+Tokens with which operands start (`TOKEN_INT`, `TOKEN_DOUBLE`, `TOKEN_STRING`, `TOKEN_IDENTIFIER`, `TOKEN_KW_TRUE`, `TOKEN_KW_FALSE`, `TOKEN_LEFT_PAREN`, etc.) are omitted from the mapping and fall through to `default: return TERMINAL_INVALID;`. This guarantees that consecutive operands (e.g. `1 2`, `x y`, or `a ( b )`) immediately trigger a syntax error (`PARSER_SYNTAX_ERROR`).
 
 ```c
 static TerminalType token_to_terminal(TokenType token) {
@@ -152,13 +154,6 @@ static TerminalType token_to_terminal(TokenType token) {
   case TOKEN_OR:
     return TERMINAL_OR;
 
-  // Operands
-  case TOKEN_INT:
-  case TOKEN_DOUBLE:
-  case TOKEN_STRING:
-  case TOKEN_IDENTIFIER:
-    return TERMINAL_OPERAND;
-
   // Delimiters marking the end of an expression -> act as '$'
   case TOKEN_EOF:
   case TOKEN_NEWLINE:
@@ -173,6 +168,9 @@ static TerminalType token_to_terminal(TokenType token) {
     return TERMINAL_DOLLAR;
 
   default:
+    // This applies to tokens with which operands start (literals, identifiers,
+    // left paren, keywords), since they are not operators and are invalid when
+    // expecting an operator.
     return TERMINAL_INVALID;
   }
 }
@@ -180,18 +178,23 @@ static TerminalType token_to_terminal(TokenType token) {
 
 ---
 
-### 3. Separation of Concerns: Clean `p_operand` vs Nested Parentheses in `p_expression`
+### 3. Unified Operand Parsing in `p_operand` ([`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c#L519))
 
-#### Clean `p_operand` ([`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c#L514))
-[`p_operand`](file:///home/edword/ifj26-compiler/src/parser.c#L514) does not accept `local_indent` or `consume_newlines_indents`. It only parses atomic operands:
+[`p_operand`](file:///home/edword/ifj26-compiler/src/parser.c#L519) receives `consume_newlines_indents` and `local_indent`. It parses all primary operands, including literals, variable references, function calls, `if`-expressions, the unit literal `()`, and parenthesized subexpressions `(expr)`:
 
 ```c
 static ParserStatus p_operand(Lexer *lexer, Program *program,
-                              SymbolTable *scope, ASTNode **return_node) {
+                              SymbolTable *scope, ASTNode **return_node,
+                              bool consume_newlines_indents,
+                              ptrdiff_t *local_indent) {
   if (lexer == NULL || program == NULL || scope == NULL || return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
+  if (consume_newlines_indents && local_indent == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
 
+  ParserStatus status;
   switch (lexer->token.type) {
   case TOKEN_INT:
     *return_node = ast_node_create_int(lexer->token.value.int_value,
@@ -208,12 +211,79 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
                                           lexer->token.line, lexer->token.column);
     return (*return_node != NULL) ? parser_advance(lexer) : PARSER_INTERNAL_ERROR;
 
+  case TOKEN_KW_TRUE:
+    *return_node = ast_node_create_bool(true, lexer->token.line, lexer->token.column);
+    return (*return_node != NULL) ? parser_advance(lexer) : PARSER_INTERNAL_ERROR;
+
+  case TOKEN_KW_FALSE:
+    *return_node = ast_node_create_bool(false, lexer->token.line, lexer->token.column);
+    return (*return_node != NULL) ? parser_advance(lexer) : PARSER_INTERNAL_ERROR;
+
+  case TOKEN_LEFT_PAREN: {
+    size_t paren_line = lexer->token.line;
+    size_t paren_column = lexer->token.column;
+
+    // 1. Consume '('
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    // 2. Check for unit literal: immediate ')' after '(' -> ()
+    if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+      *return_node = ast_node_create_unit(paren_line, paren_column);
+      if (*return_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+      return parser_advance(lexer); // consume ')'
+    }
+
+    // 3. Otherwise, parse parenthesized subexpression with isolated indentation scope
+    ptrdiff_t nested_indent = 0;
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    status = p_expression(lexer, program, scope, return_node, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    if (*return_node == NULL) {
+      return PARSER_SYNTAX_ERROR;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_status_from_lexer(
+        lexer_change_current_indent(lexer, (-1) * nested_indent));
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    return PARSER_OK;
+  }
+
   case TOKEN_IDENTIFIER: {
     char *name = lexer->token.value.string_value;
     size_t line = lexer->token.line;
     size_t column = lexer->token.column;
 
-    ParserStatus status = parser_advance(lexer);
+    status = parser_advance(lexer);
     if (status != PARSER_OK) {
       return status;
     }
@@ -269,75 +339,9 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
 }
 ```
 
-#### Nested Parentheses in `p_expression` ([`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c#L621))
-When `lexer->token.type == TOKEN_LEFT_PAREN` in `expecting_operand`:
-```c
-// 1. Consume '('
-status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
-if (status != PARSER_OK) {
-  terminal_stack_destroy(&stack);
-  return status;
-}
-
-// 2. Parentheses manage their own separate indentation tracking
-ptrdiff_t nested_indent = 0;
-status = parser_consume_newlines(lexer, false, true, &nested_indent);
-if (status != PARSER_OK) {
-  terminal_stack_destroy(&stack);
-  return status;
-}
-
-// 3. Recursively parse inner expression
-ASTNode *inner_node = NULL;
-status = p_expression(lexer, program, scope, &inner_node, true, &nested_indent);
-if (status != PARSER_OK) {
-  terminal_stack_destroy(&stack);
-  return status;
-}
-if (inner_node == NULL) {
-  // Empty parentheses `()` are invalid syntax
-  terminal_stack_destroy(&stack);
-  return PARSER_SYNTAX_ERROR;
-}
-
-// 4. Consume any trailing newlines/indents before ')'
-status = parser_consume_newlines(lexer, false, true, &nested_indent);
-if (status != PARSER_OK) {
-  ast_node_destroy(inner_node);
-  terminal_stack_destroy(&stack);
-  return status;
-}
-
-// 5. Reset indentation delta to the level before '('
-status = parser_status_from_lexer(
-    lexer_change_current_indent(lexer, (-1) * nested_indent));
-if (status != PARSER_OK) {
-  ast_node_destroy(inner_node);
-  terminal_stack_destroy(&stack);
-  return status;
-}
-
-// 6. Consume matching ')'
-status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
-if (status != PARSER_OK) {
-  ast_node_destroy(inner_node);
-  terminal_stack_destroy(&stack);
-  return status;
-}
-
-// 7. Push evaluated inner node as TERMINAL_OPERAND onto stack
-Terminal op_term = {.type = TERMINAL_OPERAND, .token = (Token){.type = TOKEN_INVALID}, .node = inner_node};
-status = terminal_stack_push(&stack, op_term);
-if (status != PARSER_OK) {
-  ast_node_destroy(inner_node);
-  terminal_stack_destroy(&stack);
-  return status;
-}
-```
-
 ---
 
-### 4. Compact 11x11 Precedence Table ([`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c))
+### 4. Compact 10x10 Precedence Table ([`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c))
 
 Operator precedence hierarchy (from highest to lowest):
 1. Multiplicative: `*`, `/` (Left-associative)
@@ -347,10 +351,13 @@ Operator precedence hierarchy (from highest to lowest):
 5. Equality: `==`, `!=` (Non-associative: `a == b == c` is a syntax error)
 6. Logical AND: `&&` (Left-associative)
 7. Logical OR: `||` (Left-associative)
-8. Operand: `i` (`TERMINAL_OPERAND`, stack-managed / invalid when expecting operator)
-9. Delimiter: `$` (Stack bottom / end of expression)
+8. Delimiter: `$` (Stack bottom / end of expression)
 
-The resulting table is **11 $\times$ 11** (`TERMINAL_COUNT` $\times$ `TERMINAL_COUNT`):
+> [!NOTE]
+> `TERMINAL_OPERAND` was removed from the precedence table because operands are never looked up against any terminal:
+> - `stack_get_top_terminal` explicitly walks past `TERMINAL_OPERAND` and `TERMINAL_HANDLE` to retrieve the topmost operator or `$`.
+> - The input token in `expecting_operand == false` is converted via `token_to_terminal`, which only produces operator terminals or `$` (operands return `TERMINAL_INVALID`).
+> Thus, removing `TERMINAL_OPERAND` eliminates an unused row and column, making the table strictly **10 $\times$ 10** (`TERMINAL_COUNT` $\times$ `TERMINAL_COUNT`).
 
 ```c
 #define T PREC_TAKE    // '<' (shift operator)
@@ -359,18 +366,17 @@ The resulting table is **11 $\times$ 11** (`TERMINAL_COUNT` $\times$ `TERMINAL_C
 #define I PREC_INVALID // ' ' (syntax error / acceptance)
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-    /* Stack \ Input: +  -  *  /  ++ <= == && || i  $  */
-    /* +          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* -          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* *          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* /          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ++         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* i          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* $          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* Stack \ Input: +  -  *  /  ++ <= == && || $  */
+    /* +          */ {I, I, I, I, I, I, I, I, I, I},
+    /* -          */ {I, I, I, I, I, I, I, I, I, I},
+    /* *          */ {I, I, I, I, I, I, I, I, I, I},
+    /* /          */ {I, I, I, I, I, I, I, I, I, I},
+    /* ++         */ {I, I, I, I, I, I, I, I, I, I},
+    /* <=         */ {I, I, I, I, I, I, I, I, I, I},
+    /* ==         */ {I, I, I, I, I, I, I, I, I, I},
+    /* &&         */ {I, I, I, I, I, I, I, I, I, I},
+    /* ||         */ {I, I, I, I, I, I, I, I, I, I},
+    /* $          */ {I, I, I, I, I, I, I, I, I, I},
 };
 #undef T
 #undef R
@@ -384,35 +390,39 @@ static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
 
 Because operands are directly pushed onto the stack as `TERMINAL_OPERAND` and `<` handles are only inserted when shifting operators, `psa_reduce` only ever needs to handle **one single reduction rule**: `< OPERAND op OPERAND`.
 
-By inspecting `op.token.type`, `create_binary_node` distinguishes the exact operation (distinguishing all relational operators, concatenation, etc.) and retrieves exact source coordinates (`op.token.line`, `op.token.column`) without enlarging the precedence table with separate rows/columns for each operator.
+For cleaner error propagation, mapping the operator token to its AST kind is separated into `token_to_binary_op`:
+- If `token_to_binary_op` encounters an unexpected token, it returns `PSA_INVALID_ARGUMENT`, allowing `psa_reduce` to produce `PSA_SYNTAX_ERROR` (or `PARSER_SYNTAX_ERROR`).
+- If `ast_node_create_binary_op` fails (due to memory allocation failure), `psa_reduce` produces `PSA_INTERNAL_ERROR` (or `PARSER_INTERNAL_ERROR`).
+
+> [!TIP]
+> **Binary Op Guards in [`src/ast.c`](file:///home/edword/ifj26-compiler/src/ast.c#L318-L335)**:
+> [`ast_node_create_binary_op`](file:///home/edword/ifj26-compiler/src/ast.c#L309) guards valid binary kinds via a `switch` that includes all arithmetic, relational, equality, concatenation, and logical operators (`AST_ADD` through `AST_OR`), fully matching all kinds produced by `token_to_binary_op`.
 
 ```c
-static ASTNode *create_binary_node(Terminal op, ASTNode *left, ASTNode *right) {
-  ASTNodeKind kind;
-  switch (op.token.type) {
-  case TOKEN_PLUS:          kind = AST_ADD; break;
-  case TOKEN_MINUS:         kind = AST_SUBTRACT; break;
-  case TOKEN_MULTIPLY:      kind = AST_MULTIPLY; break;
-  case TOKEN_DIVIDE:        kind = AST_DIVIDE; break;
-  case TOKEN_LIST_CONCAT:   kind = AST_CONCAT; break;
-  case TOKEN_EQUAL:         kind = AST_EQUAL; break;
-  case TOKEN_NOT_EQUAL:     kind = AST_NOT_EQUAL; break;
-  case TOKEN_LESS:          kind = AST_LESS; break;
-  case TOKEN_LESS_EQUAL:    kind = AST_LESS_EQUAL; break;
-  case TOKEN_GREATER:       kind = AST_GREATER; break;
-  case TOKEN_GREATER_EQUAL: kind = AST_GREATER_EQUAL; break;
-  case TOKEN_AND:           kind = AST_AND; break;
-  case TOKEN_OR:            kind = AST_OR; break;
+PsaStatus token_to_binary_op(TokenType token_type, ASTNodeKind *return_kind) {
+  switch (token_type) {
+  case TOKEN_PLUS:          *return_kind = AST_ADD;           return PSA_OK;
+  case TOKEN_MINUS:         *return_kind = AST_SUBTRACT;      return PSA_OK;
+  case TOKEN_MULTIPLY:      *return_kind = AST_MULTIPLY;      return PSA_OK;
+  case TOKEN_DIVIDE:        *return_kind = AST_DIVIDE;        return PSA_OK;
+  case TOKEN_LIST_CONCAT:   *return_kind = AST_CONCAT;        return PSA_OK;
+  case TOKEN_EQUAL:         *return_kind = AST_EQUAL;         return PSA_OK;
+  case TOKEN_NOT_EQUAL:     *return_kind = AST_NOT_EQUAL;     return PSA_OK;
+  case TOKEN_LESS:          *return_kind = AST_LESS;          return PSA_OK;
+  case TOKEN_LESS_EQUAL:    *return_kind = AST_LESS_EQUAL;    return PSA_OK;
+  case TOKEN_GREATER:       *return_kind = AST_GREATER;       return PSA_OK;
+  case TOKEN_GREATER_EQUAL: *return_kind = AST_GREATER_EQUAL; return PSA_OK;
+  case TOKEN_AND:           *return_kind = AST_AND;           return PSA_OK;
+  case TOKEN_OR:            *return_kind = AST_OR;            return PSA_OK;
   default:
-    return NULL;
+    return PSA_INVALID_ARGUMENT;
   }
-  return ast_node_create_binary_op(kind, left, right, op.token.line, op.token.column);
 }
 
-static ParserStatus psa_reduce(TerminalStack *stack) {
+static PsaStatus psa_reduce(TerminalStack *stack) {
   // Reduction pattern must be exactly 4 items: '<' OPERAND op OPERAND
   if (stack->size < 4U) {
-    return PARSER_SYNTAX_ERROR;
+    return PSA_SYNTAX_ERROR;
   }
 
   size_t top_idx = stack->size - 1U;
@@ -423,13 +433,20 @@ static ParserStatus psa_reduce(TerminalStack *stack) {
 
   if (handle.type != TERMINAL_HANDLE ||
       left.type != TERMINAL_OPERAND ||
+      op.type == TERMINAL_OPERAND ||
       right.type != TERMINAL_OPERAND) {
-    return PARSER_SYNTAX_ERROR;
+    return PSA_SYNTAX_ERROR;
   }
 
-  ASTNode *bin_node = create_binary_node(op, left.node, right.node);
+  ASTNodeKind op_kind;
+  if (token_to_binary_op(op.token.type, &op_kind) != PSA_OK) {
+    return PSA_SYNTAX_ERROR;
+  }
+
+  ASTNode *bin_node = ast_node_create_binary_op(op_kind, left.node, right.node,
+                                                op.token.line, op.token.column);
   if (bin_node == NULL) {
-    return PARSER_INTERNAL_ERROR;
+    return PSA_INTERNAL_ERROR;
   }
 
   // Pop '<', left, op, right (4 items)
@@ -462,6 +479,12 @@ static ParserStatus psa_reduce(TerminalStack *stack) {
 ### 7. Complete `p_expression` Main Loop Specification ([`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c#L621))
 
 Below is the complete implementation of [`p_expression`](file:///home/edword/ifj26-compiler/src/parser.c#L621):
+
+> [!NOTE]
+> **Unary Operators in AST**:
+> - **Logical NOT (`!`)**: Constructed via [`ast_node_create_not`](file:///home/edword/ifj26-compiler/src/ast.h#L301) (`AST_NOT`), using `node->data.unary_op.operand`.
+> - **Unary Minus (`-`)**: Desugared directly as binary subtraction: [`ast_node_create_binary_op`](file:///home/edword/ifj26-compiler/src/ast.h#L289)(`AST_SUBTRACT`, `left: ast_node_create_int(0)`, `right: operand`). This avoids adding a dedicated `AST_UNARY_MINUS` node kind and seamlessly reuses binary arithmetic evaluation.
+> - **Unary Plus (`+`)**: Arithmetic identity ($+x = x$), returning `operand_node` directly without a wrapper.
 
 ```c
 // Helper to safely clean up all AST nodes remaining on stack on syntax/internal errors
@@ -514,79 +537,81 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
         }
       }
 
-      // 2. Dispatch operand: nested '(' expr ')' OR atomic operand via p_operand
-      if (lexer->token.type == TOKEN_LEFT_PAREN) {
-        // --- Nested Parenthesized Expression ---
-        status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+      // 2. Check for unary prefix operators ('-', '+', '!')
+      TokenType unary_op = TOKEN_INVALID;
+      size_t unary_line = 0;
+      size_t unary_column = 0;
+
+      if (lexer->token.type == TOKEN_MINUS ||
+          lexer->token.type == TOKEN_PLUS ||
+          lexer->token.type == TOKEN_NOT) {
+        unary_op = lexer->token.type;
+        unary_line = lexer->token.line;
+        unary_column = lexer->token.column;
+
+        status = parser_advance(lexer);
         if (status != PARSER_OK) {
           terminal_stack_cleanup_nodes(&stack);
           return status;
         }
 
-        // Parentheses manage their own separate indentation tracking
-        ptrdiff_t nested_indent = 0;
-        status = parser_consume_newlines(lexer, false, true, &nested_indent);
-        if (status != PARSER_OK) {
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
+        if (consume_newlines_indents) {
+          status = parser_consume_newlines(lexer, false, true, local_indent);
+          if (status != PARSER_OK) {
+            terminal_stack_cleanup_nodes(&stack);
+            return status;
+          }
         }
+      }
 
-        ASTNode *inner_node = NULL;
-        status = p_expression(lexer, program, scope, &inner_node, true, &nested_indent);
-        if (status != PARSER_OK) {
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-        if (inner_node == NULL) {
-          terminal_stack_cleanup_nodes(&stack);
-          return PARSER_SYNTAX_ERROR;
-        }
+      // 3. Right after, an operand MUST follow (parsed by p_operand)
+      ASTNode *operand_node = NULL;
+      status = p_operand(lexer, program, scope, &operand_node,
+                         consume_newlines_indents, local_indent);
+      if (status != PARSER_OK) {
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
 
-        status = parser_consume_newlines(lexer, false, true, &nested_indent);
-        if (status != PARSER_OK) {
-          ast_node_destroy(inner_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-
-        status = parser_status_from_lexer(
-            lexer_change_current_indent(lexer, (-1) * nested_indent));
-        if (status != PARSER_OK) {
-          ast_node_destroy(inner_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-
-        status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
-        if (status != PARSER_OK) {
-          ast_node_destroy(inner_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-
-        Terminal op_term = {.type = TERMINAL_OPERAND, .token = (Token){.type = TOKEN_INVALID}, .node = inner_node};
-        status = terminal_stack_push(&stack, op_term);
-        if (status != PARSER_OK) {
-          ast_node_destroy(inner_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-      } else {
-        // --- Atomic Operand ---
-        ASTNode *operand_node = NULL;
-        status = p_operand(lexer, program, scope, &operand_node);
-        if (status != PARSER_OK) {
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-
-        Terminal op_term = {.type = TERMINAL_OPERAND, .token = (Token){.type = TOKEN_INVALID}, .node = operand_node};
-        status = terminal_stack_push(&stack, op_term);
-        if (status != PARSER_OK) {
+      // 4. Wrap with unary AST node if a unary operator was present
+      if (unary_op == TOKEN_NOT) {
+        ASTNode *not_node = ast_node_create_not(operand_node, unary_line, unary_column);
+        if (not_node == NULL) {
           ast_node_destroy(operand_node);
           terminal_stack_cleanup_nodes(&stack);
-          return status;
+          return PARSER_INTERNAL_ERROR;
         }
+        operand_node = not_node;
+      } else if (unary_op == TOKEN_MINUS) {
+        ASTNode *zero_node = ast_node_create_int(0, unary_line, unary_column);
+        if (zero_node == NULL) {
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        ASTNode *neg_node = ast_node_create_binary_op(
+            AST_SUBTRACT, zero_node, operand_node, unary_line, unary_column);
+        if (neg_node == NULL) {
+          ast_node_destroy(zero_node);
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        operand_node = neg_node;
+      }
+      // Note: TOKEN_PLUS is identity (+x == x), operand_node is passed unwrapped
+
+      // 5. Push evaluated operand onto stack
+      Terminal op_term = {
+        .type = TERMINAL_OPERAND,
+        .token = (Token){.type = TOKEN_INVALID},
+        .node = operand_node
+      };
+      status = terminal_stack_push(&stack, op_term);
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
       }
 
       // Next token must be an operator or delimiter
@@ -686,8 +711,8 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
 
 | Phase | Description | Files |
 | :--- | :--- | :--- |
-| **Phase 1: Atomic `p_operand`** | Keep `p_operand` atomic; verify it handles literals, variables, calls, and if-expressions without `local_indent` | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
-| **Phase 2: Precedence Table & Terminals** | Define 11 table terminals + stack symbols in `psa.h`; update `token_to_terminal` and 11x11 `precedence_table` | [`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h), [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
-| **Phase 3: Stack Helpers & Reducer** | Implement `stack_get_top_terminal`, `stack_insert_handle_after_top_terminal`, and binary `psa_reduce` | [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
-| **Phase 4: Main Loop in `p_expression`** | Implement `p_expression` main loop with nested `(` dispatch, indentation reset, and acceptance | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
-| **Phase 5: Tests** | Add unit tests for `1 + 2 * 3`, `(1 + 2) * 3`, nested `((1 + 2) * (3 + 4))`, multiline indentation within parens, and syntax errors | `tests/psa_test.cc` |
+| **Phase 1: Subexpression & Unit Parsing in `p_operand`** | Extend `p_operand` with `consume_newlines_indents` and `local_indent`; parse literals, variables, calls, if-exprs, unit `()` and parenthesized `(expr)` | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
+| **Phase 2: Precedence Table & Terminals** | Define 10 table terminals + stack symbols in `psa.h`; update `token_to_terminal` (operand tokens return `TERMINAL_INVALID`) and 10x10 `precedence_table` | [`src/psa.h`](file:///home/edword/ifj26-compiler/src/psa.h), [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c) |
+| **Phase 3: Stack Helpers & Reducer** | Implement `stack_get_top_terminal`, `stack_insert_handle_after_top_terminal`, `token_to_binary_op`, and `psa_reduce`; extend `ast_node_create_binary_op` for all binary operators | [`src/psa.c`](file:///home/edword/ifj26-compiler/src/psa.c), [`src/ast.c`](file:///home/edword/ifj26-compiler/src/ast.c) |
+| **Phase 4: Main Loop in `p_expression`** | Implement `p_expression` main loop with unary prefix handling (`-`, `+`, `!`), `p_operand` delegation, and shift/reduce/acceptance | [`src/parser.c`](file:///home/edword/ifj26-compiler/src/parser.c) |
+| **Phase 5: Tests** | Add unit tests for `1 + 2 * 3`, `(1 + 2) * 3`, unit literal `()`, unary expressions `-x`, `!y`, multiline indentation within parens, and syntax errors | `tests/psa_test.cc` |
