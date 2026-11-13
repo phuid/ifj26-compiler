@@ -298,13 +298,16 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
 
 /**
  * @brief Constructs an owned binary arithmetic node.
- * @details On failure, both operands remain owned by the caller.
- * @param kind Arithmetic node kind.
+ * @details Ownership of both operands transfers on success only.
+ * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
+ * AST_DIVIDE, AST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS, AST_LESS_EQUAL,
+ * AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.
  * @param column One-based source column.
- * @return A binary-operation node, or null for invalid input or OOM.
+ * @return An owned node of the requested @p kind, or null for an invalid
+ * argument or allocation failure.
  */
 ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
                                    ASTNode *right, size_t line, size_t column) {
@@ -313,15 +316,33 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   if (left == NULL || right == NULL) {
     return NULL;
   }
-  if (kind != AST_ADD && kind != AST_SUBTRACT && kind != AST_MULTIPLY &&
-      kind != AST_DIVIDE) {
+
+  /// guard against invalid kinds that are not binary operations
+  switch (kind) {
+  case AST_ADD:
+  case AST_SUBTRACT:
+  case AST_MULTIPLY:
+  case AST_DIVIDE:
+  case AST_CONCAT:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_AND:
+  case AST_OR:
+    break;
+  default:
     return NULL;
   }
+
   node = ast_node_create(kind, line, column);
   if (node != NULL) {
     node->data.binary_op.left = left;
     node->data.binary_op.right = right;
   }
+  // TODO: should there be type dependency here?
   return node;
 }
 

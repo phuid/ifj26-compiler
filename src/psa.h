@@ -26,23 +26,23 @@ typedef enum PSA_STATUS {
 
 typedef enum {
   // Terminals that can be looked up in the precedence table
-  TERMINAL_PLUS,    // +
-  TERMINAL_MINUS,   // -
-  TERMINAL_MUL,     // *
-  TERMINAL_DIV,     // /
-  TERMINAL_CONCAT,  // ++
-  TERMINAL_REL,     // <, <=, >, >=
-  TERMINAL_EQUAL,   // ==, !=
-  TERMINAL_AND,     // &&
-  TERMINAL_OR,      // ||
-  TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST
-                    // node)
-  TERMINAL_DOLLAR,  // $ stack bottom / end of expression delimiter
-  TERMINAL_COUNT,   // = 11 (dimension of precedence table)
+  TERMINAL_PLUS,   // +
+  TERMINAL_MINUS,  // -
+  TERMINAL_MUL,    // *
+  TERMINAL_DIV,    // /
+  TERMINAL_CONCAT, // ++
+  TERMINAL_REL,    // <, <=, >, >=
+  TERMINAL_EQUAL,  // ==, !=
+  TERMINAL_AND,    // &&
+  TERMINAL_OR,     // ||
+  TERMINAL_DOLLAR, // $ stack bottom / end of expression delimiter
+  TERMINAL_COUNT,  // = 10 (dimension of precedence table)
 
   // Stack-only symbols (never looked up in table)
-  TERMINAL_HANDLE, // '<' reduction handle marker
-  TERMINAL_INVALID // sentinel for syntax errors
+  TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST
+                    // NODE)
+  TERMINAL_HANDLE,  // '<' reduction handle marker
+  TERMINAL_INVALID  // sentinel for syntax errors
 } TerminalType;
 
 typedef struct {

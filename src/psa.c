@@ -65,18 +65,17 @@ static TerminalType token_to_terminal(TokenType token) {
 #define I PREC_INVALID
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-    /* Stack \ Input: +  -  *  /  ++ <= == && || i  $  */
-    /* +          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* -          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* *          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* /          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ++         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* i          */ {I, I, I, I, I, I, I, I, I, I, I},
-    /* $          */ {I, I, I, I, I, I, I, I, I, I, I},
+    /* Stack \ Input: +  -  *  /  ++ <= == && || $  */
+    /* +          */ {I, I, I, I, I, I, I, I, I, I},
+    /* -          */ {I, I, I, I, I, I, I, I, I, I},
+    /* *          */ {I, I, I, I, I, I, I, I, I, I},
+    /* /          */ {I, I, I, I, I, I, I, I, I, I},
+    /* ++         */ {I, I, I, I, I, I, I, I, I, I},
+    /* <=         */ {I, I, I, I, I, I, I, I, I, I},
+    /* ==         */ {I, I, I, I, I, I, I, I, I, I},
+    /* &&         */ {I, I, I, I, I, I, I, I, I, I},
+    /* ||         */ {I, I, I, I, I, I, I, I, I, I},
+    /* $          */ {I, I, I, I, I, I, I, I, I, I},
 };
 #undef T
 #undef R

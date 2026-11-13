@@ -276,13 +276,15 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
                             ASTNode *else_branch, size_t line, size_t column);
 
 /**
- * @brief Creates a binary arithmetic node.
+ * @brief Constructs an owned binary arithmetic node.
  * @details Ownership of both operands transfers on success only.
- * @param kind One of AST_ADD, AST_SUBTRACT, AST_MULTIPLY, or AST_DIVIDE.
- * @param left Non-null left operand.
- * @param right Non-null right operand.
- * @param line One-based source line of the operator.
- * @param column One-based source column of the operator.
+ * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
+ * AST_DIVIDE, AST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS, AST_LESS_EQUAL,
+ * AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
+ * @param left Non-null owned left operand.
+ * @param right Non-null owned right operand.
+ * @param line One-based source line.
+ * @param column One-based source column.
  * @return An owned node of the requested @p kind, or null for an invalid
  * argument or allocation failure.
  */
