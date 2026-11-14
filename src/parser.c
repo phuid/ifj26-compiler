@@ -870,7 +870,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
                               FunctionSymbol *function, SymbolTable *scope,
                               ASTNode **return_node,
                               bool consume_newlines_indents,
-                              ptrdiff_t *local_indent) {
+                              ptrdiff_t *indentation_level) {
   if (lexer == NULL || program == NULL || scope == NULL ||
       return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
@@ -927,7 +927,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
 
     /// Inside parentheses: Consume any number of layout tokens after the 'List'
     if (consume_newlines_indents) {
-      status = parser_consume_newlines(lexer, false, true, local_indent);
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
       if (status != PARSER_OK) {
         return status;
       }
@@ -1034,7 +1034,79 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
     }
 
     if (lexer->token.type == TOKEN_LEFT_PAREN) {
-      /// Function call
+      /// Function call or list indexing.
+      Symbol *symbol = symbol_table_resolve(scope, name);
+      if (symbol != NULL) {
+        /// list indexing
+        size_t indexing_line = lexer->token.line;
+        size_t indexing_column = lexer->token.column;
+
+        ASTNode *list_node = ast_node_create_variable_ref(symbol, line, column);
+        if (list_node == NULL) {
+          free(name);
+          return PARSER_INTERNAL_ERROR;
+        }
+
+        /// Consume any number of layout tokens after the identifier
+        ptrdiff_t local_indent = 0;
+        status = parser_consume_newlines(lexer, false, true, &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(list_node);
+          free(name);
+          return status;
+        }
+
+        ASTNode *index_node = NULL;
+        status = p_expression(lexer, program, function, scope, &index_node,
+                              true, &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(list_node);
+          free(name);
+          return status;
+        }
+
+        /// Consume any number of layout tokens after the index expression
+        status = parser_consume_newlines(lexer, false, true, &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(list_node);
+          ast_node_destroy(index_node);
+          free(name);
+          return status;
+        }
+
+        status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+        if (status != PARSER_OK) {
+          ast_node_destroy(list_node);
+          ast_node_destroy(index_node);
+          free(name);
+          return status;
+        }
+
+        /// Reset the indentation level to what it was before the opening
+        /// parenthesis
+        status = parser_status_from_lexer(
+            lexer_change_current_indent(lexer, (-1) * local_indent));
+        if (status != PARSER_OK) {
+          ast_node_destroy(list_node);
+          ast_node_destroy(index_node);
+          free(name);
+          return status;
+        }
+
+        ASTNode *indexing_node = ast_node_create_list_indexing(
+            list_node, index_node, indexing_line, indexing_column);
+
+        if (indexing_node == NULL) {
+          ast_node_destroy(list_node);
+          ast_node_destroy(index_node);
+          free(name);
+          return PARSER_INTERNAL_ERROR;
+        }
+
+        *return_node = indexing_node;
+        free(name);
+        return PARSER_OK;
+      }
 
       FunctionSymbol *function = NULL;
       if (function_table_get_or_create(&program->functions, name, &function) !=
@@ -1090,7 +1162,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
 
   case TOKEN_KW_IF:
     status = p_if(lexer, program, function, scope, return_node,
-                  consume_newlines_indents, local_indent);
+                  consume_newlines_indents, indentation_level);
     if (status != PARSER_OK) {
       return status;
     }

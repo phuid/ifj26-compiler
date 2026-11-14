@@ -39,6 +39,9 @@ typedef enum {
   /** List call with owned argument nodes; activates @c data.call. @c
      FunctionSymbol is NULL */
   AST_LIST_CONSTRUCTOR,
+  /** List indexing; activates @c data.binary_op. Left operand is the list,
+     right operand is the index. */
+  AST_LIST_INDEXING,
   /** Assignment; activates @c data.assignment. */
   AST_ASSIGN,
   /** Return statement; activates @c data.return_statement. */
@@ -225,6 +228,18 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
  * invalid argument or allocation failure.
  */
 ASTNode *ast_node_create_list_constructor(size_t line, size_t column);
+
+/**
+ * @brief Creates a list-indexing node.
+ * @param list Non-null node representing the list.
+ * @param index Non-null node representing the index.
+ * @param line One-based source line of the indexing.
+ * @param column One-based source column of the indexing.
+ * @return An owned node with @c kind AST_LIST_INDEXING, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
+                                       size_t line, size_t column);
 
 /**
  * @brief Appends one owned argument node to a function call.

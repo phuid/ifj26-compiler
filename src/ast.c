@@ -173,8 +173,34 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
   return node;
 }
 
+/**
+ * @brief Constructs an owned list-constructor node.
+ * @param line One-based source line of the call.
+ * @param column One-based source column of the call.
+ * @return An owned node with @c kind AST_LIST_CONSTRUCTOR, or null for an
+ * invalid argument or allocation failure.
+ */
 ASTNode *ast_node_create_list_constructor(size_t line, size_t column) {
   ASTNode *node = ast_node_create(AST_LIST_CONSTRUCTOR, line, column);
+  return node;
+}
+
+/**
+ * @brief Constructs an owned list-indexing node.
+ * @param list Non-null node representing the list.
+ * @param index Non-null node representing the index.
+ * @param line One-based source line of the indexing.
+ * @param column One-based source column of the indexing.
+ * @return An owned node with @c kind AST_LIST_INDEXING, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
+                                       size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_LIST_INDEXING, line, column);
+  if (node != NULL) {
+    node->data.binary_op.left = list;
+    node->data.binary_op.right = index;
+  }
   return node;
 }
 
@@ -411,6 +437,7 @@ void ast_node_destroy(ASTNode *node) {
     free(node->data.string_value);
     break;
   case AST_FUNCTION_CALL:
+  case AST_LIST_CONSTRUCTOR:
     for (index = 0U; index < node->data.call.argument_count; index += 1U) {
       ast_node_destroy(node->data.call.arguments[index]);
     }
@@ -440,6 +467,7 @@ void ast_node_destroy(ASTNode *node) {
   case AST_GREATER_EQUAL:
   case AST_AND:
   case AST_OR:
+  case AST_LIST_INDEXING:
     ast_node_destroy(node->data.binary_op.left);
     ast_node_destroy(node->data.binary_op.right);
     break;
