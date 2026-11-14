@@ -22,6 +22,32 @@ TEST(AstTest, VariableReferenceRetainsResolvedSymbolPointer) {
   symbol_table_destroy(scope);
 }
 
+TEST(AstTest, ListConstructorAcceptsOwnedArguments) {
+  ASTNode *constructor = ast_node_create_list_constructor(1U, 1U);
+  ASTNode *argument = ast_node_create_int(42, 1U, 6U);
+  ASSERT_NE(constructor, nullptr);
+  ASSERT_NE(argument, nullptr);
+
+  ASSERT_EQ(ast_node_call_append_argument(constructor, argument), AST_OK);
+  ASSERT_EQ(constructor->data.call.argument_count, 1U);
+  EXPECT_EQ(constructor->data.call.arguments[0], argument);
+
+  ast_node_destroy(constructor);
+}
+
+TEST(AstTest, ListIndexingRejectsNullOperandsWithoutTakingOwnership) {
+  ASTNode *list = ast_node_create_list_constructor(1U, 1U);
+  ASTNode *index = ast_node_create_int(0, 1U, 2U);
+  ASSERT_NE(list, nullptr);
+  ASSERT_NE(index, nullptr);
+
+  EXPECT_EQ(ast_node_create_list_indexing(nullptr, index, 1U, 1U), nullptr);
+  EXPECT_EQ(ast_node_create_list_indexing(list, nullptr, 1U, 1U), nullptr);
+
+  ast_node_destroy(index);
+  ast_node_destroy(list);
+}
+
 TEST(AstTest, FunctionOwnsAssignedAstRoot) {
   FunctionTable table;
   ASSERT_EQ(function_table_init(&table), FUNCTION_TABLE_OK);

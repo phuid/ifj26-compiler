@@ -196,6 +196,10 @@ ASTNode *ast_node_create_list_constructor(size_t line, size_t column) {
  */
 ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
                                        size_t line, size_t column) {
+  if (list == NULL || index == NULL) {
+    return NULL;
+  }
+
   ASTNode *node = ast_node_create(AST_LIST_INDEXING, line, column);
   if (node != NULL) {
     node->data.binary_op.left = list;
@@ -207,12 +211,14 @@ ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
 /**
  * @brief Transfers an argument node into a function-call node.
  * @details On failure, @p argument remains owned by the caller.
- * @param call Non-null AST_FUNCTION_CALL node receiving the argument.
+ * @param call Non-null AST_FUNCTION_CALL or AST_LIST_CONSTRUCTOR node receiving
+ * the argument.
  * @param argument Non-null owned child to transfer on success.
  * @return Construction status.
  */
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
-  if (call == NULL || argument == NULL || call->kind != AST_FUNCTION_CALL) {
+  if (call == NULL || argument == NULL ||
+      (call->kind != AST_FUNCTION_CALL && call->kind != AST_LIST_CONSTRUCTOR)) {
     return AST_INVALID_ARGUMENT;
   }
   if (dynamic_array_reserve((void **)&call->data.call.arguments,

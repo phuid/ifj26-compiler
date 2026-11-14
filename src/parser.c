@@ -866,7 +866,7 @@ static ParserStatus p_list_constructor_args(Lexer *lexer, Program *program,
 @note This function was altered by an LLM agent to handle nested parentheses
 and unit parsing in accordance with psa_spec.md. Model used: Kimi-k3.1-pro.
 */
-static ParserStatus p_operand(Lexer *lexer, Program *program,
+static ParserStatus p_primary(Lexer *lexer, Program *program,
                               FunctionSymbol *function, SymbolTable *scope,
                               ASTNode **return_node,
                               bool consume_newlines_indents,
@@ -1033,81 +1033,19 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       return status;
     }
 
-    if (lexer->token.type == TOKEN_LEFT_PAREN) {
-      /// Function call or list indexing.
-      Symbol *symbol = symbol_table_resolve(scope, name);
-      if (symbol != NULL) {
-        /// list indexing
-        size_t indexing_line = lexer->token.line;
-        size_t indexing_column = lexer->token.column;
-
-        ASTNode *list_node = ast_node_create_variable_ref(symbol, line, column);
-        if (list_node == NULL) {
-          free(name);
-          return PARSER_INTERNAL_ERROR;
-        }
-
-        /// Consume any number of layout tokens after the identifier
-        ptrdiff_t local_indent = 0;
-        status = parser_consume_newlines(lexer, false, true, &local_indent);
-        if (status != PARSER_OK) {
-          ast_node_destroy(list_node);
-          free(name);
-          return status;
-        }
-
-        ASTNode *index_node = NULL;
-        status = p_expression(lexer, program, function, scope, &index_node,
-                              true, &local_indent);
-        if (status != PARSER_OK) {
-          ast_node_destroy(list_node);
-          free(name);
-          return status;
-        }
-
-        /// Consume any number of layout tokens after the index expression
-        status = parser_consume_newlines(lexer, false, true, &local_indent);
-        if (status != PARSER_OK) {
-          ast_node_destroy(list_node);
-          ast_node_destroy(index_node);
-          free(name);
-          return status;
-        }
-
-        status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
-        if (status != PARSER_OK) {
-          ast_node_destroy(list_node);
-          ast_node_destroy(index_node);
-          free(name);
-          return status;
-        }
-
-        /// Reset the indentation level to what it was before the opening
-        /// parenthesis
-        status = parser_status_from_lexer(
-            lexer_change_current_indent(lexer, (-1) * local_indent));
-        if (status != PARSER_OK) {
-          ast_node_destroy(list_node);
-          ast_node_destroy(index_node);
-          free(name);
-          return status;
-        }
-
-        ASTNode *indexing_node = ast_node_create_list_indexing(
-            list_node, index_node, indexing_line, indexing_column);
-
-        if (indexing_node == NULL) {
-          ast_node_destroy(list_node);
-          ast_node_destroy(index_node);
-          free(name);
-          return PARSER_INTERNAL_ERROR;
-        }
-
-        *return_node = indexing_node;
+    /// newline and indent/dedent consumption after the identifier is allowed
+    /// when in parentheses
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
         free(name);
-        return PARSER_OK;
+        return status;
       }
+    }
 
+    Symbol *symbol = symbol_table_resolve(scope, name);
+    if (lexer->token.type == TOKEN_LEFT_PAREN && symbol == NULL) {
+      /// Without a local binding, an identifier followed by `(` is a call.
       FunctionSymbol *function = NULL;
       if (function_table_get_or_create(&program->functions, name, &function) !=
           FUNCTION_TABLE_OK) {
@@ -1136,29 +1074,27 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       }
       *return_node = call_node;
       return PARSER_OK;
-    } else {
-      /// Variable reference
-      Symbol *symbol = symbol_table_resolve(scope, name);
-      free(name);
-      if (symbol == NULL) {
-        return PARSER_SEMANTIC_ERROR;
-      }
-      ASTNode *variable_node =
-          ast_node_create_variable_ref(symbol, line, column);
-      if (variable_node == NULL) {
-        return PARSER_INTERNAL_ERROR;
-      }
-      status = parser_status_from_type(
-          type_entity_depend(&symbol->type, &variable_node->inferred_type));
-      if (status != PARSER_OK) {
-        ast_node_destroy(variable_node);
-        return status;
-      }
-
-      *return_node = variable_node;
-      return PARSER_OK;
     }
-    break;
+
+    /// A resolved identifier stays a primary variable reference. Any following
+    /// parenthesis is left for the postfix-indexing parser.
+    free(name);
+    if (symbol == NULL) {
+      return PARSER_SEMANTIC_ERROR;
+    }
+    ASTNode *variable_node = ast_node_create_variable_ref(symbol, line, column);
+    if (variable_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    status = parser_status_from_type(
+        type_entity_depend(&symbol->type, &variable_node->inferred_type));
+    if (status != PARSER_OK) {
+      ast_node_destroy(variable_node);
+      return status;
+    }
+
+    *return_node = variable_node;
+    return PARSER_OK;
 
   case TOKEN_KW_IF:
     status = p_if(lexer, program, function, scope, return_node,
@@ -1172,6 +1108,133 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
   default:
     return PARSER_SYNTAX_ERROR;
   }
+}
+
+/**
+ * @brief Parses one `(expression)` list-indexing suffix.
+ * @details Entry: @c lexer->token is the opening parenthesis. Exit: the token
+ * after the closing parenthesis. This function takes ownership of @p list_node,
+ * including on failure.
+ */
+static ParserStatus p_index_suffix(Lexer *lexer, Program *program,
+                                   FunctionSymbol *function, SymbolTable *scope,
+                                   ASTNode *list_node, ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL || list_node == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  size_t indexing_line = lexer->token.line;
+  size_t indexing_column = lexer->token.column;
+
+  /// Consume the opening parenthesis.
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  /// Every suffix tracks layout independently from its containing expression.
+  ptrdiff_t local_indent = 0;
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  ASTNode *index_node = NULL;
+  status = p_expression(lexer, program, function, scope, &index_node, true,
+                        &local_indent);
+  if (status != PARSER_OK || index_node == NULL) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status == PARSER_OK ? PARSER_SYNTAX_ERROR : status;
+  }
+
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  /// Reset the indentation level to what it was before the opening parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  ASTNode *indexing_node = ast_node_create_list_indexing(
+      list_node, index_node, indexing_line, indexing_column);
+  if (indexing_node == NULL) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = indexing_node;
+  return PARSER_OK;
+}
+
+/**
+ * @brief Parses a primary operand followed by any number of indexing suffixes.
+ * @details Indexing is completed before the operand enters precedence parsing,
+ * giving it higher precedence than unary and binary operators. Repeated
+ * suffixes wrap the preceding result from left to right.
+ */
+static ParserStatus p_operand(Lexer *lexer, Program *program,
+                              FunctionSymbol *function, SymbolTable *scope,
+                              ASTNode **return_node,
+                              bool consume_newlines_indents,
+                              ptrdiff_t *indentation_level) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  ASTNode *operand_node = NULL;
+  ParserStatus status =
+      p_primary(lexer, program, function, scope, &operand_node,
+                consume_newlines_indents, indentation_level);
+  if (status != PARSER_OK) {
+    ast_node_destroy(operand_node);
+    return status;
+  }
+
+  while (true) {
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        return status;
+      }
+    }
+
+    if (lexer->token.type != TOKEN_LEFT_PAREN) {
+      break;
+    }
+
+    ASTNode *indexing_node = NULL;
+    status = p_index_suffix(lexer, program, function, scope, operand_node,
+                            &indexing_node);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    operand_node = indexing_node;
+  }
+
+  *return_node = operand_node;
+  return PARSER_OK;
 }
 
 // Parses an implicit return expression on the function header line.

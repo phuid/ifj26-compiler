@@ -276,3 +276,153 @@ TEST(ParserDirectLexerTest, RejectsMalformedNestedListTypeAnnotation) {
   lexer_destroy(&lexer);
   fclose(stream);
 }
+
+TEST(ParserDirectLexerTest, ChainedIndexingWrapsThePreviousResult) {
+  FILE *stream = stream_from(
+      "def index(matrix: List[List[Int]]) =\n  val value = matrix(0)(1)");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "index");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 1U);
+  ASTNode *outer =
+      function->ast_root->data.block.statements[0]->data.assignment.value;
+  ASSERT_NE(outer, nullptr);
+  ASSERT_EQ(outer->kind, AST_LIST_INDEXING);
+  ASSERT_NE(outer->data.binary_op.right, nullptr);
+  EXPECT_EQ(outer->data.binary_op.right->kind, AST_CONSTANT_INT);
+  EXPECT_EQ(outer->data.binary_op.right->data.int_value, 1);
+
+  ASTNode *inner = outer->data.binary_op.left;
+  ASSERT_NE(inner, nullptr);
+  ASSERT_EQ(inner->kind, AST_LIST_INDEXING);
+  ASSERT_NE(inner->data.binary_op.left, nullptr);
+  EXPECT_EQ(inner->data.binary_op.left->kind, AST_VARIABLE_REF);
+  ASSERT_NE(inner->data.binary_op.right, nullptr);
+  EXPECT_EQ(inner->data.binary_op.right->kind, AST_CONSTANT_INT);
+  EXPECT_EQ(inner->data.binary_op.right->data.int_value, 0);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, IndexesListConstructorResult) {
+  FILE *stream = stream_from("def make() =\n  val value = List(1, 2)(0)");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "make");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 1U);
+  ASTNode *indexing =
+      function->ast_root->data.block.statements[0]->data.assignment.value;
+  ASSERT_NE(indexing, nullptr);
+  ASSERT_EQ(indexing->kind, AST_LIST_INDEXING);
+  ASTNode *constructor = indexing->data.binary_op.left;
+  ASSERT_NE(constructor, nullptr);
+  EXPECT_EQ(constructor->kind, AST_LIST_CONSTRUCTOR);
+  EXPECT_EQ(constructor->data.call.argument_count, 2U);
+  ASSERT_NE(indexing->data.binary_op.right, nullptr);
+  EXPECT_EQ(indexing->data.binary_op.right->kind, AST_CONSTANT_INT);
+  EXPECT_EQ(indexing->data.binary_op.right->data.int_value, 0);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, IndexesFunctionCallResult) {
+  FILE *stream = stream_from("def getItems() =\n"
+                             "  return List(1, 2)\n"
+                             "def use() =\n"
+                             "  val value = getItems()(0)");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "use");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 1U);
+  ASTNode *indexing =
+      function->ast_root->data.block.statements[0]->data.assignment.value;
+  ASSERT_NE(indexing, nullptr);
+  ASSERT_EQ(indexing->kind, AST_LIST_INDEXING);
+  ASSERT_NE(indexing->data.binary_op.left, nullptr);
+  EXPECT_EQ(indexing->data.binary_op.left->kind, AST_FUNCTION_CALL);
+  ASSERT_NE(indexing->data.binary_op.right, nullptr);
+  EXPECT_EQ(indexing->data.binary_op.right->kind, AST_CONSTANT_INT);
+  EXPECT_EQ(indexing->data.binary_op.right->data.int_value, 0);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, ParsesMultilinePostfixIndexes) {
+  FILE *stream = stream_from("def index(matrix: List[List[Int]]) =\n"
+                             "  val value = matrix(\n"
+                             "    0\n"
+                             "    )(\n"
+                             "    1\n"
+                             "    )");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
+  FILE *stream = stream_from("def make() =\n"
+                             "  val value = (\n"
+                             "    List(1, 2)\n"
+                             "    (0)\n"
+                             "    )");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "make");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 1U);
+  ASTNode *indexing =
+      function->ast_root->data.block.statements[0]->data.assignment.value;
+  ASSERT_NE(indexing, nullptr);
+  ASSERT_EQ(indexing->kind, AST_LIST_INDEXING);
+  ASSERT_NE(indexing->data.binary_op.left, nullptr);
+  EXPECT_EQ(indexing->data.binary_op.left->kind, AST_LIST_CONSTRUCTOR);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
