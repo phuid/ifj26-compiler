@@ -28,10 +28,10 @@ typedef enum PSA_STATUS {
 
 typedef enum {
   // Terminals that can be looked up in the precedence table
-  TERMINAL_PLUS,   // +
-  TERMINAL_MINUS,  // -
   TERMINAL_MUL,    // *
   TERMINAL_DIV,    // /
+  TERMINAL_PLUS,   // +
+  TERMINAL_MINUS,  // -
   TERMINAL_CONCAT, // ++
   TERMINAL_REL,    // <, <=, >, >=
   TERMINAL_EQUAL,  // ==, !=

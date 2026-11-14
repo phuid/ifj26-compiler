@@ -80,27 +80,27 @@ TerminalType token_to_terminal(Token token) {
 
 #define T PREC_TAKE
 #define R PREC_REDUCE
-#define I PREC_INVALID
+#define X PREC_INVALID
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-    /* Stack \ Input: +  -  *  /  ++ <= == && || to un by $  */
-    /* +          */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
-    /* -          */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
-    /* *          */ {R, R, R, R, R, I, I, I, I, I, I, I, I},
-    /* /          */ {R, R, R, R, R, I, I, I, I, I, I, I, I},
-    /* ++         */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
-    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* to         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* until      */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* by         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
-    /* $          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* Stack \ Input: *  /  +  -  ++ <= == && || to un by $  */
+    /* *          */ {R, R, R, R, R, R, R, R, R, R, R, R, R},
+    /* /          */ {R, R, R, R, R, R, R, R, R, R, R, R, R},
+    /* +          */ {T, T, R, R, R, R, R, R, R, R, R, R, R},
+    /* -          */ {T, T, R, R, R, R, R, R, R, R, R, R, R},
+    /* ++         */ {T, T, R, R, R, R, R, R, R, R, R, R, R},
+    /* <=         */ {T, T, T, T, T, X, R, R, R, R, R, R, R},
+    /* ==         */ {T, T, T, T, T, T, X, R, R, R, R, R, R},
+    /* &&         */ {T, T, T, T, T, T, T, R, R, R, R, R, R},
+    /* ||         */ {T, T, T, T, T, T, T, T, R, R, R, R, R},
+    /* to         */ {T, T, T, T, T, T, T, T, T, R, R, R, R},
+    /* until      */ {T, T, T, T, T, T, T, T, T, T, R, R, R},
+    /* by         */ {T, T, T, T, T, T, T, T, T, T, T, R, R},
+    /* $          */ {T, T, T, T, T, T, T, T, T, T, T, T, X},
 };
 #undef T
 #undef R
-#undef I
+#undef X
 
 /**
  * AI-generated code block — precedence stack implementation.
