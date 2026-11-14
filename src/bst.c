@@ -28,7 +28,7 @@ static int max(const int a, const int b) {
  * @param value Value stored in the node.
  * @return Newly allocated node or NULL on allocation failure.
  */
-static Node *createNode(void *value) {
+static Node *create_node(void *value) {
   Node *node = malloc(sizeof(Node));
   if (node == NULL) {
     return NULL;
@@ -48,7 +48,7 @@ static Node *createNode(void *value) {
  * @param root Root of the subtree to destroy.
  * @return BST_OK on success or BST_INVALID_PARAMS if tree is NULL.
  */
-static BST_STATUS destroySubtree(BST *tree, Node *root) {
+static BST_STATUS destroy_subtree(BST *tree, Node *root) {
   if (tree == NULL) {
     return BST_INVALID_PARAMS;
   }
@@ -56,10 +56,10 @@ static BST_STATUS destroySubtree(BST *tree, Node *root) {
     return BST_OK;
   }
 
-  destroySubtree(tree, root->left);
-  destroySubtree(tree, root->right);
+  destroy_subtree(tree, root->left);
+  destroy_subtree(tree, root->right);
 
-  tree->destroyData(root->value);
+  tree->destroy_data(root->value);
   free(root);
 
   return BST_OK;
@@ -71,7 +71,9 @@ static BST_STATUS destroySubtree(BST *tree, Node *root) {
  * @param node Node to inspect.
  * @return Height of the node, or 0 for NULL.
  */
-static int getNodeHeight(Node *node) { return node == NULL ? 0 : node->height; }
+static int get_node_height(Node *node) {
+  return node == NULL ? 0 : node->height;
+}
 
 /**
  * @brief Calculates the balance of a node.
@@ -79,11 +81,11 @@ static int getNodeHeight(Node *node) { return node == NULL ? 0 : node->height; }
  * @param node Tree node.
  * @return Balance of the node or 0 for NULL node.
  */
-static int calculateBalance(Node *node) {
+static int calculate_balance(Node *node) {
   if (node == NULL)
     return 0;
 
-  return getNodeHeight(node->right) - getNodeHeight(node->left);
+  return get_node_height(node->right) - get_node_height(node->left);
 }
 
 /**
@@ -92,13 +94,13 @@ static int calculateBalance(Node *node) {
  * @param node Tree node.
  * @return Height of the subtree rooted at the node.
  */
-static int calculateHeight(Node *node) {
+static int calculate_height(Node *node) {
   if (node == NULL) {
     return 0;
   }
-  int leftHeight = getNodeHeight(node->left);
-  int rightHeight = getNodeHeight(node->right);
-  return max(leftHeight, rightHeight) + 1;
+  int left_height = get_node_height(node->left);
+  int right_height = get_node_height(node->right);
+  return max(left_height, right_height) + 1;
 }
 
 /**
@@ -107,17 +109,17 @@ static int calculateHeight(Node *node) {
  * @param root Root of the subtree.
  * @return New root or NULL for NULL root node.
  */
-static Node *rotateRight(Node *root) {
-  Node *newRoot = root->left;
-  if (newRoot == NULL) {
+static Node *rotate_right(Node *root) {
+  Node *new_root = root->left;
+  if (new_root == NULL) {
     return NULL;
   }
-  root->left = newRoot->right;
-  newRoot->right = root;
+  root->left = new_root->right;
+  new_root->right = root;
 
-  root->height = calculateHeight(root);
-  newRoot->height = calculateHeight(newRoot);
-  return newRoot;
+  root->height = calculate_height(root);
+  new_root->height = calculate_height(new_root);
+  return new_root;
 }
 
 /**
@@ -126,17 +128,17 @@ static Node *rotateRight(Node *root) {
  * @param root Root of the subtree.
  * @return New root or NULL for NULL root node.
  */
-static Node *rotateLeft(Node *root) {
-  Node *newRoot = root->right;
-  if (newRoot == NULL) {
+static Node *rotate_left(Node *root) {
+  Node *new_root = root->right;
+  if (new_root == NULL) {
     return NULL;
   }
-  root->right = newRoot->left;
-  newRoot->left = root;
+  root->right = new_root->left;
+  new_root->left = root;
 
-  root->height = calculateHeight(root);
-  newRoot->height = calculateHeight(newRoot);
-  return newRoot;
+  root->height = calculate_height(root);
+  new_root->height = calculate_height(new_root);
+  return new_root;
 }
 
 /**
@@ -145,22 +147,22 @@ static Node *rotateLeft(Node *root) {
  * @param root Root of the subtree to rebalance.
  * @return Root of the balanced subtree.
  */
-static Node *bstRebalance(Node *root) {
-  root->height = calculateHeight(root);
-  int balance = calculateBalance(root);
+static Node *bst_rebalance(Node *root) {
+  root->height = calculate_height(root);
+  int balance = calculate_balance(root);
 
   if (balance > 1) {
-    if (calculateBalance(root->right) < 0) {
-      root->right = rotateRight(root->right);
+    if (calculate_balance(root->right) < 0) {
+      root->right = rotate_right(root->right);
     }
-    return rotateLeft(root);
+    return rotate_left(root);
   }
 
   if (balance < -1) {
-    if (calculateBalance(root->left) > 0) {
-      root->left = rotateLeft(root->left);
+    if (calculate_balance(root->left) > 0) {
+      root->left = rotate_left(root->left);
     }
-    return rotateRight(root);
+    return rotate_right(root);
   }
   return root;
 }
@@ -176,8 +178,8 @@ static Node *bstRebalance(Node *root) {
  *            or BST_VALUE_OVERWRITTEN if a value is replaced.
  * @return Updated subtree root or NULL for errors.
  */
-static Node *insertValue(BST *tree, Node *root, const void *value,
-                         BST_STATUS *err) {
+static Node *insert_value(BST *tree, Node *root, const void *value,
+                          BST_STATUS *err) {
   if (err == NULL) {
     return NULL;
   }
@@ -187,34 +189,34 @@ static Node *insertValue(BST *tree, Node *root, const void *value,
   }
 
   if (root == NULL) {
-    void *copy = tree->copyData(value);
+    void *copy = tree->copy_data(value);
     if (copy == NULL) {
       *err = BST_ALLOCATION_FAIL;
       return NULL;
     }
-    Node *node = createNode(copy);
+    Node *node = create_node(copy);
     if (node == NULL) {
       *err = BST_ALLOCATION_FAIL;
-      tree->destroyData(copy);
+      tree->destroy_data(copy);
       return NULL;
     }
     return node;
   }
 
-  int cmp = tree->compareData(value, root->value);
+  int cmp = tree->compare_data(value, root->value);
 
   if (cmp < 0) {
-    root->left = insertValue(tree, root->left, value, err);
+    root->left = insert_value(tree, root->left, value, err);
   } else if (cmp > 0) {
-    root->right = insertValue(tree, root->right, value, err);
+    root->right = insert_value(tree, root->right, value, err);
   } else {
     // Cleanup old data, replace with new
-    void *copy = tree->copyData(value);
+    void *copy = tree->copy_data(value);
     if (copy == NULL) {
       *err = BST_ALLOCATION_FAIL;
       return root;
     }
-    tree->destroyData(root->value);
+    tree->destroy_data(root->value);
     root->value = copy;
     *err = BST_VALUE_OVERWRITTEN;
     return root;
@@ -224,7 +226,7 @@ static Node *insertValue(BST *tree, Node *root, const void *value,
     return root;
   }
 
-  return bstRebalance(root);
+  return bst_rebalance(root);
 }
 
 /**
@@ -240,7 +242,7 @@ static Node *search(const BST *tree, Node *root, const void *value) {
     return NULL;
   }
 
-  const int cmp = tree->compareData(value, root->value);
+  const int cmp = tree->compare_data(value, root->value);
 
   if (cmp == 0) {
     return root;
@@ -259,12 +261,12 @@ static Node *search(const BST *tree, Node *root, const void *value) {
  * @param root Root of the subtree.
  * @return Node containing the minimum value or NULL for NULL root.
  */
-static Node *findMin(Node *root) {
+static Node *find_min(Node *root) {
   if (root == NULL) {
     return NULL;
   }
 
-  return root->left == NULL ? root : findMin(root->left);
+  return root->left == NULL ? root : find_min(root->left);
 }
 
 /**
@@ -277,8 +279,8 @@ static Node *findMin(Node *root) {
  *            missing or BST_ALLOCATION_FAIL if copying a successor fails.
  * @return Updated subtree root or NULL for NULL root
  */
-static Node *removeValue(BST *tree, Node *root, const void *value,
-                         BST_STATUS *err) {
+static Node *remove_value(BST *tree, Node *root, const void *value,
+                          BST_STATUS *err) {
   if (err == NULL) {
     return NULL;
   }
@@ -287,38 +289,38 @@ static Node *removeValue(BST *tree, Node *root, const void *value,
     return NULL;
   }
 
-  const int cmp = tree->compareData(value, root->value);
+  const int cmp = tree->compare_data(value, root->value);
 
   if (cmp == 0) {
     if (root->left != NULL && root->right != NULL) {
       // both children
-      Node *min = findMin(root->right);
-      void *successorCopy = tree->copyData(min->value);
-      if (successorCopy == NULL) {
+      Node *min = find_min(root->right);
+      void *successor_copy = tree->copy_data(min->value);
+      if (successor_copy == NULL) {
         *err = BST_ALLOCATION_FAIL;
         return root;
       }
-      tree->destroyData(root->value);
-      root->value = successorCopy;
-      root->right = removeValue(tree, root->right, min->value, err);
+      tree->destroy_data(root->value);
+      root->value = successor_copy;
+      root->right = remove_value(tree, root->right, min->value, err);
       if (*err != BST_OK) {
         return root;
       }
     } else {
       // this also covers the case when both are NULL
       Node *tmp = root->left == NULL ? root->right : root->left;
-      tree->destroyData(root->value);
+      tree->destroy_data(root->value);
       free(root);
       *err = BST_OK;
       return tmp;
     }
   } else if (cmp < 0) {
-    root->left = removeValue(tree, root->left, value, err);
+    root->left = remove_value(tree, root->left, value, err);
     if (*err == BST_NOT_FOUND) {
       return root;
     }
   } else {
-    root->right = removeValue(tree, root->right, value, err);
+    root->right = remove_value(tree, root->right, value, err);
     if (*err == BST_NOT_FOUND) {
       return root;
     }
@@ -328,11 +330,11 @@ static Node *removeValue(BST *tree, Node *root, const void *value,
     return root;
   }
 
-  return bstRebalance(root);
+  return bst_rebalance(root);
 }
 
-BST_STATUS bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
-                     BSTDestroyValueFn destroy, BST **bst) {
+BST_STATUS bst_create(BSTCompareFn compare, BSTCopyValueFn copy,
+                      BSTDestroyValueFn destroy, BST **bst) {
   if (compare == NULL || copy == NULL || destroy == NULL || bst == NULL) {
     return BST_INVALID_PARAMS;
   }
@@ -345,35 +347,35 @@ BST_STATUS bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
   }
 
   tree->root = NULL;
-  tree->compareData = compare;
-  tree->copyData = copy;
-  tree->destroyData = destroy;
+  tree->compare_data = compare;
+  tree->copy_data = copy;
+  tree->destroy_data = destroy;
   *bst = tree;
   return BST_OK;
 }
 
-BST_STATUS bstDestroy(BST **tree) {
+BST_STATUS bst_destroy(BST **tree) {
   if (tree == NULL || *tree == NULL) {
     return BST_INVALID_PARAMS;
   }
 
-  destroySubtree(*tree, (*tree)->root);
+  destroy_subtree(*tree, (*tree)->root);
   free(*tree);
   *tree = NULL;
   return BST_OK;
 }
 
-BST_STATUS bstInsert(BST *tree, const void *value) {
+BST_STATUS bst_insert(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
     return BST_INVALID_PARAMS;
   }
 
   BST_STATUS err = BST_OK;
-  tree->root = insertValue(tree, tree->root, value, &err);
+  tree->root = insert_value(tree, tree->root, value, &err);
   return err;
 }
 
-BST_STATUS bstSearch(const BST *tree, const void *value, const void **result) {
+BST_STATUS bst_search(const BST *tree, const void *value, const void **result) {
   if (tree == NULL || value == NULL || result == NULL) {
     return BST_INVALID_PARAMS;
   }
@@ -388,11 +390,11 @@ BST_STATUS bstSearch(const BST *tree, const void *value, const void **result) {
   return BST_OK;
 }
 
-BST_STATUS bstRemove(BST *tree, const void *value) {
+BST_STATUS bst_remove(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
     return BST_INVALID_PARAMS;
   }
   BST_STATUS err = BST_OK;
-  tree->root = removeValue(tree, tree->root, value, &err);
+  tree->root = remove_value(tree, tree->root, value, &err);
   return err;
 }
