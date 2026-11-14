@@ -45,7 +45,7 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.int_value = value;
-    type_entity_resolve(&node->inferred_type, TYPE_INT);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_INT));
   }
   return node;
 }
@@ -62,7 +62,7 @@ ASTNode *ast_node_create_real(double value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.real_value = value;
-    type_entity_resolve(&node->inferred_type, TYPE_REAL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_REAL));
   }
   return node;
 }
@@ -95,7 +95,7 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
     return NULL;
   }
   node->data.string_value = copy;
-  type_entity_resolve(&node->inferred_type, TYPE_STRING);
+  type_entity_resolve(&node->inferred_type, type_scalar(TYPE_STRING));
   return node;
 }
 
@@ -111,7 +111,7 @@ ASTNode *ast_node_create_bool(bool value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.bool_value = value;
-    type_entity_resolve(&node->inferred_type, TYPE_BOOL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_BOOL));
   }
   return node;
 }
@@ -126,7 +126,7 @@ ASTNode *ast_node_create_unit(size_t line, size_t column) {
   ASTNode *node = ast_node_create(AST_CONSTANT_UNIT, line, column);
 
   if (node != NULL) {
-    type_entity_resolve(&node->inferred_type, TYPE_UNIT);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_UNIT));
   }
   return node;
 }
@@ -364,7 +364,7 @@ ASTNode *ast_node_create_not(ASTNode *operand, size_t line, size_t column) {
   node = ast_node_create(AST_NOT, line, column);
   if (node != NULL) {
     node->data.unary_op.operand = operand;
-    type_entity_resolve(&node->inferred_type, TYPE_BOOL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_BOOL));
   }
   return node;
 }
@@ -385,7 +385,7 @@ ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand) {
       ast_node_create(AST_IMPLICIT_INT_TO_REAL, operand->line, operand->column);
   if (node != NULL) {
     node->data.conversion.operand = operand;
-    type_entity_resolve(&node->inferred_type, TYPE_REAL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_REAL));
   }
   return node;
 }

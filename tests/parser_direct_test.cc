@@ -236,3 +236,43 @@ TEST(ParserDirectLexerTest, LastIfStatementWithoutElseIsAllowed) {
   lexer_destroy(&lexer);
   fclose(stream);
 }
+
+TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
+  FILE *stream =
+      stream_from("def consume(matrix: List[List[List[Int]]]) =\n  return");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function =
+      function_table_lookup(&program.functions, "consume");
+  ASSERT_NE(function, nullptr);
+  Symbol *matrix = symbol_table_lookup_local(function->local_scope, "matrix");
+  ASSERT_NE(matrix, nullptr);
+  DataType expected = type_list(type_list(type_list(type_scalar(TYPE_INT))));
+  EXPECT_TRUE(type_equal(matrix->type.type, expected));
+  EXPECT_EQ(matrix->type.type.list_depth, 3U);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, RejectsMalformedNestedListTypeAnnotation) {
+  FILE *stream = stream_from("def consume(matrix: List[List[Int]) =\n  return");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  EXPECT_EQ(p_program(&lexer, &program), PARSER_SYNTAX_ERROR);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}

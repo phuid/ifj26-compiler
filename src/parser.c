@@ -255,9 +255,86 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
  */
 
 /**
+ * @brief Parses a scalar or recursively nested list type name.
+ * @details Entry: the first token of the type name. Exit: the token after the
+ * complete type name.
+ */
+static ParserStatus p_type_name(Lexer *lexer, bool consume_newlines_indents,
+                                ptrdiff_t *indentation_level, DataType *type) {
+  ParserStatus status;
+  BaseType base;
+
+  if (lexer == NULL || type == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  base = keyword_to_type(lexer->token.type);
+  if (base != TYPE_UNKNOWN) {
+    *type = type_scalar(base);
+    return parser_advance(lexer);
+  }
+
+  if (lexer->token.type != TOKEN_KW_LIST) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Consume 'List' and the opening bracket.
+  status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
+  if (status != PARSER_OK) {
+    return status;
+  }
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      return status;
+    }
+  }
+  status = parser_expect_and_consume(lexer, TOKEN_LEFT_BRACKET);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t local_indent = 0U;
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the element type, which may itself be a list.
+  DataType element_type;
+  status = p_type_name(lexer, consume_newlines_indents, &local_indent,
+                       &element_type);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+  }
+  status = parser_expect_and_consume(lexer, TOKEN_RIGHT_BRACKET);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Reset the indentation level to what it was before the opening
+  /// bracket
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  *type = type_list(element_type);
+  return type_is_unknown(*type) ? PARSER_INTERNAL_ERROR : PARSER_OK;
+}
+
+/**
  * @brief Parses an optional type annotation `: Type`.
  * @details Entry: @c lexer->token is the possible @c :. Without @c : nothing
- * is consumed. Exit: the token after the type identifier.
+ * is consumed. Exit: the token after the complete type name.
  * @param lexer Initialized lexer.
  * @param type_entity Type entity resolved to the annotated type.
  * @param required If true, a type annotation is required.
@@ -305,17 +382,14 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
     }
   }
 
-  /// Expect a type-name keyword and resolve its type.
-  DataType type = keyword_to_type(lexer->token.type);
-  if (type == TYPE_UNKNOWN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_status_from_type(type_entity_resolve(type_entity, type));
+  DataType type;
+  status =
+      p_type_name(lexer, consume_newlines_indents, indentation_level, &type);
   if (status != PARSER_OK) {
     return status;
   }
 
-  return parser_advance(lexer);
+  return parser_status_from_type(type_entity_resolve(type_entity, type));
 }
 
 static ParserStatus p_call_args(Lexer *lexer, Program *program,
@@ -1223,7 +1297,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   /// Add the variable to the current lexical scope
   Symbol *var_symbol;
   switch (symbol_table_define(scope, lexer->token.value.string_value,
-                              TYPE_UNKNOWN, true, constant, &var_symbol)) {
+                              type_unknown(), true, constant, &var_symbol)) {
   case SYMTABLE_OK:
     break;
   case SYMTABLE_DUPLICATE:
@@ -1260,7 +1334,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
   /// Resolve the variable's type based on the expression's inferred type or
   /// create a dependency
-  if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+  if (!type_is_unknown(expression_node->inferred_type.type)) {
     status = parser_status_from_type(type_entity_resolve(
         &var_symbol->type, expression_node->inferred_type.type));
   } else {
@@ -1315,7 +1389,7 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
 
     /// If the function's return type is unit, discard the expression and set
     /// it to null
-    if (function->return_type.type == TYPE_UNIT) {
+    if (type_is_scalar(function->return_type.type, TYPE_UNIT)) {
       ast_node_destroy(expression_node);
       expression_node = NULL;
     }
@@ -1336,7 +1410,7 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   /// Resolve the return statement's inferred type based on the expression's
   /// inferred type or create a dependency
   if (expression_node != NULL) {
-    if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+    if (!type_is_unknown(expression_node->inferred_type.type)) {
       status = parser_status_from_type(
           type_entity_resolve(&return_node_local->inferred_type,
                               expression_node->inferred_type.type));
@@ -1347,8 +1421,8 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     /// If there is no expression, resolve the return statement's inferred
     /// type to unit
   } else {
-    status = parser_status_from_type(
-        type_entity_resolve(&return_node_local->inferred_type, TYPE_UNIT));
+    status = parser_status_from_type(type_entity_resolve(
+        &return_node_local->inferred_type, type_scalar(TYPE_UNIT)));
   }
   if (status != PARSER_OK) {
     ast_node_destroy(return_node_local);
@@ -1379,9 +1453,6 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
     //  case TOKEN_KW_FOR:
     //    return p_for_statement(lexer, program, function, scope,
     //    return_node); break;
-    //  case TOKEN_KW_LIST:
-    //    return p_list_statement(lexer, program, function, scope,
-    //    return_node); break;
   case TOKEN_KW_VAL:
     return p_variable_init_statement(lexer, program, true, function, scope,
                                      return_node);
@@ -1401,6 +1472,7 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_KW_TRUE:
   case TOKEN_KW_FALSE:
   case TOKEN_MINUS:
+  case TOKEN_KW_LIST:
     return p_expression(lexer, program, function, scope, return_node, false,
                         NULL);
     break;
@@ -1495,7 +1567,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
 
     /// Update the block's inferred type based on the return inferred type
     if (statement->kind == AST_RETURN) {
-      if (statement->inferred_type.type != TYPE_UNKNOWN) {
+      if (!type_is_unknown(statement->inferred_type.type)) {
         status = parser_status_from_type(type_entity_resolve(
             &block_node->inferred_type, statement->inferred_type.type));
       } else {
@@ -1605,7 +1677,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       /// Add the argument to the function's local scope
       Symbol *arg_symbol;
       switch (symbol_table_define(local_scope, lexer->token.value.string_value,
-                                  TYPE_UNKNOWN, false, false, &arg_symbol)) {
+                                  type_unknown(), false, false, &arg_symbol)) {
       case SYMTABLE_OK:
         break;
       case SYMTABLE_DUPLICATE:
@@ -1842,7 +1914,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  if (block->inferred_type.type != TYPE_UNKNOWN) {
+  if (!type_is_unknown(block->inferred_type.type)) {
     status = parser_status_from_type(
         type_entity_resolve(&function->return_type, block->inferred_type.type));
   } else {
@@ -1902,7 +1974,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
 
   /// Check that the return type is UNIT
   status = parser_status_from_type(
-      type_entity_resolve(&function->return_type, TYPE_UNIT));
+      type_entity_resolve(&function->return_type, type_scalar(TYPE_UNIT)));
   if (status != PARSER_OK) {
     return status; /// Code 6 on a type conflict
   }

@@ -41,7 +41,7 @@ const Keyword *keyword_lookup(const char *spelling) {
   return NULL;
 }
 
-DataType keyword_to_type(TokenType type) {
+BaseType keyword_to_type(TokenType type) {
   switch (type) {
   case TOKEN_KW_INT:
     return TYPE_INT;

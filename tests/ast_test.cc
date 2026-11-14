@@ -9,7 +9,8 @@ TEST(AstTest, VariableReferenceRetainsResolvedSymbolPointer) {
   SymbolTable *scope = symbol_table_create_root();
   ASSERT_NE(scope, nullptr);
   Symbol *symbol = nullptr;
-  ASSERT_EQ(symbol_table_define(scope, "a", TYPE_INT, true, false, &symbol),
+  ASSERT_EQ(symbol_table_define(scope, "a", type_scalar(TYPE_INT), true, false,
+                                &symbol),
             SYMTABLE_OK);
 
   ASTNode *node = ast_node_create_variable_ref(symbol, 3U, 5U);
