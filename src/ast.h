@@ -51,7 +51,7 @@ typedef enum {
   /** Division; activates @c data.binary_op. */
   AST_DIVIDE,
   /** Concatenation; activates @c data.binary_op. */
-  AST_CONCAT,
+  AST_LIST_CONCAT,
   /** Equality; activates @c data.binary_op. */
   AST_EQUAL, // ==
   /** Inequality; activates @c data.binary_op. */
@@ -279,8 +279,8 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
  * @brief Constructs an owned binary arithmetic node.
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
- * AST_DIVIDE, AST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS, AST_LESS_EQUAL,
- * AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
+ * AST_DIVIDE, AST_LIST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS,
+ * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.

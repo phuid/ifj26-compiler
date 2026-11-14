@@ -232,7 +232,7 @@ static PsaStatus token_to_binary_op(TokenType token_type,
     *return_kind = AST_DIVIDE;
     return PSA_OK;
   case TOKEN_LIST_CONCAT:
-    *return_kind = AST_CONCAT;
+    *return_kind = AST_LIST_CONCAT;
     return PSA_OK;
   case TOKEN_EQUAL:
     *return_kind = AST_EQUAL;

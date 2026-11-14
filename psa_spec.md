@@ -403,7 +403,7 @@ PsaStatus token_to_binary_op(TokenType token_type, ASTNodeKind *return_kind) {
   case TOKEN_MINUS:         *return_kind = AST_SUBTRACT;      return PSA_OK;
   case TOKEN_MULTIPLY:      *return_kind = AST_MULTIPLY;      return PSA_OK;
   case TOKEN_DIVIDE:        *return_kind = AST_DIVIDE;        return PSA_OK;
-  case TOKEN_LIST_CONCAT:   *return_kind = AST_CONCAT;        return PSA_OK;
+  case TOKEN_LIST_CONCAT:   *return_kind = AST_LIST_CONCAT;   return PSA_OK;
   case TOKEN_EQUAL:         *return_kind = AST_EQUAL;         return PSA_OK;
   case TOKEN_NOT_EQUAL:     *return_kind = AST_NOT_EQUAL;     return PSA_OK;
   case TOKEN_LESS:          *return_kind = AST_LESS;          return PSA_OK;

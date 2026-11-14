@@ -300,8 +300,8 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
  * @brief Constructs an owned binary arithmetic node.
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
- * AST_DIVIDE, AST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS, AST_LESS_EQUAL,
- * AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
+ * AST_DIVIDE, AST_LIST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS,
+ * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.
@@ -323,7 +323,7 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
-  case AST_CONCAT:
+  case AST_LIST_CONCAT:
   case AST_EQUAL:
   case AST_NOT_EQUAL:
   case AST_LESS:
@@ -426,7 +426,7 @@ void ast_node_destroy(ASTNode *node) {
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
-  case AST_CONCAT:
+  case AST_LIST_CONCAT:
   case AST_EQUAL:
   case AST_NOT_EQUAL:
   case AST_LESS:
