@@ -770,18 +770,27 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       return status;
     }
 
+    ptrdiff_t nested_indent = 0;
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
     if (lexer->token.type == TOKEN_RIGHT_PAREN) {
       *return_node = ast_node_create_unit(paren_line, paren_column);
       if (*return_node == NULL) {
         return PARSER_INTERNAL_ERROR;
       }
-      return parser_advance(lexer);
-    }
 
-    ptrdiff_t nested_indent = 0;
-    status = parser_consume_newlines(lexer, false, true, &nested_indent);
-    if (status != PARSER_OK) {
-      return status;
+      status = parser_status_from_lexer(
+          lexer_change_current_indent(lexer, (-1) * nested_indent));
+      if (status != PARSER_OK) {
+        ast_node_destroy(*return_node);
+        *return_node = NULL;
+        return status;
+      }
+
+      return parser_advance(lexer);
     }
 
     status = p_expression(lexer, program, function, scope, return_node, true,
