@@ -47,8 +47,8 @@ typedef enum {
  *         BST_ALLOCATION_FAIL if allocation fails.
  * @note The tree keeps its own copy of the inserted data.
  */
-BST_STATUS bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
-                     BSTDestroyValueFn destroy, BST **bst);
+BST_STATUS bst_create(BSTCompareFn compare, BSTCopyValueFn copy,
+                      BSTDestroyValueFn destroy, BST **bst);
 
 /**
  * @brief Destroys a BST and frees all associated memory.
@@ -57,7 +57,7 @@ BST_STATUS bstCreate(BSTCompareFn compare, BSTCopyValueFn copy,
  *             NULL.
  * @return BST_OK on success or status code on fail.
  */
-BST_STATUS bstDestroy(BST **tree);
+BST_STATUS bst_destroy(BST **tree);
 
 /**
  * @brief Inserts a value into the BST.
@@ -69,7 +69,7 @@ BST_STATUS bstDestroy(BST **tree);
  *         existing value is replaced, BST_INVALID_PARAMS for invalid arguments,
  *         or BST_ALLOCATION_FAIL if copying or node allocation fails.
  */
-BST_STATUS bstInsert(BST *tree, const void *value);
+BST_STATUS bst_insert(BST *tree, const void *value);
 
 /**
  * @brief Removes a value from the BST.
@@ -80,7 +80,7 @@ BST_STATUS bstInsert(BST *tree, const void *value);
  *         BST_INVALID_PARAMS for invalid arguments, or BST_ALLOCATION_FAIL if
  *         copying the successor value fails.
  */
-BST_STATUS bstRemove(BST *tree, const void *value);
+BST_STATUS bst_remove(BST *tree, const void *value);
 
 /**
  * @brief Searches for a value in the BST.
@@ -92,6 +92,6 @@ BST_STATUS bstRemove(BST *tree, const void *value);
  * @return BST_OK when the value is found, BST_NOT_FOUND if it is absent, or
  *         BST_INVALID_PARAMS for invalid arguments.
  */
-BST_STATUS bstSearch(const BST *tree, const void *value, const void **result);
+BST_STATUS bst_search(const BST *tree, const void *value, const void **result);
 
 #endif

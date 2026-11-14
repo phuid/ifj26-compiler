@@ -18,9 +18,9 @@ typedef struct Node {
 
 struct BST {
   Node *root;
-  BSTCompareFn compareData;
-  BSTCopyValueFn copyData;
-  BSTDestroyValueFn destroyData;
+  BSTCompareFn compare_data;
+  BSTCopyValueFn copy_data;
+  BSTDestroyValueFn destroy_data;
 };
 
 #endif
