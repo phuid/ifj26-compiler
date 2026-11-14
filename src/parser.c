@@ -778,6 +778,90 @@ static void parser_mark_if_chain_as_expression(ASTNode *if_node) {
   parser_mark_if_chain_as_expression(if_node->data.if_statement.else_branch);
 }
 
+static ParserStatus p_list_constructor_args(Lexer *lexer, Program *program,
+                                            FunctionSymbol *function,
+                                            SymbolTable *scope,
+                                            ASTNode *constructor_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      constructor_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume the opening parenthesis
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t local_indent = 0;
+
+  /// Consume any newlines after the opening parenthesis
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the list constructor arguments
+  if (lexer->token.type != TOKEN_RIGHT_PAREN) {
+    while (true) {
+      if (lexer->token.type == TOKEN_EOF) {
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      ASTNode *arg_node = NULL;
+      status = p_expression(lexer, program, function, scope, &arg_node, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Add the argument node to the list constructor node's argument list
+      if (ast_node_call_append_argument(constructor_node, arg_node) != AST_OK) {
+        ast_node_destroy(arg_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Consume any number of newlines before the next comma or closing
+      /// parenthesis
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Expect a comma or closing parenthesis
+      if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Consume any number of newlines before the next argument
+      bool has_newline = lexer->token.type == TOKEN_NEWLINE;
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// A trailing comma is allowed only when followed by a newline and the
+      /// closing parenthesis.
+      if (has_newline && lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+    }
+  }
+
+  /// Reset the indentation level to what it was before the opening parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+}
+
 /**
 @note This function was altered by an LLM agent to handle nested parentheses
 and unit parsing in accordance with psa_spec.md. Model used: Kimi-k3.1-pro.
@@ -834,6 +918,37 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
     return parser_advance(lexer);
+
+  case TOKEN_KW_LIST:
+    status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    /// Inside parentheses: Consume any number of layout tokens after the 'List'
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+    }
+
+    ASTNode *list_node = ast_node_create_list_constructor(lexer->token.line,
+                                                          lexer->token.column);
+
+    if (list_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    status =
+        p_list_constructor_args(lexer, program, function, scope, list_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(list_node);
+      return status;
+    }
+
+    *return_node = list_node;
+    return PARSER_OK;
 
   case TOKEN_LEFT_PAREN: {
     size_t paren_line = lexer->token.line;

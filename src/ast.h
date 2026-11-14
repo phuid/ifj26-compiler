@@ -36,6 +36,9 @@ typedef enum {
   AST_VARIABLE_REF,
   /** Function call with owned argument nodes; activates @c data.call. */
   AST_FUNCTION_CALL,
+  /** List call with owned argument nodes; activates @c data.call. @c
+     FunctionSymbol is NULL */
+  AST_LIST_CONSTRUCTOR,
   /** Assignment; activates @c data.assignment. */
   AST_ASSIGN,
   /** Return statement; activates @c data.return_statement. */
@@ -214,12 +217,21 @@ ASTNode *ast_node_create_variable_ref(Symbol *symbol, size_t line,
  */
 ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
                                        size_t column);
+/**
+ * @brief Creates a list-constructor node.
+ * @param line One-based source line of the call.
+ * @param column One-based source column of the call.
+ * @return An owned node with @c kind AST_LIST_CONSTRUCTOR, or null for an
+ * invalid argument or allocation failure.
+ */
+ASTNode *ast_node_create_list_constructor(size_t line, size_t column);
 
 /**
  * @brief Appends one owned argument node to a function call.
  * @param call Non-null call node with @c kind AST_FUNCTION_CALL.
  * @param argument Non-null node whose ownership transfers on success only.
- * @return @ref AST_OK, @ref AST_INVALID_ARGUMENT, or @ref AST_OUT_OF_MEMORY.
+ * @return @ref AST_OK, @ref AST_INVALID_ARGUMENT, or @ref
+ * AST_OUT_OF_MEMORY.
  */
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument);
 

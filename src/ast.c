@@ -173,6 +173,11 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
   return node;
 }
 
+ASTNode *ast_node_create_list_constructor(size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_LIST_CONSTRUCTOR, line, column);
+  return node;
+}
+
 /**
  * @brief Transfers an argument node into a function-call node.
  * @details On failure, @p argument remains owned by the caller.
