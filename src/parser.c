@@ -573,7 +573,7 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
     return status;
   }
 
-  /// Inside parentheses: Consume any number of layout tokens after the 'then'
+  /// Inside parentheses: Consume any number of layout tokens after the 'else'
   /// keyword
   if (consume_newlines_indents) {
     status = parser_consume_newlines(lexer, false, true, local_indent);
@@ -595,8 +595,13 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
 
-    status =
-        p_statement(lexer, program, function, else_scope, &else_branch_node);
+    if (lexer->token.type == TOKEN_KW_IF) {
+      status = p_if(lexer, program, function, else_scope, &else_branch_node,
+                    consume_newlines_indents, local_indent);
+    } else {
+      status =
+          p_statement(lexer, program, function, else_scope, &else_branch_node);
+    }
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
       ast_node_destroy(then_branch_node);
@@ -686,6 +691,17 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
   *return_node = if_node;
 
   return PARSER_OK;
+}
+
+/// Marks an if node and all nested if branches as expressions.
+static void parser_mark_if_chain_as_expression(ASTNode *if_node) {
+  if (if_node == NULL || if_node->kind != AST_IF) {
+    return;
+  }
+
+  if_node->data.if_statement.used_as_an_expression = true;
+  parser_mark_if_chain_as_expression(if_node->data.if_statement.then_branch);
+  parser_mark_if_chain_as_expression(if_node->data.if_statement.else_branch);
 }
 
 /**
@@ -875,8 +891,13 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
     break;
 
   case TOKEN_KW_IF:
-    return p_if(lexer, program, function, scope, return_node,
-                consume_newlines_indents, local_indent);
+    status = p_if(lexer, program, function, scope, return_node,
+                  consume_newlines_indents, local_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    parser_mark_if_chain_as_expression(*return_node);
+    return PARSER_OK;
 
   default:
     return PARSER_SYNTAX_ERROR;
@@ -1503,6 +1524,15 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     ast_node_destroy(block_node);
     return status;
+  }
+
+  if (block_node->data.block.statement_count > 0U) {
+    ASTNode *last_statement =
+        block_node->data.block
+            .statements[block_node->data.block.statement_count - 1U];
+    if (last_statement->kind == AST_IF) {
+      parser_mark_if_chain_as_expression(last_statement);
+    }
   }
 
   /// Hand the block over to the caller only on success, so the caller never

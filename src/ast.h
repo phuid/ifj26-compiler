@@ -129,6 +129,7 @@ struct ASTNode {
       ASTNode *condition;
       ASTNode *then_branch;
       ASTNode *else_branch;
+      bool used_as_an_expression;
     } if_statement;
     struct {
       ASTNode **statements;
