@@ -18,7 +18,10 @@
 #include "type.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 static ParserStatus parser_consume_indent_delta(Lexer *lexer,
                                                 size_t *indent_delta);
@@ -61,6 +64,21 @@ static ParserStatus parser_status_from_type(TypeResolveStatus status) {
     return PARSER_SEMANTIC_ERROR;
   case TYPE_RESOLVE_INVALID_ARGUMENT:
     return PARSER_INVALID_ARGUMENT;
+  default:
+    return PARSER_INTERNAL_ERROR;
+  }
+}
+
+/** Translates a precedence-stack helper result to the parser status boundary.
+ */
+static ParserStatus parser_status_from_psa(PsaStatus status) {
+  switch (status) {
+  case PSA_OK:
+    return PARSER_OK;
+  case PSA_INVALID_ARGUMENT:
+    return PARSER_INVALID_ARGUMENT;
+  case PSA_SYNTAX_ERROR:
+    return PARSER_SYNTAX_ERROR;
   default:
     return PARSER_INTERNAL_ERROR;
   }
@@ -516,6 +534,10 @@ static ParserStatus p_if_expression(Lexer *lexer, Program *program,
   return PARSER_OK;
 }
 
+/**
+@note This function was altered by an LLM agent to handle nested parentheses and
+unit parsing in accordance with psa_spec.md. Model used: Kimi-k3.1-pro.
+*/
 static ParserStatus p_operand(Lexer *lexer, Program *program,
                               SymbolTable *scope, ASTNode **return_node) {
   if (lexer == NULL || program == NULL || scope == NULL ||
@@ -532,6 +554,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
     return parser_advance(lexer);
+
   case TOKEN_DOUBLE:
     *return_node = ast_node_create_real(lexer->token.value.double_value,
                                         lexer->token.line, lexer->token.column);
@@ -565,24 +588,90 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
     }
     return parser_advance(lexer);
 
-  case TOKEN_IDENTIFIER:
-    char *name = lexer->token.value.string_value;
-    size_t line = lexer->token.line;
-    size_t column = lexer->token.column;
+  case TOKEN_LEFT_PAREN: {
+    size_t paren_line = lexer->token.line;
+    size_t paren_column = lexer->token.column;
 
     status = parser_advance(lexer);
     if (status != PARSER_OK) {
       return status;
     }
 
+    if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+      *return_node = ast_node_create_unit(paren_line, paren_column);
+      if (*return_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+      return parser_advance(lexer);
+    }
+
+    ptrdiff_t nested_indent = 0;
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    status =
+        p_expression(lexer, program, scope, return_node, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    if (*return_node == NULL) {
+      return PARSER_SYNTAX_ERROR;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_status_from_lexer(
+        lexer_change_current_indent(lexer, (-1) * nested_indent));
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    return PARSER_OK;
+  }
+
+  case TOKEN_IDENTIFIER:
+    const char *token_name = lexer->token.value.string_value;
+    size_t line = lexer->token.line;
+    size_t column = lexer->token.column;
+    size_t name_length = strlen(token_name) + 1U;
+    char *name = malloc(name_length);
+    if (name == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    memcpy(name, token_name, name_length);
+
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      free(name);
+      return status;
+    }
+
     if (lexer->token.type == TOKEN_LEFT_PAREN) {
       /// Function call
 
-      FunctionSymbol *function;
+      FunctionSymbol *function = NULL;
       if (function_table_get_or_create(&program->functions, name, &function) !=
           FUNCTION_TABLE_OK) {
+        free(name);
         return PARSER_INTERNAL_ERROR;
       }
+      free(name);
 
       ASTNode *call_node =
           ast_node_create_function_call(function, line, column);
@@ -596,19 +685,18 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
         ast_node_destroy(call_node);
         return status;
       }
-
       status = parser_status_from_type(type_entity_depend(
           &function->return_type, &call_node->inferred_type));
       if (status != PARSER_OK) {
         ast_node_destroy(call_node);
         return status;
       }
-
       *return_node = call_node;
       return PARSER_OK;
     } else {
       /// Variable reference
       Symbol *symbol = symbol_table_resolve(scope, name);
+      free(name);
       if (symbol == NULL) {
         return PARSER_SEMANTIC_ERROR;
       }
@@ -640,6 +728,25 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
 // Parses an implicit return expression on the function header line.
 // Entry: the first token of the expression. Exit: the token after the
 // expression.
+
+/**
+ * @brief Parses one expression using operator-precedence analysis.
+ * @details Entry: @c lexer->token is the first token of the expression. On
+ * success, the expression's owned AST is returned and @c lexer->token is the
+ * first unconsumed delimiter. On failure, the caller retains no AST ownership.
+ * @param lexer Initialized lexer with its current lookahead token loaded.
+ * @param program Program owning functions referenced by the expression.
+ * @param scope Lexical scope used to resolve variable references.
+ * @param return_node Output receiving the owned expression AST on success.
+ * @param consume_newlines_indents Whether multiline expression layout may be
+ * consumed.
+ * @param local_indent Nested indentation depth; required when
+ * @p consume_newlines_indents is true.
+ * @return PARSER_OK or the first syntax, semantic, lexer, argument, internal,
+ * or precedence-stack error.
+ * @note This function was generated by an LLM agent based on psa_spec.md
+ * Model used: Kimi-k3.1-pro.
+ */
 static ParserStatus p_expression(Lexer *lexer, Program *program,
                                  SymbolTable *scope, ASTNode **return_node,
                                  bool consume_newlines_indents,
@@ -651,19 +758,249 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
   if (consume_newlines_indents && local_indent == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
+  /// Do not transfer a partial AST to the caller if parsing fails.
+  *return_node = NULL;
 
+  /// Stack initialization consumes no input. PSA helpers report PsaStatus, so
+  /// translate their results at the parser boundary.
   TerminalStack stack;
-  terminal_stack_init(&stack); // FIXME: check status
+  ParserStatus status = parser_status_from_psa(terminal_stack_init(&stack));
+  if (status != PARSER_OK) {
+    return status;
+  }
 
-  terminal_stack_push(&stack, (Terminal){.type = TERMINAL_DOLLAR,
-                                         .node = NULL}); // FIXME: check status
+  /// Push the stack-bottom dollar sentinel. It is not a real token and leaves
+  /// the first token of the expression untouched.
+  Terminal bottom = {
+      .type = TERMINAL_DOLLAR, .token = {.type = TOKEN_INVALID}, .node = NULL};
+  status = parser_status_from_psa(terminal_stack_push(&stack, bottom));
+  if (status != PARSER_OK) {
+    terminal_stack_cleanup_nodes(&stack);
+    return status;
+  }
 
-  terminal_stack_destroy(&stack); // FIXME: check status
+  /// Start by expecting an operand. Alternating this state distinguishes unary
+  /// operators from binary operators and keeps operands out of the table
+  /// lookup.
+  bool expecting_operand = true;
 
-  /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
-  return PARSER_OK;
+  while (true) {
+    if (expecting_operand) {
+      /// Before an operand, consume newlines and layout only in constructs that
+      /// permit multiline expressions, such as parentheses and call arguments.
+      if (consume_newlines_indents) {
+        status = parser_consume_newlines(lexer, false, true, local_indent);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+      }
+
+      TokenType unary_op = TOKEN_INVALID;
+      size_t unary_line = 0;
+      size_t unary_column = 0;
+
+      /// `+`, `-`, and `!` have their prefix meaning only while an operand is
+      /// expected. Save the operator and its source position before consuming
+      /// it.
+      if (lexer->token.type == TOKEN_MINUS || lexer->token.type == TOKEN_PLUS ||
+          lexer->token.type == TOKEN_NOT) {
+        unary_op = lexer->token.type;
+        unary_line = lexer->token.line;
+        unary_column = lexer->token.column;
+
+        /// Consume the unary operator now; its operand must be available before
+        /// the corresponding AST wrapper can be created.
+        status = parser_advance(lexer);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Layout between a unary operator and its operand is governed by the
+        /// same multiline-expression rule as layout before the operator.
+        if (consume_newlines_indents) {
+          status = parser_consume_newlines(lexer, false, true, local_indent);
+          if (status != PARSER_OK) {
+            terminal_stack_cleanup_nodes(&stack);
+            return status;
+          }
+        }
+      }
+
+      /// Delegate one primary operand to p_operand. It consumes that operand
+      /// and any nested syntax it owns, leaving the next operator or delimiter
+      /// as the current lookahead token.
+      ASTNode *operand_node = NULL;
+      status = p_operand(lexer, program, scope, &operand_node);
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+      if (operand_node == NULL) {
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// Wrap the now-complete operand in the saved unary operation. Unary `+`
+      /// needs no wrapper because it does not change the operand's value.
+      if (unary_op == TOKEN_NOT) {
+        ASTNode *not_node =
+            ast_node_create_not(operand_node, unary_line, unary_column);
+        if (not_node == NULL) {
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        operand_node = not_node;
+      } else if (unary_op == TOKEN_MINUS) {
+        /// The AST has no unary-minus kind, so represent negation as `0 - x`.
+        ASTNode *zero_node = ast_node_create_int(0, unary_line, unary_column);
+        if (zero_node == NULL) {
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        ASTNode *neg_node = ast_node_create_binary_op(
+            AST_SUBTRACT, zero_node, operand_node, unary_line, unary_column);
+        if (neg_node == NULL) {
+          ast_node_destroy(zero_node);
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        operand_node = neg_node;
+      }
+
+      /// Store the completed operand as a nonterminal stack item. A successful
+      /// push transfers AST ownership to the stack; no input is consumed here.
+      Terminal operand_terminal = {.type = TERMINAL_OPERAND,
+                                   .token = {.type = TOKEN_INVALID},
+                                   .node = operand_node};
+      status =
+          parser_status_from_psa(terminal_stack_push(&stack, operand_terminal));
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+
+      /// A complete operand is on the stack, so the next token must be either
+      /// a binary operator or a delimiter that ends the expression.
+      expecting_operand = false;
+    } else {
+      /// After an operand, permitted layout may precede a binary operator or
+      /// the expression's final delimiter.
+      if (consume_newlines_indents) {
+        status = parser_consume_newlines(lexer, false, true, local_indent);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+      }
+
+      /// Find the nearest terminal below any completed operands and handles;
+      /// this only inspects the stack and consumes no input.
+      Terminal top_terminal;
+      status =
+          parser_status_from_psa(stack_get_top_terminal(&stack, &top_terminal));
+      if (status != PARSER_OK) {
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+
+      /// Classify the lookahead without consuming it. Operators retain their
+      /// terminal kinds, while tokens that can end an expression map to `$`.
+      TerminalType input_terminal = token_to_terminal(lexer->token.type);
+
+      /// Two dollar symbols mean that no more operators can be taken. The
+      /// current delimiter deliberately remains unconsumed for the caller.
+      if (top_terminal.type == TERMINAL_DOLLAR &&
+          input_terminal == TERMINAL_DOLLAR) {
+        /// Success requires exactly the bottom sentinel and one complete AST;
+        /// any operators or extra operands would make the expression
+        /// incomplete.
+        if (stack.size == 2U && stack.data[1].type == TERMINAL_OPERAND &&
+            stack.data[1].node != NULL) {
+          *return_node = stack.data[1].node;
+          /// Transfer ownership of the result before destroying all ASTs still
+          /// owned by the stack.
+          stack.data[1].node = NULL;
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_OK;
+        }
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// Reject tokens that are neither binary operators nor valid expression
+      /// delimiters, and stack-only symbols that cannot index the table. The
+      /// offending lookahead is left for the caller's diagnostic context.
+      if (input_terminal == TERMINAL_INVALID ||
+          top_terminal.type >= TERMINAL_COUNT) {
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// The precedence relation, rather than the token alone, decides whether
+      /// to take the operator or reduce the expression already on the stack.
+      PRECEDENCE precedence = get_precedence(top_terminal.type, input_terminal);
+      switch (precedence) {
+      case PREC_TAKE: {
+        /// TAKE opens a new reduction handle and delays combining the left
+        /// operand until the incoming operator has its right operand.
+        status = parser_status_from_psa(
+            stack_insert_handle_after_top_terminal(&stack));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Copy the operator and its source position onto the stack before
+        /// advancing, because advancing replaces the lexer's lookahead token.
+        Terminal operator_terminal = {
+            .type = input_terminal, .token = lexer->token, .node = NULL};
+        status = parser_status_from_psa(
+            terminal_stack_push(&stack, operator_terminal));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Consume only the binary operator. The following token is retained
+        /// as lookahead and must produce its required right operand next.
+        status = parser_advance(lexer);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        expecting_operand = true;
+        break;
+      }
+
+      case PREC_REDUCE:
+        /// REDUCE combines the completed handle on the stack but deliberately
+        /// does not advance: the same lookahead is compared with the new top
+        /// terminal until it can be taken or can finish the expression.
+        status = parser_status_from_psa(psa_reduce(&stack));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+        break;
+
+      case PREC_INVALID:
+      default:
+        /// No valid precedence relation exists, so consuming the lookahead
+        /// would only hide the syntax error. Discard owned ASTs and report it.
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+    }
+  }
 }
-
 static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
                                               bool constant,
                                               FunctionSymbol *function,

@@ -1,7 +1,9 @@
 /**
  * @file psa.c
- * @brief Precedence stack implementation for operator precedence parsing.
+ * @brief Precedence stack and reduction helpers for expression parsing.
  * @author Simon Hrouda
+ * @note psa_reduce was partially generated using an LLM agent based on
+ * psa_spec.md. Model used: Kimi-k3.1-pro.
  */
 
 #include "psa.h"
@@ -9,9 +11,11 @@
 #include "ast.h"
 #include "dynamic_array.h"
 #include "lexer.h"
-#include <stdint.h>
 
-static TerminalType token_to_terminal(TokenType token) {
+#include <stdint.h>
+#include <stdlib.h>
+
+TerminalType token_to_terminal(TokenType token) {
   switch (token) {
   case TOKEN_PLUS:
     return TERMINAL_PLUS;
@@ -61,7 +65,6 @@ static TerminalType token_to_terminal(TokenType token) {
 
 #define T PREC_TAKE
 #define R PREC_REDUCE
-#define E PREC_EQUAL
 #define I PREC_INVALID
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
@@ -79,7 +82,6 @@ static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
 };
 #undef T
 #undef R
-#undef E
 #undef I
 
 /**
@@ -90,7 +92,6 @@ static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
 generate these terminalStack handling functions
 PsaStatus terminal_stack_init(TerminalStack *stack);
 PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
-PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
 PsaStatus terminal_stack_peek(TerminalStack *stack, Terminal *terminal);
 
 use the types from psa.h and function from dynamic_array.c for allocation
@@ -98,6 +99,7 @@ use the types from psa.h and function from dynamic_array.c for allocation
 
 peek was later replaced by terminal_stack_get_top_terminal, by hand
  */
+
 PsaStatus terminal_stack_init(TerminalStack *stack) {
   if (stack == NULL) {
     return PSA_INVALID_ARGUMENT;
@@ -109,7 +111,7 @@ PsaStatus terminal_stack_init(TerminalStack *stack) {
   return PSA_OK;
 }
 
-PsaStatus terminal_stack_destroy(TerminalStack *stack) {
+static PsaStatus terminal_stack_destroy(TerminalStack *stack) {
   if (stack == NULL) {
     return PSA_INVALID_ARGUMENT;
   }
@@ -139,19 +141,8 @@ PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
   return PSA_OK;
 }
 
-// TODO: should pop remove the stack top, or the top terminal (not operand)?
-PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal) {
-  if (stack == NULL || terminal == NULL || stack->size == 0U) {
-    return PSA_INVALID_ARGUMENT;
-  }
-
-  stack->size -= 1U;
-  *terminal = stack->data[stack->size];
-  return PSA_OK;
-}
-
 PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
-  if (stack == NULL || stack->size == 0U) {
+  if (stack == NULL || terminal == NULL || stack->size == 0U) {
     return PSA_INVALID_ARGUMENT;
   }
   for (size_t i = stack->size; i > 0U; i--) {
@@ -169,13 +160,15 @@ PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
   if (stack == NULL || index > stack->size) {
     return PSA_INVALID_ARGUMENT;
   }
+  if (stack->size == SIZE_MAX) {
+    return PSA_INTERNAL_ERROR;
+  }
   if (dynamic_array_reserve((void **)&stack->data, &stack->capacity,
                             stack->size + 1U,
                             sizeof(*stack->data)) != DYNAMIC_ARRAY_OK) {
     return PSA_INTERNAL_ERROR;
   }
 
-  // Shift elements to the right to make space for the new terminal
   for (size_t i = stack->size; i > index; i--) {
     stack->data[i] = stack->data[i - 1U];
   }
@@ -187,7 +180,13 @@ PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
 
 PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
   // 1. Find index of top terminal
-  size_t idx = stack->size;
+  size_t idx;
+
+  if (stack == NULL) {
+    return PSA_INVALID_ARGUMENT;
+  }
+
+  idx = stack->size;
   for (size_t i = stack->size; i > 0U; i--) {
     TerminalType type = stack->data[i - 1U].type;
     if (type != TERMINAL_OPERAND && type != TERMINAL_HANDLE) {
@@ -195,9 +194,13 @@ PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
       break;
     }
   }
+  if (idx == stack->size) {
+    return PSA_SYNTAX_ERROR;
+  }
 
   // 2. Shift elements right and insert TERMINAL_HANDLE at idx
-  Terminal handle = {.type = TERMINAL_HANDLE, .node = NULL};
+  Terminal handle = {
+      .type = TERMINAL_HANDLE, .token = {.type = TOKEN_INVALID}, .node = NULL};
   return terminal_stack_insert_at(stack, idx, handle);
 }
 
@@ -209,7 +212,12 @@ PRECEDENCE get_precedence(TerminalType stack, TerminalType input) {
   return precedence_table[stack][input];
 }
 
-PsaStatus token_to_binary_op(TokenType token_type, ASTNodeKind *return_kind) {
+static PsaStatus token_to_binary_op(TokenType token_type,
+                                    ASTNodeKind *return_kind) {
+  if (return_kind == NULL) {
+    return PSA_INVALID_ARGUMENT;
+  }
+
   switch (token_type) {
   case TOKEN_PLUS:
     *return_kind = AST_ADD;
@@ -255,8 +263,11 @@ PsaStatus token_to_binary_op(TokenType token_type, ASTNodeKind *return_kind) {
   }
 }
 
-static PsaStatus psa_reduce(TerminalStack *stack) {
+PsaStatus psa_reduce(TerminalStack *stack) {
   // Reduction pattern must be exactly 4 items: '<' OPERAND op OPERAND
+  if (stack == NULL) {
+    return PSA_INVALID_ARGUMENT;
+  }
   if (stack->size < 4U) {
     return PSA_SYNTAX_ERROR;
   }
@@ -270,6 +281,10 @@ static PsaStatus psa_reduce(TerminalStack *stack) {
   if (handle.type != TERMINAL_HANDLE || left.type != TERMINAL_OPERAND ||
       op.type == TERMINAL_OPERAND || right.type != TERMINAL_OPERAND) {
     return PSA_SYNTAX_ERROR;
+  }
+
+  if (left.node == NULL || right.node == NULL) {
+    return PSA_INTERNAL_ERROR;
   }
 
   ASTNodeKind op_kind;
@@ -288,9 +303,27 @@ static PsaStatus psa_reduce(TerminalStack *stack) {
 
   // Push resulting evaluated operand
   Terminal result = {.type = TERMINAL_OPERAND,
-                     .token = (Token){.type = TOKEN_INVALID,
-                                      .line = op.token.line,
-                                      .column = op.token.column},
+                     .token = {.type = TOKEN_INVALID,
+                               .line = op.token.line,
+                               .column = op.token.column},
                      .node = bin_node};
-  return terminal_stack_push(stack, result);
+  PsaStatus status = terminal_stack_push(stack, result);
+  if (status != PSA_OK) {
+    ast_node_destroy(bin_node);
+  }
+  return status;
+}
+
+PsaStatus terminal_stack_cleanup_nodes(TerminalStack *stack) {
+  if (stack == NULL) {
+    return PSA_INVALID_ARGUMENT;
+  }
+  for (size_t i = 0; i < stack->size; i++) {
+    if (stack->data[i].type == TERMINAL_OPERAND &&
+        stack->data[i].node != NULL) {
+      ast_node_destroy(stack->data[i].node);
+      stack->data[i].node = NULL;
+    }
+  }
+  return terminal_stack_destroy(stack);
 }

@@ -1,14 +1,16 @@
 /**
  * @file psa.h
- * @brief Public precedence stack interface and terminal representation.
+ * @brief Precedence stack and reduction helpers for expression parsing.
  * @author Simon Hrouda
  */
 
-#include "lexer.h"
-#include "parser.h"
-
 #ifndef SRC_PSA_H
 #define SRC_PSA_H
+
+#include <stddef.h>
+
+#include "ast.h"
+#include "lexer.h"
 
 typedef enum PRECEDENCE {
   PREC_TAKE,
@@ -58,13 +60,25 @@ typedef struct {
   size_t capacity;
 } TerminalStack;
 
+/** Maps a lexer token to its precedence-table terminal without consuming it. */
+TerminalType token_to_terminal(TokenType token);
+
+/** Returns the table relation for two terminals, or PREC_INVALID out of range.
+ */
+PRECEDENCE get_precedence(TerminalType stack, TerminalType input);
+
 PsaStatus terminal_stack_init(TerminalStack *stack);
-PsaStatus terminal_stack_destroy(TerminalStack *stack);
 PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal);
-PsaStatus terminal_stack_pop(TerminalStack *stack, Terminal *terminal);
 PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal);
 PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
                                    Terminal terminal);
 PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack);
+
+/** Reduces the top handle/operand/operator/operand sequence into one AST node.
+ */
+PsaStatus psa_reduce(TerminalStack *stack);
+
+/** Destroys all operand ASTs still owned by the stack and empties the stack. */
+PsaStatus terminal_stack_cleanup_nodes(TerminalStack *stack);
 
 #endif // SRC_PSA_H
