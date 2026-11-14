@@ -42,6 +42,17 @@ typedef enum {
   /** List indexing; activates @c data.binary_op. Left operand is the list,
      right operand is the index. */
   AST_LIST_INDEXING,
+  /** Integer "to" operand, converts to list starting with left, ended by right;
+     activates @c data.binary_op.  */
+  AST_TO,
+  /** Integer "until" operand, converts to list starting with left, ended by
+     (right - 1); activates @c data.binary_op. */
+  AST_UNTIL,
+  /** List x integer "by" operand takes a list and an integer, and returns a
+     list with elements from the original list, spaced by the integer; activates
+     @c data.binary_op. Left operand is the list, right operand is the integer.
+   */
+  AST_BY,
   /** Assignment; activates @c data.assignment. */
   AST_ASSIGN,
   /** Return statement; activates @c data.return_statement. */
@@ -308,7 +319,8 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
  * AST_DIVIDE, AST_LIST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS,
- * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
+ * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR, AST_TO,
+ * AST_UNTIL, AST_BY.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.

@@ -14,9 +14,10 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
-TerminalType token_to_terminal(TokenType token) {
-  switch (token) {
+TerminalType token_to_terminal(Token token) {
+  switch (token.type) {
   case TOKEN_PLUS:
     return TERMINAL_PLUS;
   case TOKEN_MINUS:
@@ -55,6 +56,20 @@ TerminalType token_to_terminal(TokenType token) {
   case TOKEN_KW_ELSE:
     return TERMINAL_DOLLAR;
 
+  case TOKEN_IDENTIFIER:
+    /// if identifier name matches to/until/by operators, return their
+    /// respective terminal types
+    if (token.value.string_value != NULL) {
+      if (strcmp(token.value.string_value, "to") == 0) {
+        return TERMINAL_TO;
+      } else if (strcmp(token.value.string_value, "until") == 0) {
+        return TERMINAL_UNTIL;
+      } else if (strcmp(token.value.string_value, "by") == 0) {
+        return TERMINAL_BY;
+      }
+    }
+    return TERMINAL_INVALID;
+
   default:
     // This also applies to Tokens with which operands start, since they are not
     // included in the precedence table and will be handled in the "expecting
@@ -68,17 +83,20 @@ TerminalType token_to_terminal(TokenType token) {
 #define I PREC_INVALID
 
 static const PRECEDENCE precedence_table[TERMINAL_COUNT][TERMINAL_COUNT] = {
-    /* Stack \ Input: +  -  *  /  ++ <= == && || $  */
-    /* +          */ {I, I, I, I, I, I, I, I, I, I},
-    /* -          */ {I, I, I, I, I, I, I, I, I, I},
-    /* *          */ {I, I, I, I, I, I, I, I, I, I},
-    /* /          */ {I, I, I, I, I, I, I, I, I, I},
-    /* ++         */ {I, I, I, I, I, I, I, I, I, I},
-    /* <=         */ {I, I, I, I, I, I, I, I, I, I},
-    /* ==         */ {I, I, I, I, I, I, I, I, I, I},
-    /* &&         */ {I, I, I, I, I, I, I, I, I, I},
-    /* ||         */ {I, I, I, I, I, I, I, I, I, I},
-    /* $          */ {I, I, I, I, I, I, I, I, I, I},
+    /* Stack \ Input: +  -  *  /  ++ <= == && || to un by $  */
+    /* +          */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
+    /* -          */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
+    /* *          */ {R, R, R, R, R, I, I, I, I, I, I, I, I},
+    /* /          */ {R, R, R, R, R, I, I, I, I, I, I, I, I},
+    /* ++         */ {R, R, T, T, R, I, I, I, I, I, I, I, I},
+    /* <=         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* ==         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* &&         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* ||         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* to         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* until      */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* by         */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
+    /* $          */ {I, I, I, I, I, I, I, I, I, I, I, I, I},
 };
 #undef T
 #undef R
@@ -212,54 +230,69 @@ PRECEDENCE get_precedence(TerminalType stack, TerminalType input) {
   return precedence_table[stack][input];
 }
 
-static PsaStatus token_to_binary_op(TokenType token_type,
-                                    ASTNodeKind *return_kind) {
-  if (return_kind == NULL) {
+static PsaStatus terminal_to_binary_op(Terminal terminal,
+                                       ASTNodeKind *return_kind) {
+  if (return_kind == NULL || terminal.type >= TERMINAL_COUNT) {
     return PSA_INVALID_ARGUMENT;
   }
 
-  switch (token_type) {
-  case TOKEN_PLUS:
-    *return_kind = AST_ADD;
+  /// to, until and by are only distinguishable by their terminal type, since
+  /// the identifier name is not owned by the terminal. Other operators are
+  /// distinguished by their token type, which is preserved in the terminal.
+  switch (terminal.type) {
+  case TERMINAL_TO:
+    *return_kind = AST_TO;
     return PSA_OK;
-  case TOKEN_MINUS:
-    *return_kind = AST_SUBTRACT;
+  case TERMINAL_UNTIL:
+    *return_kind = AST_UNTIL;
     return PSA_OK;
-  case TOKEN_MULTIPLY:
-    *return_kind = AST_MULTIPLY;
-    return PSA_OK;
-  case TOKEN_DIVIDE:
-    *return_kind = AST_DIVIDE;
-    return PSA_OK;
-  case TOKEN_LIST_CONCAT:
-    *return_kind = AST_LIST_CONCAT;
-    return PSA_OK;
-  case TOKEN_EQUAL:
-    *return_kind = AST_EQUAL;
-    return PSA_OK;
-  case TOKEN_NOT_EQUAL:
-    *return_kind = AST_NOT_EQUAL;
-    return PSA_OK;
-  case TOKEN_LESS:
-    *return_kind = AST_LESS;
-    return PSA_OK;
-  case TOKEN_LESS_EQUAL:
-    *return_kind = AST_LESS_EQUAL;
-    return PSA_OK;
-  case TOKEN_GREATER:
-    *return_kind = AST_GREATER;
-    return PSA_OK;
-  case TOKEN_GREATER_EQUAL:
-    *return_kind = AST_GREATER_EQUAL;
-    return PSA_OK;
-  case TOKEN_AND:
-    *return_kind = AST_AND;
-    return PSA_OK;
-  case TOKEN_OR:
-    *return_kind = AST_OR;
+  case TERMINAL_BY:
+    *return_kind = AST_BY;
     return PSA_OK;
   default:
-    return PSA_INVALID_ARGUMENT; // Invalid token for binary operation
+    switch (terminal.token.type) {
+    case TOKEN_PLUS:
+      *return_kind = AST_ADD;
+      return PSA_OK;
+    case TOKEN_MINUS:
+      *return_kind = AST_SUBTRACT;
+      return PSA_OK;
+    case TOKEN_MULTIPLY:
+      *return_kind = AST_MULTIPLY;
+      return PSA_OK;
+    case TOKEN_DIVIDE:
+      *return_kind = AST_DIVIDE;
+      return PSA_OK;
+    case TOKEN_LIST_CONCAT:
+      *return_kind = AST_LIST_CONCAT;
+      return PSA_OK;
+    case TOKEN_EQUAL:
+      *return_kind = AST_EQUAL;
+      return PSA_OK;
+    case TOKEN_NOT_EQUAL:
+      *return_kind = AST_NOT_EQUAL;
+      return PSA_OK;
+    case TOKEN_LESS:
+      *return_kind = AST_LESS;
+      return PSA_OK;
+    case TOKEN_LESS_EQUAL:
+      *return_kind = AST_LESS_EQUAL;
+      return PSA_OK;
+    case TOKEN_GREATER:
+      *return_kind = AST_GREATER;
+      return PSA_OK;
+    case TOKEN_GREATER_EQUAL:
+      *return_kind = AST_GREATER_EQUAL;
+      return PSA_OK;
+    case TOKEN_AND:
+      *return_kind = AST_AND;
+      return PSA_OK;
+    case TOKEN_OR:
+      *return_kind = AST_OR;
+      return PSA_OK;
+    default:
+      return PSA_INVALID_ARGUMENT; // Invalid token for binary operation
+    }
   }
 }
 
@@ -288,7 +321,7 @@ PsaStatus psa_reduce(TerminalStack *stack) {
   }
 
   ASTNodeKind op_kind;
-  if (token_to_binary_op(op.token.type, &op_kind) != PSA_OK) {
+  if (terminal_to_binary_op(op, &op_kind) != PSA_OK) {
     return PSA_SYNTAX_ERROR;
   }
 

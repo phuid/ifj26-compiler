@@ -338,7 +338,8 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
  * AST_DIVIDE, AST_LIST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS,
- * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR.
+ * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR, AST_TO,
+ * AST_UNTIL, AST_BY.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.
@@ -369,6 +370,9 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   case AST_GREATER_EQUAL:
   case AST_AND:
   case AST_OR:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
     break;
   default:
     return NULL;
@@ -474,6 +478,9 @@ void ast_node_destroy(ASTNode *node) {
   case AST_AND:
   case AST_OR:
   case AST_LIST_INDEXING:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
     ast_node_destroy(node->data.binary_op.left);
     ast_node_destroy(node->data.binary_op.right);
     break;

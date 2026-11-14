@@ -37,8 +37,11 @@ typedef enum {
   TERMINAL_EQUAL,  // ==, !=
   TERMINAL_AND,    // &&
   TERMINAL_OR,     // ||
+  TERMINAL_TO,     // to
+  TERMINAL_UNTIL,  // until
+  TERMINAL_BY,     // by
   TERMINAL_DOLLAR, // $ stack bottom / end of expression delimiter
-  TERMINAL_COUNT,  // = 10 (dimension of precedence table)
+  TERMINAL_COUNT,  // = 13 (dimension of precedence table)
 
   // Stack-only symbols (never looked up in table)
   TERMINAL_OPERAND, // any subexpression (variable, literal, function call, AST
@@ -61,7 +64,7 @@ typedef struct {
 } TerminalStack;
 
 /** Maps a lexer token to its precedence-table terminal without consuming it. */
-TerminalType token_to_terminal(TokenType token);
+TerminalType token_to_terminal(Token token);
 
 /** Returns the table relation for two terminals, or PREC_INVALID out of range.
  */

@@ -1429,7 +1429,7 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
 
       /// Classify the lookahead without consuming it. Operators retain their
       /// terminal kinds, while tokens that can end an expression map to `$`.
-      TerminalType input_terminal = token_to_terminal(lexer->token.type);
+      TerminalType input_terminal = token_to_terminal(lexer->token);
 
       /// Two dollar symbols mean that no more operators can be taken. The
       /// current delimiter deliberately remains unconsumed for the caller.
