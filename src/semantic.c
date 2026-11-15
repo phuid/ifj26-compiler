@@ -55,10 +55,10 @@ typedef struct {
 /** Fixed signature of one builtin function of IFJ26. */
 typedef struct {
   const char *name;       ///< Name as written in the source code.
-  DataType return_type;   ///< Type of the value the builtin returns.
+  BaseType return_type;   ///< Type of the value the builtin returns.
   size_t parameter_count; ///< Number of used items in @c parameters.
-  /// Parameter types in source order; TYPE_ANY accepts any non-Bool value.
-  DataType parameters[3];
+  /// Parameter types in source order; TYPE_ANY accepts any value.
+  BaseType parameters[3];
 } BuiltinSignature;
 
 /** Signatures of all builtin functions, matched to the program by name. */
@@ -67,6 +67,7 @@ static const BuiltinSignature BUILTINS[] = {
     {"readLine", TYPE_STRING, 0U, {TYPE_UNKNOWN}},
     {"readInt", TYPE_INT, 0U, {TYPE_UNKNOWN}},
     {"readDouble", TYPE_REAL, 0U, {TYPE_UNKNOWN}},
+    {"readBoolean", TYPE_BOOL, 0U, {TYPE_UNKNOWN}},
     {"toStr", TYPE_STRING, 1U, {TYPE_ANY}},
     {"toInt", TYPE_INT, 1U, {TYPE_REAL}},
     {"strLength", TYPE_INT, 1U, {TYPE_STRING}},
@@ -108,12 +109,12 @@ static SemanticStatus register_builtins(Program *program) {
     function->is_defined = true;
     function->is_builtin = true;
     function->has_explicit_return_type = true;
-    function->return_type.type = BUILTINS[index].return_type;
+    function->return_type.type = type_scalar(BUILTINS[index].return_type);
     function->argument_count = 0U;
     for (parameter = 0U; parameter < BUILTINS[index].parameter_count;
          parameter += 1U) {
       if (function_symbol_add_parameter(
-              function, BUILTINS[index].parameters[parameter]) !=
+              function, type_scalar(BUILTINS[index].parameters[parameter])) !=
           FUNCTION_TABLE_OK) {
         return SEMANTIC_INTERNAL_ERROR;
       }
@@ -159,6 +160,14 @@ static SemanticStatus collect_graph(FunctionSymbol *function,
       status = collect_graph(function, node->data.call.arguments[index]);
     }
     return status;
+  case AST_LIST_CONSTRUCTOR:
+    /// `List(...)` has no callee, only calls nested in its elements.
+    for (index = 0U;
+         status == SEMANTIC_OK && index < node->data.call.argument_count;
+         index += 1U) {
+      status = collect_graph(function, node->data.call.arguments[index]);
+    }
+    return status;
   case AST_BLOCK:
     for (index = 0U;
          status == SEMANTIC_OK && index < node->data.block.statement_count;
@@ -190,16 +199,26 @@ static SemanticStatus collect_graph(FunctionSymbol *function,
   case AST_GREATER_EQUAL:
   case AST_EQUAL:
   case AST_NOT_EQUAL:
+  case AST_AND:
+  case AST_OR:
+  case AST_LIST_CONCAT:
+  case AST_LIST_INDEXING:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
     status = collect_graph(function, node->data.binary_op.left);
     if (status == SEMANTIC_OK) {
       status = collect_graph(function, node->data.binary_op.right);
     }
     return status;
+  case AST_NOT:
+    return collect_graph(function, node->data.unary_op.operand);
   case AST_IMPLICIT_INT_TO_REAL:
     return collect_graph(function, node->data.conversion.operand);
   case AST_CONSTANT_INT:
   case AST_CONSTANT_REAL:
   case AST_CONSTANT_STRING:
+  case AST_CONSTANT_BOOL:
   case AST_CONSTANT_UNIT:
   case AST_VARIABLE_REF:
     /// Leaves cannot contain calls or `return`.
@@ -247,17 +266,28 @@ static bool reaches(FunctionSymbol *from, const FunctionSymbol *target,
 /**
  * @brief Tells whether @p type is numeric (Int or Double).
  * @param type Type to test.
- * @return True for TYPE_INT and TYPE_REAL.
+ * @return True for the scalar types Int and Double.
  */
 static bool is_numeric(DataType type) {
-  return type == TYPE_INT || type == TYPE_REAL;
+  return type_is_scalar(type, TYPE_INT) || type_is_scalar(type, TYPE_REAL);
+}
+
+/**
+ * @brief Tells whether @p node is an empty list literal `List()`.
+ * @details Its element type cannot be inferred from the elements; it takes
+ * the type expected by the context (spec 5.8).
+ */
+static bool is_empty_list(const ASTNode *node) {
+  return node->kind == AST_LIST_CONSTRUCTOR &&
+         node->data.call.argument_count == 0U;
 }
 
 /**
  * @brief Makes the expression in @p slot usable where @p to is expected.
  * @details Same type is accepted as is; Int is widened to Double by wrapping
  * the expression in an AST_IMPLICIT_INT_TO_REAL node (the only implicit
- * conversion of IFJ26). Anything else yields @p mismatch.
+ * conversion of IFJ26). An empty `List()` takes any expected list type.
+ * Anything else yields @p mismatch.
  * @param slot Slot holding the expression; rewritten when a conversion is
  * inserted.
  * @param from Type of the expression in @p slot.
@@ -270,10 +300,10 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
                              SemanticStatus mismatch) {
   ASTNode *conversion;
 
-  if (from == to) {
+  if (!type_is_unknown(from) && type_equal(from, to)) {
     return SEMANTIC_OK;
   }
-  if (from == TYPE_INT && to == TYPE_REAL) {
+  if (type_is_scalar(from, TYPE_INT) && type_is_scalar(to, TYPE_REAL)) {
     /// The conversion node takes ownership of the original expression.
     conversion = ast_node_create_implicit_int_to_real(*slot);
     if (conversion == NULL) {
@@ -282,14 +312,66 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
     *slot = conversion;
     return SEMANTIC_OK;
   }
+  if (is_empty_list(*slot) && type_is_list(to)) {
+    (*slot)->inferred_type.type = to;
+    return SEMANTIC_OK;
+  }
   return mismatch;
+}
+
+/**
+ * @brief Finds the common type of two values that meet in one place (if
+ * branches, list elements).
+ * @param left Type of the first value.
+ * @param right Type of the second value.
+ * @param out_type Receives the common type: the shared type, or Double for a
+ * mix of Int and Double.
+ * @return True when the types are compatible.
+ */
+static bool common_type(DataType left, DataType right, DataType *out_type) {
+  if (type_is_unknown(left) || type_is_unknown(right)) {
+    return false;
+  }
+  if (type_equal(left, right)) {
+    *out_type = left;
+    return true;
+  }
+  if (is_numeric(left) && is_numeric(right)) {
+    *out_type = type_scalar(TYPE_REAL);
+    return true;
+  }
+  return false;
 }
 
 static SemanticStatus check_function(SemanticContext *ctx,
                                      FunctionSymbol *function);
 
-static SemanticStatus check_expression(SemanticContext *ctx, ASTNode **slot,
+static SemanticStatus check_expression(SemanticContext *ctx,
+                                       FunctionSymbol *function, ASTNode **slot,
                                        DataType *out_type);
+
+static SemanticStatus check_statement(SemanticContext *ctx,
+                                      FunctionSymbol *function, ASTNode **slot);
+
+static SemanticStatus statement_result(ASTNode *node, BodyResult *out_result);
+
+/**
+ * @brief Returns the slot holding the value-producing last statement of a
+ * body.
+ * @details Descends through nested blocks so that a conversion can be inserted
+ * directly around the final expression.
+ * @param slot Slot holding the function body.
+ * @return Slot of the last non-block statement, or of an empty block.
+ */
+static ASTNode **last_value_slot(ASTNode **slot) {
+  while ((*slot)->kind == AST_BLOCK &&
+         (*slot)->data.block.statement_count > 0U) {
+    slot =
+        &(*slot)
+             ->data.block.statements[(*slot)->data.block.statement_count - 1U];
+  }
+  return slot;
+}
 
 /**
  * @brief Type-checks a call and yields the callee's return type.
@@ -297,14 +379,15 @@ static SemanticStatus check_expression(SemanticContext *ctx, ASTNode **slot,
  * Int arguments are widened to Double where needed. A callee without an
  * explicit return type is checked first so that its type is inferred.
  * @param ctx State of the semantic pass.
+ * @param function Function containing the call.
  * @param node AST_FUNCTION_CALL node; its argument slots may be rewritten.
  * @param out_type Receives the return type of the callee on success.
  * @return SEMANTIC_OK, SEMANTIC_UNDEFINED for an undefined callee,
  * SEMANTIC_BAD_CALL for a wrong number or type of arguments, or an error from
  * checking the arguments or the callee.
  */
-static SemanticStatus check_call(SemanticContext *ctx, ASTNode *node,
-                                 DataType *out_type) {
+static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
+                                 ASTNode *node, DataType *out_type) {
   FunctionSymbol *callee = node->data.call.function;
   SemanticStatus status;
   size_t index;
@@ -323,23 +406,23 @@ static SemanticStatus check_call(SemanticContext *ctx, ASTNode *node,
     DataType argument_type;
     DataType parameter_type = callee->parameter_types[index];
 
-    status = check_expression(ctx, &node->data.call.arguments[index],
+    status = check_expression(ctx, function, &node->data.call.arguments[index],
                               &argument_type);
     if (status != SEMANTIC_OK) {
       return status;
     }
-    if (argument_type == TYPE_BOOL) {
-      /// Boolean values cannot be passed without BOOLTHEN.
-      return SEMANTIC_BAD_CALL;
-    }
 
-    /// A TYPE_ANY parameter takes the value as is, without any conversion.
-    if (parameter_type != TYPE_ANY) {
-      status = coerce(&node->data.call.arguments[index], argument_type,
-                      parameter_type, SEMANTIC_BAD_CALL);
-      if (status != SEMANTIC_OK) {
-        return status;
+    /// A TYPE_ANY parameter takes any (inferable) value without conversion.
+    if (type_is_scalar(parameter_type, TYPE_ANY)) {
+      if (type_is_unknown(argument_type)) {
+        return SEMANTIC_TYPE_ERROR; /// e.g. print(List())
       }
+      continue;
+    }
+    status = coerce(&node->data.call.arguments[index], argument_type,
+                    parameter_type, SEMANTIC_BAD_CALL);
+    if (status != SEMANTIC_OK) {
+      return status;
     }
   }
 
@@ -356,76 +439,285 @@ static SemanticStatus check_call(SemanticContext *ctx, ASTNode *node,
 }
 
 /**
- * @brief Type-checks a binary arithmetic or relational expression.
- * @details Numeric operands are converted to a common type (Double if either
- * of them is Double). Strings support `+` and the relational operators; other
- * operands of the same type support only `==` and `!=`.
+ * @brief Type-checks a list literal `List(e1, e2, ...)` (LISTS).
+ * @details All elements must have a common type (Int elements are widened if
+ * any element is Double). An empty list gets its type from the context, see
+ * coerce(); until then its type is unknown.
+ */
+static SemanticStatus check_list_constructor(SemanticContext *ctx,
+                                             FunctionSymbol *function,
+                                             ASTNode *node,
+                                             DataType *out_type) {
+  DataType element = type_unknown();
+  SemanticStatus status;
+  size_t index;
+
+  if (node->data.call.argument_count == 0U) {
+    *out_type = type_unknown();
+    return SEMANTIC_OK;
+  }
+
+  /// First pass: types of all elements and their common type.
+  for (index = 0U; index < node->data.call.argument_count; index += 1U) {
+    DataType type;
+
+    status = check_expression(ctx, function, &node->data.call.arguments[index],
+                              &type);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (index == 0U) {
+      element = type;
+    } else if (!common_type(element, type, &element)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+  }
+  if (type_is_unknown(element)) {
+    return SEMANTIC_TYPE_ERROR; /// e.g. List(List())
+  }
+
+  /// Second pass: widen the elements to the common type.
+  for (index = 0U; index < node->data.call.argument_count; index += 1U) {
+    status = coerce(&node->data.call.arguments[index],
+                    node->data.call.arguments[index]->inferred_type.type,
+                    element, SEMANTIC_TYPE_ERROR);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+  }
+  *out_type = type_list(element);
+  return SEMANTIC_OK;
+}
+
+/**
+ * @brief Type-checks a binary operator.
+ * @details Arithmetic: numeric operands are converted to a common type
+ * (Double if either of them is Double), Strings support `+`. Relational
+ * `<`... compare numbers or Strings, `==`/`!=` also any two values of the same
+ * type; their result is Boolean, so they cannot be chained. `&&`/`||` take
+ * Booleans (BOOLTHEN). `++`, indexing, `to`, `until` and `by` work on lists
+ * and Int ranges (LISTS, CONTROL).
  * @param ctx State of the semantic pass.
+ * @param function Function containing the expression.
  * @param node Binary operator node; its operand slots may be rewritten.
- * @param out_type Receives TYPE_BOOL for relational operators, otherwise the
- * common type of the operands.
+ * @param out_type Receives the result type.
  * @return SEMANTIC_OK, SEMANTIC_TYPE_ERROR for incompatible operands, or an
  * error from checking an operand.
  */
-static SemanticStatus check_binary(SemanticContext *ctx, ASTNode *node,
+static SemanticStatus check_binary(SemanticContext *ctx,
+                                   FunctionSymbol *function, ASTNode *node,
                                    DataType *out_type) {
   DataType left;
   DataType right;
+  DataType common;
   SemanticStatus status;
-  bool relational = node->kind != AST_ADD && node->kind != AST_SUBTRACT &&
-                    node->kind != AST_MULTIPLY && node->kind != AST_DIVIDE;
-  bool equality = node->kind == AST_EQUAL || node->kind == AST_NOT_EQUAL;
 
-  status = check_expression(ctx, &node->data.binary_op.left, &left);
+  status = check_expression(ctx, function, &node->data.binary_op.left, &left);
   if (status == SEMANTIC_OK) {
-    status = check_expression(ctx, &node->data.binary_op.right, &right);
+    status =
+        check_expression(ctx, function, &node->data.binary_op.right, &right);
   }
   if (status != SEMANTIC_OK) {
     return status;
   }
 
-  /// Booleans are not operands in the base language (no chaining of
-  /// relational operators, no BOOLTHEN).
-  if (left == TYPE_BOOL || right == TYPE_BOOL) {
+  switch (node->kind) {
+  case AST_AND:
+  case AST_OR:
+    if (!type_is_scalar(left, TYPE_BOOL) || !type_is_scalar(right, TYPE_BOOL)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = type_scalar(TYPE_BOOL);
+    return SEMANTIC_OK;
+
+  case AST_LIST_CONCAT:
+    /// `++` joins two lists of the same type; `List()` takes the other's type.
+    if (type_is_list(left) && is_empty_list(node->data.binary_op.right)) {
+      right = left;
+      node->data.binary_op.right->inferred_type.type = left;
+    } else if (type_is_list(right) &&
+               is_empty_list(node->data.binary_op.left)) {
+      left = right;
+      node->data.binary_op.left->inferred_type.type = right;
+    }
+    if (!type_is_list(left) || !type_equal(left, right)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = left;
+    return SEMANTIC_OK;
+
+  case AST_LIST_INDEXING:
+    if (!type_is_list(left) || !type_is_scalar(right, TYPE_INT)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    type_element_type(left, out_type);
+    return SEMANTIC_OK;
+
+  case AST_TO:
+  case AST_UNTIL:
+    /// Int range; represented as List[Int] (it supports `toList`, `by`).
+    if (!type_is_scalar(left, TYPE_INT) || !type_is_scalar(right, TYPE_INT)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = type_list(type_scalar(TYPE_INT));
+    return SEMANTIC_OK;
+
+  case AST_BY:
+    if (!type_equal(left, type_list(type_scalar(TYPE_INT))) ||
+        !type_is_scalar(right, TYPE_INT)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = left;
+    return SEMANTIC_OK;
+
+  case AST_ADD:
+  case AST_SUBTRACT:
+  case AST_MULTIPLY:
+  case AST_DIVIDE:
+    if (is_numeric(left) && is_numeric(right)) {
+      break; /// Numeric arithmetic, see below.
+    }
+    if (node->kind == AST_ADD && type_is_scalar(left, TYPE_STRING) &&
+        type_is_scalar(right, TYPE_STRING)) {
+      *out_type = left; /// String concatenation.
+      return SEMANTIC_OK;
+    }
     return SEMANTIC_TYPE_ERROR;
+
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+    if (is_numeric(left) && is_numeric(right)) {
+      break; /// Numeric comparison, see below.
+    }
+    if (type_is_scalar(left, TYPE_STRING) &&
+        type_is_scalar(right, TYPE_STRING)) {
+      *out_type = type_scalar(TYPE_BOOL);
+      return SEMANTIC_OK;
+    }
+    return SEMANTIC_TYPE_ERROR;
+
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+    if (is_numeric(left) && is_numeric(right)) {
+      break; /// Numeric comparison, see below.
+    }
+    /// Any two values of the same type (incl. Boolean, Unit, lists).
+    if (type_is_unknown(left) || !type_equal(left, right)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = type_scalar(TYPE_BOOL);
+    return SEMANTIC_OK;
+
+  default:
+    return SEMANTIC_INTERNAL_ERROR;
   }
 
   /// Mixed Int and Double operands: the Int side is widened to Double.
-  if (is_numeric(left) && is_numeric(right)) {
-    DataType common =
-        (left == TYPE_REAL || right == TYPE_REAL) ? TYPE_REAL : TYPE_INT;
+  common_type(left, right, &common);
+  status =
+      coerce(&node->data.binary_op.left, left, common, SEMANTIC_TYPE_ERROR);
+  if (status == SEMANTIC_OK) {
     status =
-        coerce(&node->data.binary_op.left, left, common, SEMANTIC_TYPE_ERROR);
-    if (status == SEMANTIC_OK) {
-      status = coerce(&node->data.binary_op.right, right, common,
-                      SEMANTIC_TYPE_ERROR);
-    }
-    if (status != SEMANTIC_OK) {
-      return status;
-    }
-    *out_type = relational ? TYPE_BOOL : common;
-    return SEMANTIC_OK;
+        coerce(&node->data.binary_op.right, right, common, SEMANTIC_TYPE_ERROR);
   }
+  if (status != SEMANTIC_OK) {
+    return status;
+  }
+  switch (node->kind) {
+  case AST_ADD:
+  case AST_SUBTRACT:
+  case AST_MULTIPLY:
+  case AST_DIVIDE:
+    *out_type = common;
+    break;
+  default:
+    *out_type = type_scalar(TYPE_BOOL);
+    break;
+  }
+  return SEMANTIC_OK;
+}
 
-  /// Strings: `+` concatenates, comparisons yield Bool, the rest is an error.
-  if (left == TYPE_STRING && right == TYPE_STRING) {
-    if (node->kind == AST_ADD) {
-      *out_type = TYPE_STRING;
-      return SEMANTIC_OK;
-    }
-    if (relational) {
-      *out_type = TYPE_BOOL;
-      return SEMANTIC_OK;
-    }
+/**
+ * @brief Type-checks the condition and both branches of an `if`.
+ * @details Each branch is a block or a one-line expression (CONTROL); its
+ * statements are checked, its value is evaluated later by if_result().
+ */
+static SemanticStatus check_if_parts(SemanticContext *ctx,
+                                     FunctionSymbol *function, ASTNode *node) {
+  SemanticStatus status;
+  DataType type;
+
+  /// The condition is any Boolean expression (BOOLTHEN).
+  status = check_expression(ctx, function, &node->data.if_statement.condition,
+                            &type);
+  if (status != SEMANTIC_OK) {
+    return status;
+  }
+  if (!type_is_scalar(type, TYPE_BOOL)) {
     return SEMANTIC_TYPE_ERROR;
   }
+  status = check_statement(ctx, function, &node->data.if_statement.then_branch);
+  if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
+    status =
+        check_statement(ctx, function, &node->data.if_statement.else_branch);
+  }
+  return status;
+}
 
-  /// `==` / `!=` also compare two values of the same (e.g. Unit) type.
-  if (equality && left == right) {
-    *out_type = TYPE_BOOL;
+/**
+ * @brief Determines the value of an already checked `if` (spec 2.3, CONTROL).
+ * @details A missing else behaves as `()`. A branch ending with `return`
+ * yields no value and adapts to the other branch. Otherwise both branch
+ * values must have a common type; Int branches are widened if the other one
+ * is Double.
+ * @param node Checked AST_IF node; its branch slots may be rewritten.
+ * @param out_result Receives how the `if` ends and the type of its value.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus if_result(ASTNode *node, BodyResult *out_result) {
+  BodyResult then_result;
+  BodyResult else_result = {RESULT_VALUE, {TYPE_UNIT, 0U}};
+  SemanticStatus status;
+  DataType common;
+
+  status = statement_result(node->data.if_statement.then_branch, &then_result);
+  if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
+    status =
+        statement_result(node->data.if_statement.else_branch, &else_result);
+  }
+  if (status != SEMANTIC_OK) {
+    return status;
+  }
+
+  if (then_result.kind == RESULT_BAD_IF || else_result.kind == RESULT_BAD_IF) {
+    out_result->kind = RESULT_BAD_IF;
     return SEMANTIC_OK;
   }
-  return SEMANTIC_TYPE_ERROR;
+  if (then_result.kind == RESULT_RETURNS) {
+    *out_result = else_result; /// Both return, or only the else value.
+    return SEMANTIC_OK;
+  }
+  if (else_result.kind == RESULT_RETURNS) {
+    *out_result = then_result;
+    return SEMANTIC_OK;
+  }
+  if (!common_type(then_result.type, else_result.type, &common)) {
+    out_result->kind = RESULT_BAD_IF;
+    return SEMANTIC_OK;
+  }
+
+  /// Widen the Int branch value(s) to Double where the types differ.
+  status = coerce(last_value_slot(&node->data.if_statement.then_branch),
+                  then_result.type, common, SEMANTIC_INTERNAL_ERROR);
+  if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
+    status = coerce(last_value_slot(&node->data.if_statement.else_branch),
+                    else_result.type, common, SEMANTIC_INTERNAL_ERROR);
+  }
+  out_result->kind = RESULT_VALUE;
+  out_result->type = common;
+  return status;
 }
 
 /**
@@ -434,17 +726,20 @@ static SemanticStatus check_binary(SemanticContext *ctx, ASTNode *node,
  * @details Slots of nested operands and arguments may be rewritten by an
  * inserted Int-to-Double conversion.
  * @param ctx State of the semantic pass.
+ * @param function Function containing the expression.
  * @param slot Slot holding the expression to check.
- * @param out_type Receives the computed type on success.
+ * @param out_type Receives the computed type on success; unknown only for an
+ * empty `List()`.
  * @return SEMANTIC_OK, SEMANTIC_UNDEFINED for a variable used in its own
  * initialization, SEMANTIC_INTERNAL_ERROR for a statement node, or an error
  * from a nested check.
  */
-static SemanticStatus check_expression(SemanticContext *ctx, ASTNode **slot,
+static SemanticStatus check_expression(SemanticContext *ctx,
+                                       FunctionSymbol *function, ASTNode **slot,
                                        DataType *out_type) {
   ASTNode *node = *slot;
   SemanticStatus status = SEMANTIC_OK;
-  DataType type = TYPE_UNKNOWN;
+  DataType type = type_unknown();
 
   if (node == NULL) {
     return SEMANTIC_INTERNAL_ERROR;
@@ -452,26 +747,32 @@ static SemanticStatus check_expression(SemanticContext *ctx, ASTNode **slot,
 
   switch (node->kind) {
   case AST_CONSTANT_INT:
-    type = TYPE_INT;
+    type = type_scalar(TYPE_INT);
     break;
   case AST_CONSTANT_REAL:
-    type = TYPE_REAL;
+    type = type_scalar(TYPE_REAL);
     break;
   case AST_CONSTANT_STRING:
-    type = TYPE_STRING;
+    type = type_scalar(TYPE_STRING);
+    break;
+  case AST_CONSTANT_BOOL:
+    type = type_scalar(TYPE_BOOL);
     break;
   case AST_CONSTANT_UNIT:
-    type = TYPE_UNIT;
+    type = type_scalar(TYPE_UNIT);
     break;
   case AST_VARIABLE_REF:
     type = node->data.variable.symbol->type.type;
-    if (type == TYPE_UNKNOWN) {
+    if (type_is_unknown(type)) {
       /// e.g. `val x = x`: used inside its own initialization.
       return SEMANTIC_UNDEFINED;
     }
     break;
   case AST_FUNCTION_CALL:
-    status = check_call(ctx, node, &type);
+    status = check_call(ctx, function, node, &type);
+    break;
+  case AST_LIST_CONSTRUCTOR:
+    status = check_list_constructor(ctx, function, node, &type);
     break;
   case AST_ADD:
   case AST_SUBTRACT:
@@ -483,21 +784,56 @@ static SemanticStatus check_expression(SemanticContext *ctx, ASTNode **slot,
   case AST_GREATER_EQUAL:
   case AST_EQUAL:
   case AST_NOT_EQUAL:
-    status = check_binary(ctx, node, &type);
+  case AST_AND:
+  case AST_OR:
+  case AST_LIST_CONCAT:
+  case AST_LIST_INDEXING:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
+    status = check_binary(ctx, function, node, &type);
+    break;
+  case AST_NOT:
+    status =
+        check_expression(ctx, function, &node->data.unary_op.operand, &type);
+    if (status == SEMANTIC_OK && !type_is_scalar(type, TYPE_BOOL)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
     break;
   case AST_IMPLICIT_INT_TO_REAL:
     /// The operand of a conversion must be Int; the result is Double.
-    status = check_expression(ctx, &node->data.conversion.operand, &type);
-    if (status == SEMANTIC_OK && type != TYPE_INT) {
+    status =
+        check_expression(ctx, function, &node->data.conversion.operand, &type);
+    if (status == SEMANTIC_OK && !type_is_scalar(type, TYPE_INT)) {
       return SEMANTIC_INTERNAL_ERROR;
     }
-    type = TYPE_REAL;
+    type = type_scalar(TYPE_REAL);
     break;
+  case AST_IF: {
+    /// `if` used as an expression (CONTROL): else is mandatory and the
+    /// branches must have a common type.
+    BodyResult result;
+
+    if (node->data.if_statement.else_branch == NULL) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    status = check_if_parts(ctx, function, node);
+    if (status == SEMANTIC_OK) {
+      status = if_result(node, &result);
+    }
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (result.kind != RESULT_VALUE) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    type = result.type;
+    break;
+  }
   case AST_BLOCK:
   case AST_ASSIGN:
   case AST_RETURN:
-  case AST_IF:
-    /// Statements are not expressions in the base language.
+    /// Statements are not expressions.
     return SEMANTIC_INTERNAL_ERROR;
   }
   if (status != SEMANTIC_OK) {
@@ -538,7 +874,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
 
     /// The block node itself is Unit; its result is given by statement_result.
     if (status == SEMANTIC_OK) {
-      node->inferred_type.type = TYPE_UNIT;
+      node->inferred_type.type = type_scalar(TYPE_UNIT);
     }
     return status;
 
@@ -549,17 +885,18 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       /// Assignment to `val` or a parameter.
       return SEMANTIC_OTHER;
     }
-    status = check_expression(ctx, &node->data.assignment.value, &type);
+    status =
+        check_expression(ctx, function, &node->data.assignment.value, &type);
     if (status != SEMANTIC_OK) {
       return status;
     }
-    if (type == TYPE_BOOL) {
-      /// Booleans cannot be stored.
-      return SEMANTIC_TYPE_ERROR;
-    }
     if (node->data.assignment.is_definition &&
-        target->type.type == TYPE_UNKNOWN) {
-      /// `val x = expr`: the variable takes the initializer's type.
+        type_is_unknown(target->type.type)) {
+      /// `val x = expr`: the variable takes the initializer's type; it must be
+      /// inferable (not e.g. `val x = List()`).
+      if (type_is_unknown(type)) {
+        return SEMANTIC_TYPE_ERROR;
+      }
       target->type.type = type;
     } else {
       /// The variable already has a type: the value must match or be widened.
@@ -569,7 +906,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
         return status;
       }
     }
-    node->inferred_type.type = TYPE_UNIT;
+    node->inferred_type.type = type_scalar(TYPE_UNIT);
     return SEMANTIC_OK;
   }
 
@@ -580,15 +917,17 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     if (node->data.return_statement.value == NULL) {
       /// A bare `return` is allowed only with an explicit Unit return type.
-      return function->return_type.type == TYPE_UNIT ? SEMANTIC_OK
-                                                     : SEMANTIC_TYPE_ERROR;
+      return type_is_scalar(function->return_type.type, TYPE_UNIT)
+                 ? SEMANTIC_OK
+                 : SEMANTIC_TYPE_ERROR;
     }
-    status = check_expression(ctx, &node->data.return_statement.value, &type);
+    status = check_expression(ctx, function, &node->data.return_statement.value,
+                              &type);
     if (status != SEMANTIC_OK) {
       return status;
     }
     node->inferred_type.type = type;
-    if (function->return_type.type == TYPE_UNIT) {
+    if (type_is_scalar(function->return_type.type, TYPE_UNIT)) {
       /// The value is evaluated and discarded (rule 4).
       return SEMANTIC_OK;
     }
@@ -596,98 +935,61 @@ static SemanticStatus check_statement(SemanticContext *ctx,
                   function->return_type.type, SEMANTIC_TYPE_ERROR);
 
   case AST_IF:
-    /// The condition must be a relational expression, i.e. of type Bool.
-    status = check_expression(ctx, &node->data.if_statement.condition, &type);
-    if (status != SEMANTIC_OK) {
-      return status;
+    if (node->data.if_statement.used_as_an_expression) {
+      return check_expression(ctx, function, slot, &type);
     }
-    if (type != TYPE_BOOL) {
-      return SEMANTIC_TYPE_ERROR;
+    /// An `if` statement; its value (if needed) is given by statement_result.
+    status = check_if_parts(ctx, function, node);
+    if (status == SEMANTIC_OK) {
+      node->inferred_type.type = type_scalar(TYPE_UNIT);
     }
-    status =
-        check_statement(ctx, function, &node->data.if_statement.then_branch);
-    if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
-      status =
-          check_statement(ctx, function, &node->data.if_statement.else_branch);
-    }
-    node->inferred_type.type = TYPE_UNIT;
     return status;
 
   default:
     /// Expression statement (incl. a call whose result is dropped).
-    return check_expression(ctx, slot, &type);
+    return check_expression(ctx, function, slot, &type);
   }
 }
 
 /**
  * @brief Determines the result of a statement as the last one of a block
  * (spec 2.3, rules 1-3).
- * @details Types of all nodes must already be computed.
- * @param node Statement to evaluate.
- * @return How the statement ends and, for RESULT_VALUE, the type of its value.
+ * @details Types of all nodes must already be computed. A final `if` yields
+ * the common value of its branches (it is an expression with CONTROL).
+ * @param node Statement to evaluate; branch slots of an `if` may be rewritten
+ * by inserted conversions.
+ * @param out_result Receives how the statement ends and, for RESULT_VALUE, the
+ * type of its value.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
  */
-static BodyResult statement_result(const ASTNode *node) {
-  BodyResult result = {RESULT_VALUE, TYPE_UNIT};
+static SemanticStatus statement_result(ASTNode *node, BodyResult *out_result) {
+  out_result->kind = RESULT_VALUE;
+  out_result->type = type_scalar(TYPE_UNIT);
 
   switch (node->kind) {
   case AST_RETURN:
-    result.kind = RESULT_RETURNS;
-    return result;
+    out_result->kind = RESULT_RETURNS;
+    return SEMANTIC_OK;
   case AST_ASSIGN:
     /// Definition/assignment: ()
-    return result;
+    return SEMANTIC_OK;
   case AST_BLOCK:
     if (node->data.block.statement_count == 0U) {
-      return result;
+      return SEMANTIC_OK;
     }
     return statement_result(
-        node->data.block.statements[node->data.block.statement_count - 1U]);
-  case AST_IF: {
-    BodyResult then_result =
-        statement_result(node->data.if_statement.then_branch);
-    /// Missing else behaves as `()`.
-    BodyResult else_result = result;
-
-    if (node->data.if_statement.else_branch != NULL) {
-      else_result = statement_result(node->data.if_statement.else_branch);
+        node->data.block.statements[node->data.block.statement_count - 1U],
+        out_result);
+  case AST_IF:
+    if (node->data.if_statement.used_as_an_expression) {
+      out_result->type = node->inferred_type.type; /// Already unified.
+      return SEMANTIC_OK;
     }
-
-    /// Both branches return, or both yield `()`; anything else breaks rule 3.
-    if (then_result.kind == RESULT_RETURNS &&
-        else_result.kind == RESULT_RETURNS) {
-      result.kind = RESULT_RETURNS;
-    } else if (then_result.kind == RESULT_VALUE &&
-               then_result.type == TYPE_UNIT &&
-               else_result.kind == RESULT_VALUE &&
-               else_result.type == TYPE_UNIT) {
-      result.kind = RESULT_VALUE;
-    } else {
-      result.kind = RESULT_BAD_IF;
-    }
-    return result;
-  }
+    return if_result(node, out_result);
   default:
-    result.type = node->inferred_type.type;
-    return result;
+    out_result->type = node->inferred_type.type;
+    return SEMANTIC_OK;
   }
-}
-
-/**
- * @brief Returns the slot holding the value-producing last statement of a
- * body.
- * @details Descends through nested blocks so that a conversion can be inserted
- * directly around the final expression.
- * @param slot Slot holding the function body.
- * @return Slot of the last non-block statement, or of an empty block.
- */
-static ASTNode **last_value_slot(ASTNode **slot) {
-  while ((*slot)->kind == AST_BLOCK &&
-         (*slot)->data.block.statement_count > 0U) {
-    slot =
-        &(*slot)
-             ->data.block.statements[(*slot)->data.block.statement_count - 1U];
-  }
-  return slot;
 }
 
 /**
@@ -723,12 +1025,15 @@ static SemanticStatus check_function(SemanticContext *ctx,
   }
 
   /// Compare the value of the body with the (declared or inferred) return type.
-  result = statement_result(function->ast_root);
+  status = statement_result(function->ast_root, &result);
+  if (status != SEMANTIC_OK) {
+    return status;
+  }
   if (function->has_explicit_return_type) {
     DataType declared = function->return_type.type;
 
     /// With a declared Unit type the final value is discarded.
-    if (declared != TYPE_UNIT && result.kind != RESULT_RETURNS) {
+    if (!type_is_scalar(declared, TYPE_UNIT) && result.kind != RESULT_RETURNS) {
       if (result.kind == RESULT_BAD_IF) {
         return SEMANTIC_TYPE_ERROR;
       }
@@ -740,8 +1045,7 @@ static SemanticStatus check_function(SemanticContext *ctx,
     }
   } else {
     /// No `return` here (checked), so the result is the value of the body.
-    if (result.kind != RESULT_VALUE || result.type == TYPE_BOOL ||
-        result.type == TYPE_UNKNOWN) {
+    if (result.kind != RESULT_VALUE || type_is_unknown(result.type)) {
       return SEMANTIC_TYPE_ERROR;
     }
     function->return_type.type = result.type;
@@ -833,7 +1137,7 @@ SemanticStatus semantic_check(Program *program) {
   if (main_function->argument_count != 0U) {
     return SEMANTIC_BAD_CALL;
   }
-  if (main_function->return_type.type != TYPE_UNIT) {
+  if (!type_is_scalar(main_function->return_type.type, TYPE_UNIT)) {
     return SEMANTIC_TYPE_ERROR;
   }
   return SEMANTIC_OK;

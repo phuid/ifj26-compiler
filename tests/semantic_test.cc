@@ -21,16 +21,16 @@ protected:
   void TearDown() override { program_destroy(&program); }
 
   /// Defines `def name(params...)[: ret] =` with an empty body block.
-  FunctionSymbol *def(const char *name, DataType explicit_ret = TYPE_UNKNOWN,
-                      std::initializer_list<DataType> params = {}) {
+  FunctionSymbol *def(const char *name, BaseType explicit_ret = TYPE_UNKNOWN,
+                      std::initializer_list<BaseType> params = {}) {
     FunctionSymbol *f = ref(name);
     f->is_defined = true;
     function_symbol_create_local_scope(f);
-    for (DataType p : params) {
-      function_symbol_add_parameter(f, p);
+    for (BaseType p : params) {
+      function_symbol_add_parameter(f, type_scalar(p));
     }
     if (explicit_ret != TYPE_UNKNOWN) {
-      f->return_type.type = explicit_ret;
+      f->return_type.type = type_scalar(explicit_ret);
       f->has_explicit_return_type = true;
     }
     f->ast_root = ast_node_create_block(1, 1);
@@ -50,16 +50,18 @@ protected:
     return f;
   }
 
-  Symbol *param(FunctionSymbol *f, const char *name, DataType type) {
+  Symbol *param(FunctionSymbol *f, const char *name, BaseType type) {
     Symbol *s = nullptr;
-    symbol_table_define(f->local_scope, name, type, true, true, &s);
+    symbol_table_define(f->local_scope, name, type_scalar(type), true, true,
+                        &s);
     return s;
   }
 
-  Symbol *var(FunctionSymbol *f, const char *name, DataType annotated,
+  Symbol *var(FunctionSymbol *f, const char *name, BaseType annotated,
               bool constant) {
     Symbol *s = nullptr;
-    symbol_table_define(f->local_scope, name, annotated, true, constant, &s);
+    symbol_table_define(f->local_scope, name, type_scalar(annotated), true,
+                        constant, &s);
     return s;
   }
 
@@ -123,7 +125,7 @@ TEST_F(SemanticTest, InfersReturnTypeOfForwardCalledFunction) {
   add(g, integer(1));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(g->return_type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(g->return_type.type, TYPE_INT));
   ASTNode *init = m->ast_root->data.block.statements[0]->data.assignment.value;
   EXPECT_EQ(init->kind, AST_IMPLICIT_INT_TO_REAL);
 }
@@ -142,10 +144,10 @@ TEST_F(SemanticTest, ResolvesChainInTopologicalOrder) {
   add(c, str("hi"));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(c->return_type.type, TYPE_STRING);
-  EXPECT_EQ(v->type.type, TYPE_STRING);
-  EXPECT_EQ(b->return_type.type, TYPE_STRING);
-  EXPECT_EQ(a->return_type.type, TYPE_STRING);
+  EXPECT_TRUE(type_is_scalar(c->return_type.type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(v->type.type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(b->return_type.type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(a->return_type.type, TYPE_STRING));
 }
 
 TEST_F(SemanticTest, DirectRecursionWithoutReturnTypeIsError6) {
@@ -170,7 +172,7 @@ TEST_F(SemanticTest, DirectRecursionWithReturnTypeIsOk) {
   add(f, bin(AST_ADD, ref_var(r), integer(1)));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(r->type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(r->type.type, TYPE_INT));
 }
 
 TEST_F(SemanticTest, IndirectRecursionThroughAnnotatedFunctionsIsError6) {
@@ -244,7 +246,7 @@ TEST_F(SemanticTest, BuiltinsHaveSignatures) {
   add(m, define(n, call(ref("readInt"))));
   add(m, call(ref("print"), {ref_var(n)}));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(n->type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(n->type.type, TYPE_INT));
 }
 
 TEST_F(SemanticTest, BuiltinWithWrongArgumentIsError5) {
@@ -281,7 +283,7 @@ TEST_F(SemanticTest, MixedArithmeticWidensToDouble) {
   Symbol *x = var(m, "x", TYPE_UNKNOWN, true);
   add(m, define(x, bin(AST_MULTIPLY, integer(2), real(1.5))));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(x->type.type, TYPE_REAL);
+  EXPECT_TRUE(type_is_scalar(x->type.type, TYPE_REAL));
 }
 
 TEST_F(SemanticTest, StringPlusIntIsError6) {
@@ -296,13 +298,28 @@ TEST_F(SemanticTest, NonBooleanConditionIsError6) {
   EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
 }
 
-TEST_F(SemanticTest, IfAsLastStatementWithValuesIsError6) {
+TEST_F(SemanticTest, IfAsLastStatementYieldsCommonValue) {
+  // def f() =
+  //   if 1 < 2 then 1 else 2.5    (if is an expression with CONTROL)
+  def_main();
+  FunctionSymbol *f = def("f");
+  add(f, if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}),
+             block({real(2.5)})));
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  EXPECT_TRUE(type_is_scalar(f->return_type.type, TYPE_REAL));
+  ASTNode *then_value =
+      f->ast_root->data.block.statements[0]
+          ->data.if_statement.then_branch->data.block.statements[0];
+  EXPECT_EQ(then_value->kind, AST_IMPLICIT_INT_TO_REAL);
+}
+
+TEST_F(SemanticTest, IfWithIncompatibleBranchValuesIsError6) {
   // def f(): Int =
-  //   if 1 < 2 then 1 else 2      (if is not an expression)
+  //   if 1 < 2 then 1 else "a"
   def_main();
   FunctionSymbol *f = def("f", TYPE_INT);
   add(f, if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}),
-             block({integer(2)})));
+             block({str("a")})));
   EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
 }
 
@@ -321,7 +338,7 @@ TEST_F(SemanticTest, IfWithUnitBranchesInfersUnit) {
              block({call(ref("print"), {str("x")})}),
              block({ast_node_create_unit(1, 1)})));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_EQ(f->return_type.type, TYPE_UNIT);
+  EXPECT_TRUE(type_is_scalar(f->return_type.type, TYPE_UNIT));
 }
 
 TEST_F(SemanticTest, MainReturningIntIsError6) {
@@ -341,4 +358,58 @@ TEST_F(SemanticTest, RedefinitionOfBuiltinIsError4) {
   Symbol *x = param(p, "x", TYPE_INT);
   add(p, ref_var(x));
   EXPECT_EQ(check(), SEMANTIC_REDEFINITION);
+}
+
+TEST_F(SemanticTest, BooleanValuesCanBeStoredAndCombined) {
+  // val b = readBoolean() && 1 < 2;  val c = !b
+  FunctionSymbol *m = def_main();
+  Symbol *b = var(m, "b", TYPE_UNKNOWN, true);
+  Symbol *c = var(m, "c", TYPE_UNKNOWN, true);
+  add(m, define(b, bin(AST_AND, call(ref("readBoolean")),
+                       bin(AST_LESS, integer(1), integer(2)))));
+  add(m, define(c, ast_node_create_not(ref_var(b), 1, 1)));
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  EXPECT_TRUE(type_is_scalar(b->type.type, TYPE_BOOL));
+  EXPECT_TRUE(type_is_scalar(c->type.type, TYPE_BOOL));
+}
+
+TEST_F(SemanticTest, ChainedRelationalOperatorsAreError6) {
+  // 1 < 2 < 3
+  FunctionSymbol *m = def_main();
+  add(m, bin(AST_LESS, bin(AST_LESS, integer(1), integer(2)), integer(3)));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
+TEST_F(SemanticTest, ListLiteralWidensElementsAndIndexes) {
+  // val l = List(1, 2.5);  val x = l(0)
+  FunctionSymbol *m = def_main();
+  Symbol *l = var(m, "l", TYPE_UNKNOWN, true);
+  Symbol *x = var(m, "x", TYPE_UNKNOWN, true);
+  ASTNode *list = ast_node_create_list_constructor(1, 1);
+  ast_node_call_append_argument(list, integer(1));
+  ast_node_call_append_argument(list, real(2.5));
+  add(m, define(l, list));
+  add(m,
+      define(x, ast_node_create_list_indexing(ref_var(l), integer(0), 1, 1)));
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  EXPECT_TRUE(type_equal(l->type.type, type_list(type_scalar(TYPE_REAL))));
+  EXPECT_TRUE(type_is_scalar(x->type.type, TYPE_REAL));
+}
+
+TEST_F(SemanticTest, EmptyListNeedsExpectedType) {
+  // val e = List()       -> 6
+  FunctionSymbol *m = def_main();
+  Symbol *e = var(m, "e", TYPE_UNKNOWN, true);
+  add(m, define(e, ast_node_create_list_constructor(1, 1)));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
+TEST_F(SemanticTest, EmptyListTakesAnnotatedType) {
+  // val e: List[Int] = List()
+  FunctionSymbol *m = def_main();
+  Symbol *e = nullptr;
+  symbol_table_define(m->local_scope, "e", type_list(type_scalar(TYPE_INT)),
+                      true, true, &e);
+  add(m, define(e, ast_node_create_list_constructor(1, 1)));
+  EXPECT_EQ(check(), SEMANTIC_OK);
 }
