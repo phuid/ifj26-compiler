@@ -14,7 +14,7 @@ extern "C" {
  *   parameter/callee growth, name copying, defaults, set_ast_root NULL bug.
  */
 class FunctionTableGapTest : public ::testing::Test {
- protected:
+protected:
   void SetUp() override {
     ASSERT_EQ(function_table_init(&table), FUNCTION_TABLE_OK);
     ASSERT_EQ(function_table_get_or_create(&table, "f", &f), FUNCTION_TABLE_OK);

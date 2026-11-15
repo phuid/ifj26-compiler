@@ -12,7 +12,7 @@ extern "C" {
  *   children growth, duplicates, odd names, deep resolve, every DataType.
  */
 class SymbolTableGapTest : public ::testing::Test {
- protected:
+protected:
   void SetUp() override { ASSERT_NE(root, nullptr); }
   void TearDown() override { symbol_table_destroy(root); }
   SymbolTable *root = symbol_table_create_root();
@@ -70,9 +70,9 @@ TEST_F(SymbolTableGapTest, NamesComparedExactly) {
   const char *names[] = {"", "a", "A", "item", "item_1"};
   Symbol *symbols[5] = {nullptr};
   for (size_t i = 0U; i < 5U; i += 1U) {
-    ASSERT_EQ(symbol_table_define(root, names[i], TYPE_INT, true, false,
-                                  &symbols[i]),
-              SYMTABLE_OK);
+    ASSERT_EQ(
+        symbol_table_define(root, names[i], TYPE_INT, true, false, &symbols[i]),
+        SYMTABLE_OK);
   }
   for (size_t i = 0U; i < 5U; i += 1U) {
     EXPECT_EQ(symbol_table_lookup_local(root, names[i]), symbols[i]) << i;
@@ -87,9 +87,9 @@ TEST_F(SymbolTableGapTest, ResolveThroughDeepChain) {
   for (size_t i = 1U; i <= 20U; i += 1U) {
     ASSERT_NE(scopes[i] = symbol_table_create_child(scopes[i - 1U]), nullptr);
   }
-  ASSERT_EQ(symbol_table_define(scopes[20], "deep", TYPE_INT, true, false,
-                                nullptr),
-            SYMTABLE_OK);
+  ASSERT_EQ(
+      symbol_table_define(scopes[20], "deep", TYPE_INT, true, false, nullptr),
+      SYMTABLE_OK);
   EXPECT_EQ(symbol_table_resolve(scopes[20], "missing"), nullptr);
   EXPECT_NE(symbol_table_resolve(scopes[20], "top"), nullptr);
   EXPECT_EQ(symbol_table_resolve(root, "deep"), nullptr);
