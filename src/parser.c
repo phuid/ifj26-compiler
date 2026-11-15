@@ -584,14 +584,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
       return status;
     }
 
-    /// Count indentation level for the 'then' branch
-    size_t indent_delta = 0;
-    status = parser_consume_indent_delta(lexer, &indent_delta);
-    if (status != PARSER_OK) {
-      ast_node_destroy(condition_node);
-      return status;
-    }
-
     /// create a new child scope for the 'then' block
     SymbolTable *then_scope = symbol_table_create_child(scope);
     if (then_scope == NULL) {
@@ -600,7 +592,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
     }
 
     /// Parse the 'then' branch
-    ASTNode *then_branch_node = NULL;
     status =
         p_code_block(lexer, program, function, then_scope, &then_branch_node);
     if (status != PARSER_OK) {
@@ -611,14 +602,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
 
     /// Consume any number of newlines after the 'then' branch
     status = parser_consume_newlines(lexer, false, false, NULL);
-    if (status != PARSER_OK) {
-      ast_node_destroy(condition_node);
-      ast_node_destroy(then_branch_node);
-      return status;
-    }
-
-    /// Consume dedents that match the indentation of the 'then' branch
-    status = parser_consume_dedents(lexer, indent_delta);
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
       ast_node_destroy(then_branch_node);
@@ -685,13 +668,14 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
 
     /// Consume any number of newlines after the 'else' statement
     /// also consume any indents/dedents if inside parentheses
-    status = parser_consume_newlines(lexer, false, consume_newlines_indents,
-                                     local_indent);
-    if (status != PARSER_OK) {
-      ast_node_destroy(condition_node);
-      ast_node_destroy(then_branch_node);
-      ast_node_destroy(else_branch_node);
-      return status;
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(condition_node);
+        ast_node_destroy(then_branch_node);
+        ast_node_destroy(else_branch_node);
+        return status;
+      }
     }
 
   } else {
@@ -700,15 +684,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
 
     /// Consume any number of newlines
     status = parser_consume_newlines(lexer, false, false, NULL);
-    if (status != PARSER_OK) {
-      ast_node_destroy(condition_node);
-      ast_node_destroy(then_branch_node);
-      return status;
-    }
-
-    /// Count indentation level for the 'else' branch
-    size_t indent_delta = 0;
-    status = parser_consume_indent_delta(lexer, &indent_delta);
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
       ast_node_destroy(then_branch_node);
@@ -724,7 +699,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
     }
 
     /// Parse the 'else' branch
-    ASTNode *else_branch_node = NULL;
     status =
         p_code_block(lexer, program, function, else_scope, &else_branch_node);
     if (status != PARSER_OK) {
@@ -736,15 +710,6 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
 
     /// Consume any number of newlines after the 'else' branch
     status = parser_consume_newlines(lexer, false, false, NULL);
-    if (status != PARSER_OK) {
-      ast_node_destroy(condition_node);
-      ast_node_destroy(then_branch_node);
-      ast_node_destroy(else_branch_node);
-      return status;
-    }
-
-    /// Consume dedents that match the indentation of the 'else' branch
-    status = parser_consume_dedents(lexer, indent_delta);
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
       ast_node_destroy(then_branch_node);
@@ -1297,6 +1262,8 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
   /// unary operators from binary operators and keeps operands out of the
   /// table lookup.
   bool expecting_operand = true;
+  /// Set once an if operand has been parsed outside parentheses.
+  bool ended_by_if = false;
 
   while (true) {
     if (expecting_operand) {
@@ -1347,6 +1314,9 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
       /// and any nested syntax it owns, leaving the next operator or
       /// delimiter as the current lookahead token.
       ASTNode *operand_node = NULL;
+      if (!consume_newlines_indents && lexer->token.type == TOKEN_KW_IF) {
+        ended_by_if = true;
+      }
       status = p_operand(lexer, program, function, scope, &operand_node,
                          consume_newlines_indents, local_indent);
       if (status != PARSER_OK) {
@@ -1430,6 +1400,14 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
       /// Classify the lookahead without consuming it. Operators retain their
       /// terminal kinds, while tokens that can end an expression map to `$`.
       TerminalType input_terminal = token_to_terminal(lexer->token);
+
+      /// Outside parentheses an if operand (`val x = if c then 1 else 2`)
+      /// swallows the rest of its line and may also consume the NEWLINE (or
+      /// the DEDENT of its block) ending it. The current token then already
+      /// belongs to the next statement, so the expression ends here.
+      if (ended_by_if) {
+        input_terminal = TERMINAL_DOLLAR;
+      }
 
       /// Two dollar symbols mean that no more operators can be taken. The
       /// current delimiter deliberately remains unconsumed for the caller.
@@ -1731,6 +1709,53 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   }
 }
 
+/**
+ * @brief Tells whether a statement ends with an if, i.e. whether its rightmost
+ * part is an if statement or expression.
+ * @details Such an if takes the rest of its line and consumes the NEWLINE
+ * ending it while looking for a following `else`. A parenthesized if is
+ * reported as well; it is followed by `)`, so the caller still sees that
+ * line's NEWLINE and only stops requiring it.
+ */
+static bool parser_ends_with_if(const ASTNode *node) {
+  while (node != NULL) {
+    switch (node->kind) {
+    case AST_IF:
+      return true;
+    case AST_ASSIGN:
+      node = node->data.assignment.value;
+      break;
+    case AST_RETURN:
+      node = node->data.return_statement.value;
+      break;
+    case AST_NOT:
+      node = node->data.unary_op.operand;
+      break;
+    case AST_ADD:
+    case AST_SUBTRACT:
+    case AST_MULTIPLY:
+    case AST_DIVIDE:
+    case AST_LIST_CONCAT:
+    case AST_EQUAL:
+    case AST_NOT_EQUAL:
+    case AST_LESS:
+    case AST_LESS_EQUAL:
+    case AST_GREATER:
+    case AST_GREATER_EQUAL:
+    case AST_AND:
+    case AST_OR:
+    case AST_TO:
+    case AST_UNTIL:
+    case AST_BY:
+      node = node->data.binary_op.right;
+      break;
+    default:
+      return false;
+    }
+  }
+  return false;
+}
+
 // TODO: Implement p_code_block and p_expression, then uncomment these
 // declarations and their calls in p_function.
 //
@@ -1808,12 +1833,16 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       return status;
     }
 
-    /// A statement ending with its own nested block (e.g. if) has already
-    /// consumed the NEWLINE preceding the block's DEDENT, so no further
-    /// newline follows it.
-    bool ends_with_block =
-        statement->kind == AST_IF; // FIXME: add other statement kinds that
-                                   // end with a block (while, for, etc?)
+    /// A statement ending with an if (also inside an expression, such as
+    /// `val x = if c then 1 else 2`) has already consumed the NEWLINE ending
+    /// its line while looking for `else`, or the DEDENT closing its nested
+    /// block. Then no further newline follows it.
+
+    /// Special case: a parenthesized if is followed by `)`,
+    /// so the caller still sees that line's NEWLINE and only stops requiring
+    /// it, because the `)` indicates the end of the expression so nothing
+    /// except newlines is allowed. This is not a bug but a feature.
+    bool ends_with_block = parser_ends_with_if(statement);
 
     /// Update the block's inferred type based on the return inferred type
     if (statement->kind == AST_RETURN) {
