@@ -18,6 +18,28 @@ FILE *stream_from(const char *text) {
   return stream;
 }
 
+/// Parses @p text as a whole program and returns only the parser status.
+ParserStatus parse_status(const char *text) {
+  FILE *stream = stream_from(text);
+  if (stream == nullptr) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  Lexer lexer;
+  if (lexer_init(&lexer, stream) != LEXER_OK) {
+    fclose(stream);
+    return PARSER_INTERNAL_ERROR;
+  }
+  Program program;
+  ParserStatus status = program_init(&program);
+  if (status == PARSER_OK) {
+    status = p_program(&lexer, &program);
+  }
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+  return status;
+}
+
 } // namespace
 
 TEST(ParserDirectLexerTest, EmptyInputFinishesWithoutSyntaxRules) {
@@ -421,6 +443,93 @@ TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
   ASSERT_EQ(indexing->kind, AST_LIST_INDEXING);
   ASSERT_NE(indexing->data.binary_op.left, nullptr);
   EXPECT_EQ(indexing->data.binary_op.left->kind, AST_LIST_CONSTRUCTOR);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, IfOperandFollowedByNewlineEndsTheBlock) {
+  EXPECT_EQ(parse_status("def foo() =\n  val value = if true then 1 else 2\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, IfOperandFollowedByAnotherStatement) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = if true then 1 else 2\n"
+                         "  val other = value\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = 1 + if true then 1 else 2\n"
+                         "  val other = value\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, IfOperandWithoutElseFollowedByAnotherStatement) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = if true then 1\n"
+                         "  val other = value\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, IfOperandWithElseOnNextLine) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = if true then 1\n"
+                         "  else 2\n"
+                         "  val other = value\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, ReturnedIfOperandFollowedByNewline) {
+  EXPECT_EQ(parse_status("def foo(): Int =\n  return if true then 1 else 2\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, ParenthesizedIfOperandFollowedByNewline) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = (if true then 1 else 2)\n"
+                         "  val other = value\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, RejectsStatementAfterIfOperandOnTheSameLine) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val value = if true then 1 else 2 val other = 3\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(
+      parse_status("def foo() =\n"
+                   "  val value = (if true then 1 else 2) val other = 3\n"),
+      PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
+  FILE *stream = stream_from("def foo() =\n"
+                             "  if true then\n"
+                             "    val a = 1\n"
+                             "  else\n"
+                             "    val b = 2\n"
+                             "  val c = 3\n");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "foo");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 2U);
+  ASTNode *conditional = function->ast_root->data.block.statements[0];
+  ASSERT_EQ(conditional->kind, AST_IF);
+  ASTNode *then_branch = conditional->data.if_statement.then_branch;
+  ASTNode *else_branch = conditional->data.if_statement.else_branch;
+  ASSERT_NE(then_branch, nullptr);
+  ASSERT_NE(else_branch, nullptr);
+  EXPECT_EQ(then_branch->kind, AST_BLOCK);
+  EXPECT_EQ(else_branch->kind, AST_BLOCK);
+  EXPECT_EQ(function->ast_root->data.block.statements[1]->kind, AST_ASSIGN);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
