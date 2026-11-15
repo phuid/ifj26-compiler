@@ -198,30 +198,6 @@ ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement) {
 }
 
 /**
- * @brief Constructs an owned function-declaration node.
- * @details On failure, @p body remains owned by the caller.
- * @param function Non-null function record borrowed by the new node.
- * @param body Non-null owned body to transfer on success.
- * @param line One-based source line.
- * @param column One-based source column.
- * @return A function node, or null for invalid input or OOM.
- */
-ASTNode *ast_node_create_function(FunctionSymbol *function, ASTNode *body,
-                                  size_t line, size_t column) {
-  ASTNode *node;
-
-  if (function == NULL || body == NULL) {
-    return NULL;
-  }
-  node = ast_node_create(AST_FUNCTION, line, column);
-  if (node != NULL) {
-    node->data.function.function = function;
-    node->data.function.body = body;
-  }
-  return node;
-}
-
-/**
  * @brief Constructs an owned assignment to a borrowed resolved symbol.
  * @details On failure, @p value remains owned by the caller.
  * @param target Non-null symbol borrowed by the new node.
@@ -382,9 +358,6 @@ void ast_node_destroy(ASTNode *node) {
       ast_node_destroy(node->data.block.statements[index]);
     }
     free(node->data.block.statements);
-    break;
-  case AST_FUNCTION:
-    ast_node_destroy(node->data.function.body);
     break;
   case AST_IMPLICIT_INT_TO_REAL:
     ast_node_destroy(node->data.conversion.operand);

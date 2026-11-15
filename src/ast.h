@@ -18,10 +18,11 @@
 typedef struct FunctionSymbol FunctionSymbol;
 typedef struct ASTNode ASTNode;
 
-/** Identifies the syntax/semantic construct represented by an AST node. */
+/** Identifies the syntax/semantic construct represented by an AST node.
+ *  TODO: Add AST_CONSTANT_UNIT (implicit value of type Unit)
+ *  TODO: Add AST_CONSTANT_BOOL (true/false literals)
+ */
 typedef enum {
-  /** Function declaration; activates @c data.function. */
-  AST_FUNCTION,
   /** Statement block; activates @c data.block. */
   AST_BLOCK,
   /** Integer literal; activates @c data.int_value. */
@@ -109,10 +110,6 @@ struct ASTNode {
       size_t statement_capacity;
     } block;
     struct {
-      FunctionSymbol *function;
-      ASTNode *body;
-    } function;
-    struct {
       ASTNode *operand;
     } conversion;
   } data;
@@ -196,18 +193,6 @@ ASTNode *ast_node_create_block(size_t line, size_t column);
  * @return @ref AST_OK, @ref AST_INVALID_ARGUMENT, or @ref AST_OUT_OF_MEMORY.
  */
 ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement);
-
-/**
- * @brief Creates a function-declaration node.
- * @param function Non-null borrowed function record; it must outlive the AST.
- * @param body Non-null body node whose ownership transfers on success only.
- * @param line One-based source line of the declaration.
- * @param column One-based source column of the declaration.
- * @return An owned node with @c kind AST_FUNCTION, or null for an invalid
- * argument or allocation failure.
- */
-ASTNode *ast_node_create_function(FunctionSymbol *function, ASTNode *body,
-                                  size_t line, size_t column);
 
 /**
  * @brief Creates an assignment node for an already resolved target.
