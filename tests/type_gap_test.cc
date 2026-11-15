@@ -11,8 +11,14 @@ extern "C" {
 /** Owns N initialised entities, links edges by index, destroys at exit. */
 template <size_t N> struct Entities {
   TypeEntity e[N];
-  Entities() { for (TypeEntity &entity : e) type_entity_init(&entity); }
-  ~Entities() { for (TypeEntity &entity : e) type_entity_destroy(&entity); }
+  Entities() {
+    for (TypeEntity &entity : e)
+      type_entity_init(&entity);
+  }
+  ~Entities() {
+    for (TypeEntity &entity : e)
+      type_entity_destroy(&entity);
+  }
   TypeEntity *operator[](size_t index) { return &e[index]; }
   void Link(std::initializer_list<std::pair<size_t, size_t>> edges) {
     for (const auto &[from, to] : edges) {
@@ -29,8 +35,8 @@ template <size_t N> struct Entities {
  */
 TEST(TypeEntityGapTest, EveryConcreteTypePropagates) {
   // TYPE_ANY is accepted and propagated like a concrete type (design choice).
-  for (DataType type : {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT, TYPE_BOOL,
-                        TYPE_ANY}) {
+  for (DataType type :
+       {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT, TYPE_BOOL, TYPE_ANY}) {
     Entities<3> g;
     g.Link({{0, 1}, {1, 2}});
     EXPECT_EQ(type_entity_resolve(g[0], type), TYPE_RESOLVE_OK) << type;

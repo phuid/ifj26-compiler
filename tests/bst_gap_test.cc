@@ -68,9 +68,14 @@ protected:
  *   Table of the four rotations: insert order -> expected root, left, right.
  */
 TEST_F(BSTGapTest, InsertionRotationsProduceExpectedShape) {
-  struct Case { std::vector<int> order; int root, left, right; };
-  const Case cases[] = {{{10, 20, 30}, 20, 30, 10}, {{30, 20, 10}, 20, 30, 10},
-                        {{10, 30, 20}, 20, 30, 10}, {{30, 10, 20}, 20, 30, 10}};
+  struct Case {
+    std::vector<int> order;
+    int root, left, right;
+  };
+  const Case cases[] = {{{10, 20, 30}, 20, 30, 10},
+                        {{30, 20, 10}, 20, 30, 10},
+                        {{10, 30, 20}, 20, 30, 10},
+                        {{30, 10, 20}, 20, 30, 10}};
   for (const Case &c : cases) {
     SCOPED_TRACE(::testing::PrintToString(c.order));
     for (int value : c.order) {
@@ -153,7 +158,10 @@ TEST_F(BSTGapTest, FailedCopyOnDuplicateUpdateKeepsOldElement) {
 }
 
 TEST(BSTGapStructTest, HeapKeyedEntriesSupportFullLifecycle) {
-  struct Entry { char *key; int payload; };
+  struct Entry {
+    char *key;
+    int payload;
+  };
   BST *entries = bstCreate(
       [](const void *a, const void *b) {
         return std::strcmp(static_cast<const Entry *>(a)->key,
