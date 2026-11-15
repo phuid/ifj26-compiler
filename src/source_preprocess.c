@@ -83,7 +83,20 @@ this change is to keep line numbers consistent before and after the
 preprocessing.""" agent: gpt-5.6-luna
 */
 
-/* Copy a quoted string and return false when it is unterminated. */
+/**
+ * @brief Copies a quoted string and validates its terminating delimiter.
+ *
+ * Both ordinary and multiline string literals are copied unchanged. Escaped
+ * quotes are ignored when searching for the end of an ordinary string.
+ *
+ * @param source Source text containing the string literal.
+ * @param source_length Length of @p source, excluding its null terminator.
+ * @param index In/out index of the string; advanced past the closing delimiter
+ *              on success.
+ * @param output Destination buffer.
+ * @param output_length In/out number of characters written to @p output.
+ * @return @c true if the string is terminated; otherwise @c false.
+ */
 static bool copy_string(const char *source, size_t source_length, size_t *index,
                         char *output, size_t *output_length) {
   size_t start = *index;
@@ -128,7 +141,20 @@ static bool copy_string(const char *source, size_t source_length, size_t *index,
   return false;
 }
 
-/* Copy a block comment replacement while validating nested delimiters. */
+/**
+ * @brief Replaces a block comment while validating nested delimiters.
+ *
+ * A block comment without newlines is replaced with one space. A multiline
+ * block comment is replaced with the same number of newline characters.
+ *
+ * @param source Source text containing the block comment.
+ * @param source_length Length of @p source, excluding its null terminator.
+ * @param index In/out index of the comment; advanced past its closing
+ *              delimiter on success.
+ * @param output Destination buffer.
+ * @param output_length In/out number of characters written to @p output.
+ * @return @c true if the comment is valid; otherwise @c false.
+ */
 static bool copy_block_comment(const char *source, size_t source_length,
                                size_t *index, char *output,
                                size_t *output_length) {
@@ -186,7 +212,18 @@ static bool copy_block_comment(const char *source, size_t source_length,
   return true;
 }
 
-/* Strip comments while copying strings unchanged and validating literals. */
+/**
+ * @brief Removes comments from source text while preserving string literals.
+ *
+ * Comment delimiters inside ordinary and multiline strings are copied
+ * unchanged. The output is null-terminated when processing succeeds.
+ *
+ * @param source Source text to preprocess.
+ * @param source_length Length of @p source, excluding its null terminator.
+ * @param output Destination buffer.
+ * @param output_length In/out number of characters written to @p output.
+ * @return @c true if all strings and comments are valid; otherwise @c false.
+ */
 static bool strip_comments(const char *source, size_t source_length,
                            char *output, size_t *output_length) {
   size_t position = 0;
@@ -226,7 +263,17 @@ static bool strip_comments(const char *source, size_t source_length,
   return true;
 }
 
-/* Remove the leading import prolog and validate its logical line. */
+/**
+ * @brief Removes and validates the required leading import prolog.
+ *
+ * The prolog must be the first non-whitespace content and must occupy a
+ * complete logical line.
+ *
+ * @param source Mutable, null-terminated source text.
+ * @param length In/out length of @p source, excluding its null terminator.
+ * @return @c 0 on success, @c 1 for invalid trailing content, or @c 2 when
+ *         the required prolog is missing or malformed.
+ */
 static int remove_prolog(char *source, size_t *length) {
   static const char first_word[] = "import";
   static const char second_word[] = "ifj26.*";
