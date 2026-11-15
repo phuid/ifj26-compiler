@@ -1840,8 +1840,8 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     }
 
     /// Consume at least one newline after the statement, or report a syntax
-    /// error. Statements ending with a nested block only allow extra
-    /// newlines.
+    /// error. Statements ending with a nested block have already consumed the
+    /// newline
     status = parser_consume_newlines(lexer, !ends_with_block, false, NULL);
     if (status != PARSER_OK) {
       ast_node_destroy(block_node);
@@ -2204,7 +2204,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   }
 
   /// Consume newlines after `@main`
-  status = parser_consume_newlines(lexer, false, true, NULL);
+  status = parser_consume_newlines(lexer, false, false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -2260,6 +2260,12 @@ ParserStatus p_program(Lexer *lexer, Program *program) {
   }
 
   while (lexer->token.type != TOKEN_EOF) {
+    /// Consume any number of newlines before the next top-level construct.
+    status = parser_consume_newlines(lexer, false, false, NULL);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
     /// Dispatch only the currently sketched top-level constructs.
     if (lexer->token.type == TOKEN_KW_DEF) {
       /// Parse the function definition (p_function consumes `def`)
