@@ -36,7 +36,8 @@ const Keyword *keyword_lookup(const char *spelling);
  * @param type Token kind to inspect.
  * @return TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT or TYPE_BOOL for the
  * matching TOKEN_KW_* kind, otherwise TYPE_UNKNOWN.
+ * @note List types are returned as TYPE_UNKNOWN
  */
-DataType keyword_to_type(TokenType type);
+BaseType keyword_to_type(TokenType type);
 
 #endif // SRC_KEYWORD_H_

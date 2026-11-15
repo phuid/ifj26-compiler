@@ -12,7 +12,7 @@ TEST(SymbolTableTest, ChildScopeFindsParentBinding) {
   ASSERT_NE(child, nullptr);
 
   Symbol *outer = nullptr;
-  ASSERT_EQ(symbol_table_define(root, "b", TYPE_UNKNOWN, true, false, &outer),
+  ASSERT_EQ(symbol_table_define(root, "b", type_unknown(), true, false, &outer),
             SYMTABLE_OK);
   ASSERT_NE(outer, nullptr);
   EXPECT_EQ(symbol_table_resolve(child, "b"), outer);
@@ -28,9 +28,11 @@ TEST(SymbolTableTest, ChildBindingShadowsParentBinding) {
 
   Symbol *outer = nullptr;
   Symbol *inner = nullptr;
-  ASSERT_EQ(symbol_table_define(root, "value", TYPE_INT, true, false, &outer),
+  ASSERT_EQ(symbol_table_define(root, "value", type_scalar(TYPE_INT), true,
+                                false, &outer),
             SYMTABLE_OK);
-  ASSERT_EQ(symbol_table_define(child, "value", TYPE_REAL, true, false, &inner),
+  ASSERT_EQ(symbol_table_define(child, "value", type_scalar(TYPE_REAL), true,
+                                false, &inner),
             SYMTABLE_OK);
 
   ASSERT_NE(outer, inner);
@@ -46,7 +48,8 @@ TEST(SymbolTableTest, LocalBindingsAreStoredInMainBst) {
 
   ASSERT_NE(root, nullptr);
   ASSERT_NE(root->bindings, nullptr);
-  ASSERT_EQ(symbol_table_define(root, "item", TYPE_INT, true, false, &symbol),
+  ASSERT_EQ(symbol_table_define(root, "item", type_scalar(TYPE_INT), true,
+                                false, &symbol),
             SYMTABLE_OK);
   ASSERT_NE(symbol, nullptr);
   EXPECT_NE(root->bindings->root, nullptr);
@@ -59,9 +62,11 @@ TEST(SymbolTableTest, RejectsDuplicateInSameScope) {
   SymbolTable *root = symbol_table_create_root();
   ASSERT_NE(root, nullptr);
 
-  ASSERT_EQ(symbol_table_define(root, "a", TYPE_INT, true, false, nullptr),
+  ASSERT_EQ(symbol_table_define(root, "a", type_scalar(TYPE_INT), true, false,
+                                nullptr),
             SYMTABLE_OK);
-  EXPECT_EQ(symbol_table_define(root, "a", TYPE_REAL, true, false, nullptr),
+  EXPECT_EQ(symbol_table_define(root, "a", type_scalar(TYPE_REAL), true, false,
+                                nullptr),
             SYMTABLE_DUPLICATE);
   EXPECT_EQ(symbol_table_resolve(root, "missing"), nullptr);
 

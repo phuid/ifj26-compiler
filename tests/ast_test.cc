@@ -9,7 +9,8 @@ TEST(AstTest, VariableReferenceRetainsResolvedSymbolPointer) {
   SymbolTable *scope = symbol_table_create_root();
   ASSERT_NE(scope, nullptr);
   Symbol *symbol = nullptr;
-  ASSERT_EQ(symbol_table_define(scope, "a", TYPE_INT, true, false, &symbol),
+  ASSERT_EQ(symbol_table_define(scope, "a", type_scalar(TYPE_INT), true, false,
+                                &symbol),
             SYMTABLE_OK);
 
   ASTNode *node = ast_node_create_variable_ref(symbol, 3U, 5U);
@@ -19,6 +20,32 @@ TEST(AstTest, VariableReferenceRetainsResolvedSymbolPointer) {
 
   ast_node_destroy(node);
   symbol_table_destroy(scope);
+}
+
+TEST(AstTest, ListConstructorAcceptsOwnedArguments) {
+  ASTNode *constructor = ast_node_create_list_constructor(1U, 1U);
+  ASTNode *argument = ast_node_create_int(42, 1U, 6U);
+  ASSERT_NE(constructor, nullptr);
+  ASSERT_NE(argument, nullptr);
+
+  ASSERT_EQ(ast_node_call_append_argument(constructor, argument), AST_OK);
+  ASSERT_EQ(constructor->data.call.argument_count, 1U);
+  EXPECT_EQ(constructor->data.call.arguments[0], argument);
+
+  ast_node_destroy(constructor);
+}
+
+TEST(AstTest, ListIndexingRejectsNullOperandsWithoutTakingOwnership) {
+  ASTNode *list = ast_node_create_list_constructor(1U, 1U);
+  ASTNode *index = ast_node_create_int(0, 1U, 2U);
+  ASSERT_NE(list, nullptr);
+  ASSERT_NE(index, nullptr);
+
+  EXPECT_EQ(ast_node_create_list_indexing(nullptr, index, 1U, 1U), nullptr);
+  EXPECT_EQ(ast_node_create_list_indexing(list, nullptr, 1U, 1U), nullptr);
+
+  ast_node_destroy(index);
+  ast_node_destroy(list);
 }
 
 TEST(AstTest, FunctionOwnsAssignedAstRoot) {

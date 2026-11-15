@@ -13,11 +13,15 @@
 #include "function_table.h"
 #include "keyword.h"
 #include "lexer.h"
+#include "psa.h"
 #include "symtable.h"
 #include "type.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 static ParserStatus parser_consume_indent_delta(Lexer *lexer,
                                                 size_t *indent_delta);
@@ -25,6 +29,16 @@ static ParserStatus parser_consume_dedents(Lexer *lexer, size_t indent_delta);
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
                                  FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node);
+
+static ParserStatus p_expression(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function, SymbolTable *scope,
+                                 ASTNode **return_node,
+                                 bool consume_newlines_indents,
+                                 ptrdiff_t *local_indent);
+
+static ParserStatus p_statement(Lexer *lexer, Program *program,
+                                FunctionSymbol *function, SymbolTable *scope,
+                                ASTNode **return_node);
 
 /**
  * @brief Translates one lexer result to the parser status boundary.
@@ -55,6 +69,21 @@ static ParserStatus parser_status_from_type(TypeResolveStatus status) {
     return PARSER_SEMANTIC_ERROR;
   case TYPE_RESOLVE_INVALID_ARGUMENT:
     return PARSER_INVALID_ARGUMENT;
+  default:
+    return PARSER_INTERNAL_ERROR;
+  }
+}
+
+/** Translates a precedence-stack helper result to the parser status boundary.
+ */
+static ParserStatus parser_status_from_psa(PsaStatus status) {
+  switch (status) {
+  case PSA_OK:
+    return PARSER_OK;
+  case PSA_INVALID_ARGUMENT:
+    return PARSER_INVALID_ARGUMENT;
+  case PSA_SYNTAX_ERROR:
+    return PARSER_SYNTAX_ERROR;
   default:
     return PARSER_INTERNAL_ERROR;
   }
@@ -102,9 +131,6 @@ static ParserStatus parser_advance(Lexer *lexer) {
 
 /**
  * @brief Checks that the current token is @p expected and consumes it.
- * @details Consuming `(` or `[` disables indentation tracking in the lexer
- * before the next token is read, consuming `)` or `]` re-enables it, so
- * newlines inside parentheses and brackets never produce INDENT/DEDENT.
  * @param lexer Initialized lexer.
  * @param expected Token type that must be the current token.
  * @return PARSER_OK, PARSER_SYNTAX_ERROR for another token, or a translated
@@ -120,12 +146,6 @@ static ParserStatus parser_expect_and_consume(Lexer *lexer,
 
   if (lexer->token.type != expected) {
     return PARSER_SYNTAX_ERROR;
-  }
-
-  if (expected == TOKEN_LEFT_BRACKET || expected == TOKEN_LEFT_PAREN) {
-    lexer->enable_indent = false;
-  } else if (expected == TOKEN_RIGHT_BRACKET || expected == TOKEN_RIGHT_PAREN) {
-    lexer->enable_indent = true;
   }
 
   status = parser_advance(lexer);
@@ -145,10 +165,15 @@ static ParserStatus parser_expect_and_consume(Lexer *lexer,
  * @param required If true, at least one newline must be present.
  * @param consume_indent_dedent If true, every consumed newline is followed by
  * consuming all pending layout tokens (indent/dedent).
- * @return PARSER_OK on success, otherwise a translated lexer failure.
+ * @param indent_delta Optional indentation level updated while consuming
+ * layout tokens. If non-NULL, the updated level must remain positive. If it
+ * doesnt, a syntax error is reported.
+ * @return PARSER_OK on success or PARSER_SYNTAX_ERROR when the indentation
+ * level turns <= 0, otherwise a translated lexer failure.
  */
 static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
-                                            bool consume_indent_dedent) {
+                                            bool consume_indent_dedent,
+                                            ptrdiff_t *indent_delta) {
   ParserStatus status = PARSER_OK;
 
   if (lexer == NULL) {
@@ -170,6 +195,22 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
   if (consume_indent_dedent) {
     while (status == PARSER_OK && (lexer->token.type == TOKEN_INDENT ||
                                    lexer->token.type == TOKEN_DEDENT)) {
+      if (indent_delta != NULL) {
+        if (lexer->token.type == TOKEN_INDENT) {
+          if (*indent_delta == PTRDIFF_MAX) {
+            return PARSER_INTERNAL_ERROR;
+          }
+          (*indent_delta)++;
+        } else {
+          if (*indent_delta == PTRDIFF_MIN) {
+            return PARSER_INTERNAL_ERROR;
+          }
+          (*indent_delta)--;
+        }
+        if (*indent_delta <= 0) {
+          return PARSER_SYNTAX_ERROR;
+        }
+      }
       status = parser_advance(lexer);
     }
   }
@@ -195,22 +236,127 @@ static ParserStatus parser_consume_newlines(Lexer *lexer, bool required,
  * body uses the function's local scope (which already holds its parameters);
  * a nested block (e.g. an if branch) receives a child scope created with
  * symbol_table_create_child, so its definitions shadow but do not leak out.
+ *
+ * Indentation in parenthesis: When parsing a parenthesized expression, the
+ * indentation level is tracked separately from the current indentation level.
+ * All physical lines inside parentheses must be indented more than the line
+ * with the opening parenthesis.
+ * This is tracked with the @c indentation_level pointer passed to
+ * parser_consume_newlines.
+ * When the closing parenthesis is reached, the indentation must be reset with
+ * lexer_change_current_indent(lexer, (-1) * local_indent) to the level of the
+ * opening parenthesis.
+ * Possible problems:
+  if ( (bool) &&
+          ( bool
+            ) // valid code, but the indent in nested parentheses must be
+ tracked separately
+    ) then statement;
  */
+
+/**
+ * @brief Parses a scalar or recursively nested list type name.
+ * @details Entry: the first token of the type name. Exit: the token after the
+ * complete type name.
+ */
+static ParserStatus p_type_name(Lexer *lexer, bool consume_newlines_indents,
+                                ptrdiff_t *indentation_level, DataType *type) {
+  ParserStatus status;
+  BaseType base;
+
+  if (lexer == NULL || type == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  base = keyword_to_type(lexer->token.type);
+  if (base != TYPE_UNKNOWN) {
+    *type = type_scalar(base);
+    return parser_advance(lexer);
+  }
+
+  if (lexer->token.type != TOKEN_KW_LIST) {
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  /// Consume 'List' and the opening bracket.
+  status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
+  if (status != PARSER_OK) {
+    return status;
+  }
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      return status;
+    }
+  }
+  status = parser_expect_and_consume(lexer, TOKEN_LEFT_BRACKET);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t local_indent = 0U;
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the element type, which may itself be a list.
+  DataType element_type;
+  status = p_type_name(lexer, consume_newlines_indents, &local_indent,
+                       &element_type);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+  }
+  status = parser_expect_and_consume(lexer, TOKEN_RIGHT_BRACKET);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Reset the indentation level to what it was before the opening
+  /// bracket
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  *type = type_list(element_type);
+  return type_is_unknown(*type) ? PARSER_INTERNAL_ERROR : PARSER_OK;
+}
 
 /**
  * @brief Parses an optional type annotation `: Type`.
  * @details Entry: @c lexer->token is the possible @c :. Without @c : nothing
- * is consumed. Exit: the token after the type identifier.
+ * is consumed. Exit: the token after the complete type name.
  * @param lexer Initialized lexer.
  * @param type_entity Type entity resolved to the annotated type.
  * @param required If true, a type annotation is required.
+ * @param consume_newlines_indents If true, any number of newlines and layout
+ * tokens is consumed.
+ * @param indentation_level If @p consume_newlines_indents is true, the current
+ * indentation level is updated. Pass NULL if @p consume_newlines_indents is
+ * false.
  * @return PARSER_OK, PARSER_SYNTAX_ERROR, or a translated lexer failure.
  */
 static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
-                           bool can_contain_newlines) {
+                           bool consume_newlines_indents,
+                           ptrdiff_t *indentation_level) {
   ParserStatus status;
 
   if (lexer == NULL || type_entity == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  if (consume_newlines_indents && indentation_level == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  if (!consume_newlines_indents && indentation_level != NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
@@ -228,43 +374,1152 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
     return status;
   }
 
-  if (can_contain_newlines) {
+  if (consume_newlines_indents) {
     /// Consume any number of newlines before the type
-    status = parser_consume_newlines(lexer, false, true);
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
     if (status != PARSER_OK) {
       return status;
     }
   }
 
-  /// Expect a type-name keyword and resolve its type.
-  DataType type = keyword_to_type(lexer->token.type);
-  if (type == TYPE_UNKNOWN) {
-    return PARSER_SYNTAX_ERROR;
-  }
-  status = parser_status_from_type(type_entity_resolve(type_entity, type));
+  DataType type;
+  status =
+      p_type_name(lexer, consume_newlines_indents, indentation_level, &type);
   if (status != PARSER_OK) {
     return status;
   }
 
-  return parser_advance(lexer);
+  return parser_status_from_type(type_entity_resolve(type_entity, type));
 }
 
-// Parses an implicit return expression on the function header line.
-// Entry: the first token of the expression. Exit: the token after the
-// expression.
-static ParserStatus p_expression(Lexer *lexer, Program *program,
-                                 FunctionSymbol *function, SymbolTable *scope,
-                                 ASTNode **return_node) {
+static ParserStatus p_call_args(Lexer *lexer, Program *program,
+                                FunctionSymbol *function, SymbolTable *scope,
+                                ASTNode *call_node) {
+  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
+      call_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume the opening parenthesis
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t local_indent = 0;
+
+  /// Consume any newlines after the opening parenthesis
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the function call arguments
+  if (lexer->token.type != TOKEN_RIGHT_PAREN) {
+    while (true) {
+      if (lexer->token.type == TOKEN_EOF) {
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      ASTNode *arg_node = NULL;
+      status = p_expression(lexer, program, function, scope, &arg_node, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Add the argument node to the call node's argument list
+      if (ast_node_call_append_argument(call_node, arg_node) != AST_OK) {
+        ast_node_destroy(arg_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Consume any number of newlines before the next comma or closing
+      /// parenthesis
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Expect a comma or closing parenthesis
+      if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Consume any number of newlines before the next argument
+      bool has_newline = lexer->token.type == TOKEN_NEWLINE;
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// A trailing comma is allowed only when followed by a newline and the
+      /// closing parenthesis.
+      if (has_newline && lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+    }
+  }
+
+  /// Reset the indentation level to what it was before the opening parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+}
+
+static ParserStatus p_if(Lexer *lexer, Program *program,
+                         FunctionSymbol *function, SymbolTable *scope,
+                         ASTNode **return_node, bool consume_newlines_indents,
+                         ptrdiff_t *local_indent) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  if (consume_newlines_indents && local_indent == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Remember the position of the 'if' keyword for the AST node
+  size_t if_line = lexer->token.line;
+  size_t if_column = lexer->token.column;
+
+  /// Consume the 'if' keyword
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_IF);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Inside parentheses: Consume any number of layout tokens after the 'if'
+  /// keyword
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, local_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+  }
+
+  /// Parse the boolean expression
+  ASTNode *condition_node = NULL;
+  status = p_expression(lexer, program, function, scope, &condition_node,
+                        consume_newlines_indents, local_indent);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Inside parentheses: Consume any number of layout tokens after the boolean
+  /// expression
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, local_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      return status;
+    }
+  }
+
+  /// Parse the 'then' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_THEN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Inside parentheses: Consume any number of layout tokens after the 'then'
+  /// keyword
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, local_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      return status;
+    }
+  }
+
+  ASTNode *then_branch_node = NULL;
+  /// If there are no newlines after the 'then' keyword, parse the 'then' branch
+  /// as a single statement
+  if (lexer->token.type != TOKEN_NEWLINE) {
+
+    /// Create a new child scope for the 'then' block
+    SymbolTable *then_scope = symbol_table_create_child(scope);
+    if (then_scope == NULL) {
+      ast_node_destroy(condition_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    status =
+        p_statement(lexer, program, function, then_scope, &then_branch_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+    /// Consume any number of newlines after the 'then' statement
+    /// also consume any indents/dedents if inside parentheses
+    status = parser_consume_newlines(lexer, false, consume_newlines_indents,
+                                     local_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+  } else {
+    /// If there are newlines after the 'then' keyword, parse the 'then' branch
+    /// as a code block
+
+    /// Consume any number of newlines
+    status = parser_consume_newlines(lexer, false, false, NULL);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      return status;
+    }
+
+    /// Count indentation level for the 'then' branch
+    size_t indent_delta = 0;
+    status = parser_consume_indent_delta(lexer, &indent_delta);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      return status;
+    }
+
+    /// create a new child scope for the 'then' block
+    SymbolTable *then_scope = symbol_table_create_child(scope);
+    if (then_scope == NULL) {
+      ast_node_destroy(condition_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    /// Parse the 'then' branch
+    ASTNode *then_branch_node = NULL;
+    status =
+        p_code_block(lexer, program, function, then_scope, &then_branch_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+    /// Consume any number of newlines after the 'then' branch
+    status = parser_consume_newlines(lexer, false, false, NULL);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+    /// Consume dedents that match the indentation of the 'then' branch
+    status = parser_consume_dedents(lexer, indent_delta);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+  }
+
+  /// If there is no 'else' branch, create the if node and return
+  if (lexer->token.type != TOKEN_KW_ELSE) {
+    ASTNode *if_node = ast_node_create_if(condition_node, then_branch_node,
+                                          NULL, if_line, if_column);
+    if (if_node == NULL) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+    *return_node = if_node;
+    return PARSER_OK;
+  }
+
+  /// Consume the 'else' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_ELSE);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    return status;
+  }
+
+  /// Inside parentheses: Consume any number of layout tokens after the 'else'
+  /// keyword
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, local_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      return status;
+    }
+  }
+
+  ASTNode *else_branch_node = NULL;
+  /// If there are no newlines after the 'else' keyword, parse the 'else' branch
+  /// as a single statement
+  if (lexer->token.type != TOKEN_NEWLINE) {
+
+    /// Create a new child scope for the 'else' block
+    SymbolTable *else_scope = symbol_table_create_child(scope);
+    if (else_scope == NULL) {
+      ast_node_destroy(condition_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    if (lexer->token.type == TOKEN_KW_IF) {
+      status = p_if(lexer, program, function, else_scope, &else_branch_node,
+                    consume_newlines_indents, local_indent);
+    } else {
+      status =
+          p_statement(lexer, program, function, else_scope, &else_branch_node);
+    }
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      ast_node_destroy(else_branch_node);
+      return status;
+    }
+
+    /// Consume any number of newlines after the 'else' statement
+    /// also consume any indents/dedents if inside parentheses
+    status = parser_consume_newlines(lexer, false, consume_newlines_indents,
+                                     local_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      ast_node_destroy(else_branch_node);
+      return status;
+    }
+
+  } else {
+    /// If there are newlines after the 'else' keyword, parse the 'else' branch
+    /// as a code block
+
+    /// Consume any number of newlines
+    status = parser_consume_newlines(lexer, false, false, NULL);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+    /// Count indentation level for the 'else' branch
+    size_t indent_delta = 0;
+    status = parser_consume_indent_delta(lexer, &indent_delta);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return status;
+    }
+
+    /// Create a new child scope for the 'else' block
+    SymbolTable *else_scope = symbol_table_create_child(scope);
+    if (else_scope == NULL) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    /// Parse the 'else' branch
+    ASTNode *else_branch_node = NULL;
+    status =
+        p_code_block(lexer, program, function, else_scope, &else_branch_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      ast_node_destroy(else_branch_node);
+      return status;
+    }
+
+    /// Consume any number of newlines after the 'else' branch
+    status = parser_consume_newlines(lexer, false, false, NULL);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      ast_node_destroy(else_branch_node);
+      return status;
+    }
+
+    /// Consume dedents that match the indentation of the 'else' branch
+    status = parser_consume_dedents(lexer, indent_delta);
+    if (status != PARSER_OK) {
+      ast_node_destroy(condition_node);
+      ast_node_destroy(then_branch_node);
+      ast_node_destroy(else_branch_node);
+      return status;
+    }
+  }
+
+  ASTNode *if_node = ast_node_create_if(condition_node, then_branch_node,
+                                        else_branch_node, if_line, if_column);
+  if (if_node == NULL) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(then_branch_node);
+    ast_node_destroy(else_branch_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = if_node;
+
+  return PARSER_OK;
+}
+
+/// Marks an if node and all nested if branches as expressions.
+static void parser_mark_if_chain_as_expression(ASTNode *if_node) {
+  if (if_node == NULL || if_node->kind != AST_IF) {
+    return;
+  }
+
+  if_node->data.if_statement.used_as_an_expression = true;
+  parser_mark_if_chain_as_expression(if_node->data.if_statement.then_branch);
+  parser_mark_if_chain_as_expression(if_node->data.if_statement.else_branch);
+}
+
+static ParserStatus p_list_constructor_args(Lexer *lexer, Program *program,
+                                            FunctionSymbol *function,
+                                            SymbolTable *scope,
+                                            ASTNode *constructor_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      constructor_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// Consume the opening parenthesis
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t local_indent = 0;
+
+  /// Consume any newlines after the opening parenthesis
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the list constructor arguments
+  if (lexer->token.type != TOKEN_RIGHT_PAREN) {
+    while (true) {
+      if (lexer->token.type == TOKEN_EOF) {
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      ASTNode *arg_node = NULL;
+      status = p_expression(lexer, program, function, scope, &arg_node, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Add the argument node to the list constructor node's argument list
+      if (ast_node_call_append_argument(constructor_node, arg_node) != AST_OK) {
+        ast_node_destroy(arg_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Consume any number of newlines before the next comma or closing
+      /// parenthesis
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Expect a comma or closing parenthesis
+      if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Consume any number of newlines before the next argument
+      bool has_newline = lexer->token.type == TOKEN_NEWLINE;
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// A trailing comma is allowed only when followed by a newline and the
+      /// closing parenthesis.
+      if (has_newline && lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
+      }
+    }
+  }
+
+  /// Reset the indentation level to what it was before the opening parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+}
+
+/**
+@note This function was altered by an LLM agent to handle nested parentheses
+and unit parsing in accordance with psa_spec.md. Model used: Kimi-k3.1-pro.
+*/
+static ParserStatus p_primary(Lexer *lexer, Program *program,
+                              FunctionSymbol *function, SymbolTable *scope,
+                              ASTNode **return_node,
+                              bool consume_newlines_indents,
+                              ptrdiff_t *indentation_level) {
   if (lexer == NULL || program == NULL || scope == NULL ||
       return_node == NULL) {
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// TODO: resolve identifiers with symbol_table_resolve(scope, name)
-  (void)function;
+  ParserStatus status;
+  switch (lexer->token.type) {
+  case TOKEN_INT:
+    *return_node = ast_node_create_int(lexer->token.value.int_value,
+                                       lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_DOUBLE:
+    *return_node = ast_node_create_real(lexer->token.value.double_value,
+                                        lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_STRING:
+    *return_node =
+        ast_node_create_string(lexer->token.value.string_value,
+                               lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_KW_TRUE:
+    *return_node =
+        ast_node_create_bool(true, lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_KW_FALSE:
+    *return_node =
+        ast_node_create_bool(false, lexer->token.line, lexer->token.column);
+    if (*return_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    return parser_advance(lexer);
+
+  case TOKEN_KW_LIST:
+    status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    /// Inside parentheses: Consume any number of layout tokens after the 'List'
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        return status;
+      }
+    }
+
+    ASTNode *list_node = ast_node_create_list_constructor(lexer->token.line,
+                                                          lexer->token.column);
+
+    if (list_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    status =
+        p_list_constructor_args(lexer, program, function, scope, list_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(list_node);
+      return status;
+    }
+
+    *return_node = list_node;
+    return PARSER_OK;
+
+  case TOKEN_LEFT_PAREN: {
+    size_t paren_line = lexer->token.line;
+    size_t paren_column = lexer->token.column;
+
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    ptrdiff_t nested_indent = 0;
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+      *return_node = ast_node_create_unit(paren_line, paren_column);
+      if (*return_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      status = parser_status_from_lexer(
+          lexer_change_current_indent(lexer, (-1) * nested_indent));
+      if (status != PARSER_OK) {
+        ast_node_destroy(*return_node);
+        *return_node = NULL;
+        return status;
+      }
+
+      return parser_advance(lexer);
+    }
+
+    status = p_expression(lexer, program, function, scope, return_node, true,
+                          &nested_indent);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    if (*return_node == NULL) {
+      return PARSER_SYNTAX_ERROR;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &nested_indent);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_status_from_lexer(
+        lexer_change_current_indent(lexer, (-1) * nested_indent));
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+    if (status != PARSER_OK) {
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    return PARSER_OK;
+  }
+
+  case TOKEN_IDENTIFIER:
+    const char *token_name = lexer->token.value.string_value;
+    size_t line = lexer->token.line;
+    size_t column = lexer->token.column;
+    size_t name_length = strlen(token_name) + 1U;
+    char *name = malloc(name_length);
+    if (name == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    memcpy(name, token_name, name_length);
+
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      free(name);
+      return status;
+    }
+
+    /// newline and indent/dedent consumption after the identifier is allowed
+    /// when in parentheses
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        free(name);
+        return status;
+      }
+    }
+
+    Symbol *symbol = symbol_table_resolve(scope, name);
+    if (lexer->token.type == TOKEN_LEFT_PAREN && symbol == NULL) {
+      /// Without a local binding, an identifier followed by `(` is a call.
+      FunctionSymbol *function = NULL;
+      if (function_table_get_or_create(&program->functions, name, &function) !=
+          FUNCTION_TABLE_OK) {
+        free(name);
+        return PARSER_INTERNAL_ERROR;
+      }
+      free(name);
+
+      ASTNode *call_node =
+          ast_node_create_function_call(function, line, column);
+      if (call_node == NULL) {
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      /// Parse the function call arguments
+      status = p_call_args(lexer, program, function, scope, call_node);
+      if (status != PARSER_OK) {
+        ast_node_destroy(call_node);
+        return status;
+      }
+      status = parser_status_from_type(type_entity_depend(
+          &function->return_type, &call_node->inferred_type));
+      if (status != PARSER_OK) {
+        ast_node_destroy(call_node);
+        return status;
+      }
+      *return_node = call_node;
+      return PARSER_OK;
+    }
+
+    /// A resolved identifier stays a primary variable reference. Any following
+    /// parenthesis is left for the postfix-indexing parser.
+    free(name);
+    if (symbol == NULL) {
+      return PARSER_SEMANTIC_ERROR;
+    }
+    ASTNode *variable_node = ast_node_create_variable_ref(symbol, line, column);
+    if (variable_node == NULL) {
+      return PARSER_INTERNAL_ERROR;
+    }
+    status = parser_status_from_type(
+        type_entity_depend(&symbol->type, &variable_node->inferred_type));
+    if (status != PARSER_OK) {
+      ast_node_destroy(variable_node);
+      return status;
+    }
+
+    *return_node = variable_node;
+    return PARSER_OK;
+
+  case TOKEN_KW_IF:
+    status = p_if(lexer, program, function, scope, return_node,
+                  consume_newlines_indents, indentation_level);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    parser_mark_if_chain_as_expression(*return_node);
+    return PARSER_OK;
+
+  default:
+    return PARSER_SYNTAX_ERROR;
+  }
+}
+
+/**
+ * @brief Parses one `(expression)` list-indexing suffix.
+ * @details Entry: @c lexer->token is the opening parenthesis. Exit: the token
+ * after the closing parenthesis. This function takes ownership of @p list_node,
+ * including on failure.
+ */
+static ParserStatus p_index_suffix(Lexer *lexer, Program *program,
+                                   FunctionSymbol *function, SymbolTable *scope,
+                                   ASTNode *list_node, ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL || list_node == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  size_t indexing_line = lexer->token.line;
+  size_t indexing_column = lexer->token.column;
+
+  /// Consume the opening parenthesis.
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  /// Every suffix tracks layout independently from its containing expression.
+  ptrdiff_t local_indent = 0;
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  ASTNode *index_node = NULL;
+  status = p_expression(lexer, program, function, scope, &index_node, true,
+                        &local_indent);
+  if (status != PARSER_OK || index_node == NULL) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status == PARSER_OK ? PARSER_SYNTAX_ERROR : status;
+  }
+
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  /// Reset the indentation level to what it was before the opening parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return status;
+  }
+
+  ASTNode *indexing_node = ast_node_create_list_indexing(
+      list_node, index_node, indexing_line, indexing_column);
+  if (indexing_node == NULL) {
+    ast_node_destroy(list_node);
+    ast_node_destroy(index_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = indexing_node;
   return PARSER_OK;
 }
 
+/**
+ * @brief Parses a primary operand followed by any number of indexing suffixes.
+ * @details Indexing is completed before the operand enters precedence parsing,
+ * giving it higher precedence than unary and binary operators. Repeated
+ * suffixes wrap the preceding result from left to right.
+ */
+static ParserStatus p_operand(Lexer *lexer, Program *program,
+                              FunctionSymbol *function, SymbolTable *scope,
+                              ASTNode **return_node,
+                              bool consume_newlines_indents,
+                              ptrdiff_t *indentation_level) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  ASTNode *operand_node = NULL;
+  ParserStatus status =
+      p_primary(lexer, program, function, scope, &operand_node,
+                consume_newlines_indents, indentation_level);
+  if (status != PARSER_OK) {
+    ast_node_destroy(operand_node);
+    return status;
+  }
+
+  while (true) {
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        return status;
+      }
+    }
+
+    if (lexer->token.type != TOKEN_LEFT_PAREN) {
+      break;
+    }
+
+    ASTNode *indexing_node = NULL;
+    status = p_index_suffix(lexer, program, function, scope, operand_node,
+                            &indexing_node);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    operand_node = indexing_node;
+  }
+
+  *return_node = operand_node;
+  return PARSER_OK;
+}
+
+// Parses an implicit return expression on the function header line.
+// Entry: the first token of the expression. Exit: the token after the
+// expression.
+
+/**
+ * @brief Parses one expression using operator-precedence analysis.
+ * @details Entry: @c lexer->token is the first token of the expression. On
+ * success, the expression's owned AST is returned and @c lexer->token is the
+ * first unconsumed delimiter. On failure, the caller retains no AST
+ * ownership.
+ * @param lexer Initialized lexer with its current lookahead token loaded.
+ * @param program Program owning functions referenced by the expression.
+ * @param scope Lexical scope used to resolve variable references.
+ * @param return_node Output receiving the owned expression AST on success.
+ * @param consume_newlines_indents Whether multiline expression layout may be
+ * consumed.
+ * @param local_indent Nested indentation depth; required when
+ * @p consume_newlines_indents is true.
+ * @return PARSER_OK or the first syntax, semantic, lexer, argument, internal,
+ * or precedence-stack error.
+ * @note This function was generated by an LLM agent based on psa_spec.md
+ * Model used: Kimi-k3.1-pro.
+ */
+static ParserStatus p_expression(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function, SymbolTable *scope,
+                                 ASTNode **return_node,
+                                 bool consume_newlines_indents,
+                                 ptrdiff_t *local_indent) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  if (consume_newlines_indents && local_indent == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+  /// Do not transfer a partial AST to the caller if parsing fails.
+  *return_node = NULL;
+
+  /// Stack initialization consumes no input. PSA helpers report PsaStatus, so
+  /// translate their results at the parser boundary.
+  TerminalStack stack;
+  ParserStatus status = parser_status_from_psa(terminal_stack_init(&stack));
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Push the stack-bottom dollar sentinel. It is not a real token and leaves
+  /// the first token of the expression untouched.
+  Terminal bottom = {
+      .type = TERMINAL_DOLLAR, .token = {.type = TOKEN_INVALID}, .node = NULL};
+  status = parser_status_from_psa(terminal_stack_push(&stack, bottom));
+  if (status != PARSER_OK) {
+    terminal_stack_cleanup_nodes(&stack);
+    return status;
+  }
+
+  /// Start by expecting an operand. Alternating this state distinguishes
+  /// unary operators from binary operators and keeps operands out of the
+  /// table lookup.
+  bool expecting_operand = true;
+
+  while (true) {
+    if (expecting_operand) {
+      /// Before an operand, consume newlines and layout only in constructs
+      /// that permit multiline expressions, such as parentheses and call
+      /// arguments.
+      if (consume_newlines_indents) {
+        status = parser_consume_newlines(lexer, false, true, local_indent);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+      }
+
+      TokenType unary_op = TOKEN_INVALID;
+      size_t unary_line = 0;
+      size_t unary_column = 0;
+
+      /// `+`, `-`, and `!` have their prefix meaning only while an operand is
+      /// expected. Save the operator and its source position before consuming
+      /// it.
+      if (lexer->token.type == TOKEN_MINUS || lexer->token.type == TOKEN_PLUS ||
+          lexer->token.type == TOKEN_NOT) {
+        unary_op = lexer->token.type;
+        unary_line = lexer->token.line;
+        unary_column = lexer->token.column;
+
+        /// Consume the unary operator now; its operand must be available
+        /// before the corresponding AST wrapper can be created.
+        status = parser_advance(lexer);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Layout between a unary operator and its operand is governed by the
+        /// same multiline-expression rule as layout before the operator.
+        if (consume_newlines_indents) {
+          status = parser_consume_newlines(lexer, false, true, local_indent);
+          if (status != PARSER_OK) {
+            terminal_stack_cleanup_nodes(&stack);
+            return status;
+          }
+        }
+      }
+
+      /// Delegate one primary operand to p_operand. It consumes that operand
+      /// and any nested syntax it owns, leaving the next operator or
+      /// delimiter as the current lookahead token.
+      ASTNode *operand_node = NULL;
+      status = p_operand(lexer, program, function, scope, &operand_node,
+                         consume_newlines_indents, local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+      if (operand_node == NULL) {
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// Wrap the now-complete operand in the saved unary operation. Unary
+      /// `+` needs no wrapper because it does not change the operand's value.
+      if (unary_op == TOKEN_NOT) {
+        ASTNode *not_node =
+            ast_node_create_not(operand_node, unary_line, unary_column);
+        if (not_node == NULL) {
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        operand_node = not_node;
+      } else if (unary_op == TOKEN_MINUS) {
+        /// The AST has no unary-minus kind, so represent negation as `0 - x`.
+        ASTNode *zero_node = ast_node_create_int(0, unary_line, unary_column);
+        if (zero_node == NULL) {
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        ASTNode *neg_node = ast_node_create_binary_op(
+            AST_SUBTRACT, zero_node, operand_node, unary_line, unary_column);
+        if (neg_node == NULL) {
+          ast_node_destroy(zero_node);
+          ast_node_destroy(operand_node);
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_INTERNAL_ERROR;
+        }
+        operand_node = neg_node;
+      }
+
+      /// Store the completed operand as a nonterminal stack item. A
+      /// successful push transfers AST ownership to the stack; no input is
+      /// consumed here.
+      Terminal operand_terminal = {.type = TERMINAL_OPERAND,
+                                   .token = {.type = TOKEN_INVALID},
+                                   .node = operand_node};
+      status =
+          parser_status_from_psa(terminal_stack_push(&stack, operand_terminal));
+      if (status != PARSER_OK) {
+        ast_node_destroy(operand_node);
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+
+      /// A complete operand is on the stack, so the next token must be either
+      /// a binary operator or a delimiter that ends the expression.
+      expecting_operand = false;
+    } else {
+      /// After an operand, permitted layout may precede a binary operator or
+      /// the expression's final delimiter.
+      if (consume_newlines_indents) {
+        status = parser_consume_newlines(lexer, false, true, local_indent);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+      }
+
+      /// Find the nearest terminal below any completed operands and handles;
+      /// this only inspects the stack and consumes no input.
+      Terminal top_terminal;
+      status =
+          parser_status_from_psa(stack_get_top_terminal(&stack, &top_terminal));
+      if (status != PARSER_OK) {
+        terminal_stack_cleanup_nodes(&stack);
+        return status;
+      }
+
+      /// Classify the lookahead without consuming it. Operators retain their
+      /// terminal kinds, while tokens that can end an expression map to `$`.
+      TerminalType input_terminal = token_to_terminal(lexer->token);
+
+      /// Two dollar symbols mean that no more operators can be taken. The
+      /// current delimiter deliberately remains unconsumed for the caller.
+      if (top_terminal.type == TERMINAL_DOLLAR &&
+          input_terminal == TERMINAL_DOLLAR) {
+        /// Success requires exactly the bottom sentinel and one complete AST;
+        /// any operators or extra operands would make the expression
+        /// incomplete.
+        if (stack.size == 2U && stack.data[1].type == TERMINAL_OPERAND &&
+            stack.data[1].node != NULL) {
+          *return_node = stack.data[1].node;
+          /// Transfer ownership of the result before destroying all ASTs
+          /// still owned by the stack.
+          stack.data[1].node = NULL;
+          terminal_stack_cleanup_nodes(&stack);
+          return PARSER_OK;
+        }
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// Reject tokens that are neither binary operators nor valid expression
+      /// delimiters, and stack-only symbols that cannot index the table. The
+      /// offending lookahead is left for the caller's diagnostic context.
+      if (input_terminal == TERMINAL_INVALID ||
+          top_terminal.type >= TERMINAL_COUNT) {
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      /// The precedence relation, rather than the token alone, decides
+      /// whether to take the operator or reduce the expression already on the
+      /// stack.
+      PRECEDENCE precedence = get_precedence(top_terminal.type, input_terminal);
+      switch (precedence) {
+      case PREC_TAKE: {
+        /// TAKE opens a new reduction handle and delays combining the left
+        /// operand until the incoming operator has its right operand.
+        status = parser_status_from_psa(
+            stack_insert_handle_after_top_terminal(&stack));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Copy the operator and its source position onto the stack before
+        /// advancing, because advancing replaces the lexer's lookahead token.
+        Terminal operator_terminal = {
+            .type = input_terminal, .token = lexer->token, .node = NULL};
+        status = parser_status_from_psa(
+            terminal_stack_push(&stack, operator_terminal));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        /// Consume only the binary operator. The following token is retained
+        /// as lookahead and must produce its required right operand next.
+        status = parser_advance(lexer);
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+
+        expecting_operand = true;
+        break;
+      }
+
+      case PREC_REDUCE:
+        /// REDUCE combines the completed handle on the stack but deliberately
+        /// does not advance: the same lookahead is compared with the new top
+        /// terminal until it can be taken or can finish the expression.
+        status = parser_status_from_psa(psa_reduce(&stack));
+        if (status != PARSER_OK) {
+          terminal_stack_cleanup_nodes(&stack);
+          return status;
+        }
+        break;
+
+      case PREC_INVALID:
+      default:
+        /// No valid precedence relation exists, so consuming the lookahead
+        /// would only hide the syntax error. Discard owned ASTs and report
+        /// it.
+        terminal_stack_cleanup_nodes(&stack);
+        return PARSER_SYNTAX_ERROR;
+      }
+    }
+  }
+}
 static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
                                               bool constant,
                                               FunctionSymbol *function,
@@ -292,7 +1547,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   /// Add the variable to the current lexical scope
   Symbol *var_symbol;
   switch (symbol_table_define(scope, lexer->token.value.string_value,
-                              TYPE_UNKNOWN, true, constant, &var_symbol)) {
+                              type_unknown(), true, constant, &var_symbol)) {
   case SYMTABLE_OK:
     break;
   case SYMTABLE_DUPLICATE:
@@ -308,7 +1563,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   }
 
   /// Parse the optional type annotation for the variable
-  status = p_type(lexer, &var_symbol->type, false, false);
+  status = p_type(lexer, &var_symbol->type, false, false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -321,14 +1576,15 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
   /// Parse the expression for the variable's initial value
   ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, scope, &expression_node);
+  status = p_expression(lexer, program, function, scope, &expression_node,
+                        false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
 
   /// Resolve the variable's type based on the expression's inferred type or
   /// create a dependency
-  if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+  if (!type_is_unknown(expression_node->inferred_type.type)) {
     status = parser_status_from_type(type_entity_resolve(
         &var_symbol->type, expression_node->inferred_type.type));
   } else {
@@ -374,15 +1630,16 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   ASTNode *expression_node = NULL;
   if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
       lexer->token.type != TOKEN_EOF) {
-    status = p_expression(lexer, program, function, scope, &expression_node);
+    status = p_expression(lexer, program, function, scope, &expression_node,
+                          false, NULL);
     if (status != PARSER_OK) {
       ast_node_destroy(expression_node);
       return status;
     }
 
-    /// If the function's return type is unit, discard the expression and set it
-    /// to null
-    if (function->return_type.type == TYPE_UNIT) {
+    /// If the function's return type is unit, discard the expression and set
+    /// it to null
+    if (type_is_scalar(function->return_type.type, TYPE_UNIT)) {
       ast_node_destroy(expression_node);
       expression_node = NULL;
     }
@@ -396,13 +1653,14 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  /// The function's return type is dependent on the return node's inferred type
+  /// The function's return type is dependent on the return node's inferred
+  /// type
   type_entity_depend(&return_node_local->inferred_type, &function->return_type);
 
   /// Resolve the return statement's inferred type based on the expression's
   /// inferred type or create a dependency
   if (expression_node != NULL) {
-    if (expression_node->inferred_type.type != TYPE_UNKNOWN) {
+    if (!type_is_unknown(expression_node->inferred_type.type)) {
       status = parser_status_from_type(
           type_entity_resolve(&return_node_local->inferred_type,
                               expression_node->inferred_type.type));
@@ -410,11 +1668,11 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
       status = parser_status_from_type(type_entity_depend(
           &expression_node->inferred_type, &return_node_local->inferred_type));
     }
-    /// If there is no expression, resolve the return statement's inferred type
-    /// to unit
+    /// If there is no expression, resolve the return statement's inferred
+    /// type to unit
   } else {
-    status = parser_status_from_type(
-        type_entity_resolve(&return_node_local->inferred_type, TYPE_UNIT));
+    status = parser_status_from_type(type_entity_resolve(
+        &return_node_local->inferred_type, type_scalar(TYPE_UNIT)));
   }
   if (status != PARSER_OK) {
     ast_node_destroy(return_node_local);
@@ -424,122 +1682,6 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   /// Return the return statement node to the caller
   *return_node = return_node_local;
 
-  return PARSER_OK;
-}
-
-static ParserStatus p_if_statement(Lexer *lexer, Program *program,
-                                   FunctionSymbol *function, SymbolTable *scope,
-                                   ASTNode **return_node) {
-  if (lexer == NULL || program == NULL || function == NULL || scope == NULL ||
-      return_node == NULL) {
-    return PARSER_INVALID_ARGUMENT;
-  }
-
-  /// Remember the position of the 'if' keyword for the AST node
-  size_t if_line = lexer->token.line;
-  size_t if_column = lexer->token.column;
-
-  /// Consume the 'if' keyword
-  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_IF);
-  if (status != PARSER_OK) {
-    return status;
-  }
-
-  /// Parse the boolean expression
-  ASTNode *expression_node = NULL;
-  status = p_expression(lexer, program, function, scope, &expression_node);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
-
-  /// The condition is mandatory
-  if (expression_node == NULL) {
-    return PARSER_SYNTAX_ERROR;
-  }
-
-  /// The condition must be of type Boolean (type error 6 otherwise)
-  status = parser_status_from_type(
-      type_entity_resolve(&expression_node->inferred_type, TYPE_BOOL));
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
-
-  /// Consume the 'then' keyword
-  status = parser_expect_and_consume(lexer, TOKEN_KW_THEN);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
-
-  /// Consume at least one newline before the 'then' block
-  status = parser_consume_newlines(lexer, true, false);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    return status;
-  }
-
-  /// Create a new child scope for the 'then' block
-  SymbolTable *then_scope = symbol_table_create_child(scope);
-  if (then_scope == NULL) {
-    ast_node_destroy(expression_node);
-    return PARSER_INTERNAL_ERROR;
-  }
-
-  /// Parse the 'then' block
-  ASTNode *then_block_node = NULL;
-  status = p_code_block(lexer, program, function, then_scope, &then_block_node);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    return status;
-  }
-
-  /// Consume the 'else' keyword
-  status = parser_expect_and_consume(lexer, TOKEN_KW_ELSE);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    return status;
-  }
-
-  /// Consume at least one newline before the 'else' block
-  status = parser_consume_newlines(lexer, true, false);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    return status;
-  }
-
-  /// Create a new child scope for the 'else' block
-  SymbolTable *else_scope = symbol_table_create_child(scope);
-  if (else_scope == NULL) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    return PARSER_INTERNAL_ERROR;
-  }
-
-  /// Parse the 'else' block
-  ASTNode *else_block_node = NULL;
-  status = p_code_block(lexer, program, function, else_scope, &else_block_node);
-  if (status != PARSER_OK) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    ast_node_destroy(else_block_node);
-    return status;
-  }
-
-  ASTNode *if_node = ast_node_create_if(expression_node, then_block_node,
-                                        else_block_node, if_line, if_column);
-  if (if_node == NULL) {
-    ast_node_destroy(expression_node);
-    ast_node_destroy(then_block_node);
-    ast_node_destroy(else_block_node);
-    return PARSER_INTERNAL_ERROR;
-  }
-
-  *return_node = if_node;
   return PARSER_OK;
 }
 
@@ -553,18 +1695,14 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 
   switch (lexer->token.type) {
   case TOKEN_KW_IF:
-    return p_if_statement(lexer, program, function, scope, return_node);
-    //  TODO: Implement these statement productions, then uncomment their cases
-    //  here.
-    //  case TOKEN_KW_WHILE:
+    return p_if(lexer, program, function, scope, return_node, false, NULL);
+    //  TODO: Implement these statement productions, then uncomment their
+    //  cases here. case TOKEN_KW_WHILE:
     //    return p_while_statement(lexer, program, function, scope,
     //    return_node); break;
     //  case TOKEN_KW_FOR:
-    //    return p_for_statement(lexer, program, function, scope, return_node);
-    //    break;
-    //  case TOKEN_KW_LIST:
-    //    return p_list_statement(lexer, program, function, scope, return_node);
-    //    break;
+    //    return p_for_statement(lexer, program, function, scope,
+    //    return_node); break;
   case TOKEN_KW_VAL:
     return p_variable_init_statement(lexer, program, true, function, scope,
                                      return_node);
@@ -581,8 +1719,12 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_DOUBLE:
   case TOKEN_STRING:
   case TOKEN_NOT:
+  case TOKEN_KW_TRUE:
+  case TOKEN_KW_FALSE:
   case TOKEN_MINUS:
-    return p_expression(lexer, program, function, scope, return_node);
+  case TOKEN_KW_LIST:
+    return p_expression(lexer, program, function, scope, return_node, false,
+                        NULL);
     break;
   default:
     return PARSER_SYNTAX_ERROR;
@@ -593,8 +1735,8 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 // declarations and their calls in p_function.
 //
 // Parses an indented code block.
-// Entry: the first token of the block (after INDENT). Exit: the DEDENT closing
-// the block.
+// Entry: the first token of the block (after INDENT). Exit: the DEDENT
+// closing the block.
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
                                  FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node) {
@@ -638,7 +1780,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
         return status;
       }
 
-      status = parser_consume_newlines(lexer, false, false);
+      status = parser_consume_newlines(lexer, false, false, NULL);
       if (status != PARSER_OK) {
         ast_node_destroy(block_node);
         return status;
@@ -669,11 +1811,13 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     /// A statement ending with its own nested block (e.g. if) has already
     /// consumed the NEWLINE preceding the block's DEDENT, so no further
     /// newline follows it.
-    bool ends_with_block = statement->kind == AST_IF;
+    bool ends_with_block =
+        statement->kind == AST_IF; // FIXME: add other statement kinds that
+                                   // end with a block (while, for, etc?)
 
     /// Update the block's inferred type based on the return inferred type
     if (statement->kind == AST_RETURN) {
-      if (statement->inferred_type.type != TYPE_UNKNOWN) {
+      if (!type_is_unknown(statement->inferred_type.type)) {
         status = parser_status_from_type(type_entity_resolve(
             &block_node->inferred_type, statement->inferred_type.type));
       } else {
@@ -696,20 +1840,30 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     }
 
     /// Consume at least one newline after the statement, or report a syntax
-    /// error. Statements ending with a nested block only allow extra newlines.
-    status = parser_consume_newlines(lexer, !ends_with_block, false);
+    /// error. Statements ending with a nested block only allow extra
+    /// newlines.
+    status = parser_consume_newlines(lexer, !ends_with_block, false, NULL);
     if (status != PARSER_OK) {
       ast_node_destroy(block_node);
       return status;
     }
   }
 
-  /// Consume same number of DEDENT tokens as the INDENT tokens that started the
-  /// block.
+  /// Consume same number of DEDENT tokens as the INDENT tokens that started
+  /// the block.
   status = parser_consume_dedents(lexer, indent_delta);
   if (status != PARSER_OK) {
     ast_node_destroy(block_node);
     return status;
+  }
+
+  if (block_node->data.block.statement_count > 0U) {
+    ASTNode *last_statement =
+        block_node->data.block
+            .statements[block_node->data.block.statement_count - 1U];
+    if (last_statement->kind == AST_IF) {
+      parser_mark_if_chain_as_expression(last_statement);
+    }
   }
 
   /// Hand the block over to the caller only on success, so the caller never
@@ -735,8 +1889,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// Consume the opening parenthesis (disables indentation inside the
-  /// parentheses)
+  /// Consume the opening parenthesis
   status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
   if (status != PARSER_OK) {
     return status;
@@ -748,8 +1901,14 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
+  /// Start the indentation level at 0 for the line where the opening
+  /// parenthesis was found. The indentation level is increased by 1 for each
+  /// INDENT token and decreased by 1 for each DEDENT token. The function
+  /// fails if the indentation level goes negative (syntax error).
+  ptrdiff_t local_indent = 0U;
+
   /// Consume any number of newlines before the first parameter
-  status = parser_consume_newlines(lexer, false, true);
+  status = parser_consume_newlines(lexer, false, true, &local_indent);
   if (status != PARSER_OK) {
     return status;
   }
@@ -768,7 +1927,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       /// Add the argument to the function's local scope
       Symbol *arg_symbol;
       switch (symbol_table_define(local_scope, lexer->token.value.string_value,
-                                  TYPE_UNKNOWN, false, false, &arg_symbol)) {
+                                  type_unknown(), false, false, &arg_symbol)) {
       case SYMTABLE_OK:
         break;
       case SYMTABLE_DUPLICATE:
@@ -784,13 +1943,13 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       }
 
       /// Consume any number of newlines before the type annotation
-      status = parser_consume_newlines(lexer, false, true);
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
       if (status != PARSER_OK) {
         return status;
       }
 
       /// Parse the mandatory type annotation for the argument
-      status = p_type(lexer, &arg_symbol->type, true, true);
+      status = p_type(lexer, &arg_symbol->type, true, true, &local_indent);
       if (status != PARSER_OK) {
         return status;
       }
@@ -799,7 +1958,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
       /// Consume any number of newlines before the next comma or closing
       /// parenthesis
-      status = parser_consume_newlines(lexer, false, true);
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
       if (status != PARSER_OK) {
         return status;
       }
@@ -814,13 +1973,27 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       }
 
       /// Consume any number of newlines before the next argument
-      status = parser_consume_newlines(lexer, false, true);
+      bool has_newline = lexer->token.type == TOKEN_NEWLINE;
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
       if (status != PARSER_OK) {
         return status;
+      }
+
+      /// A trailing comma is allowed only when followed by a newline and the
+      /// closing parenthesis.
+      if (has_newline && lexer->token.type == TOKEN_RIGHT_PAREN) {
+        break;
       }
     }
   }
 
+  /// Reset the indentation level to what it was before the opening
+  /// parenthesis
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * local_indent));
+  if (status != PARSER_OK) {
+    return status;
+  }
   function->argument_count = arg_count;
 
   /// Consume the closing parenthesis (re-enables indentation)
@@ -829,7 +2002,8 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
 
 /**
  * @brief Consumes one contiguous lexer-emitted INDENT delta.
- * @details Entry: the first possible INDENT. Exit: the first non-INDENT token.
+ * @details Entry: the first possible INDENT. Exit: the first non-INDENT
+ * token.
  * @param lexer Initialized lexer producing layout tokens.
  * @param indent_delta Output number of consumed TOKEN_INDENT tokens.
  * @return PARSER_OK, PARSER_INVALID_ARGUMENT, PARSER_INTERNAL_ERROR, or a
@@ -940,7 +2114,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Parse the optional return type
-  status = p_type(lexer, &function->return_type, false, false);
+  status = p_type(lexer, &function->return_type, false, false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -970,7 +2144,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
   }
 
   /// Consume the NEWLINE
-  status = parser_consume_newlines(lexer, true, false);
+  status = parser_consume_newlines(lexer, true, false, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -990,7 +2164,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
-  if (block->inferred_type.type != TYPE_UNKNOWN) {
+  if (!type_is_unknown(block->inferred_type.type)) {
     status = parser_status_from_type(
         type_entity_resolve(&function->return_type, block->inferred_type.type));
   } else {
@@ -1010,7 +2184,8 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 /**
  * @brief Parses an @c main function.
  * @details Grammar: `@main def id () [: Unit] = ...`.
- * Entry: @c lexer->token is @c @main. Exit: the token after the main function.
+ * Entry: @c lexer->token is @c @main. Exit: the token after the main
+ * function.
  * @param lexer Initialized lexer.
  * @param program Program receiving the function.
  * @return PARSER_OK or the first syntax, semantic, internal or lexer error.
@@ -1029,7 +2204,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   }
 
   /// Consume newlines after `@main`
-  status = parser_consume_newlines(lexer, false, true);
+  status = parser_consume_newlines(lexer, false, true, NULL);
   if (status != PARSER_OK) {
     return status;
   }
@@ -1049,7 +2224,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
 
   /// Check that the return type is UNIT
   status = parser_status_from_type(
-      type_entity_resolve(&function->return_type, TYPE_UNIT));
+      type_entity_resolve(&function->return_type, type_scalar(TYPE_UNIT)));
   if (status != PARSER_OK) {
     return status; /// Code 6 on a type conflict
   }

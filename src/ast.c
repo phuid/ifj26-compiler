@@ -45,7 +45,7 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.int_value = value;
-    type_entity_resolve(&node->inferred_type, TYPE_INT);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_INT));
   }
   return node;
 }
@@ -62,7 +62,7 @@ ASTNode *ast_node_create_real(double value, size_t line, size_t column) {
 
   if (node != NULL) {
     node->data.real_value = value;
-    type_entity_resolve(&node->inferred_type, TYPE_REAL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_REAL));
   }
   return node;
 }
@@ -95,7 +95,39 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
     return NULL;
   }
   node->data.string_value = copy;
-  type_entity_resolve(&node->inferred_type, TYPE_STRING);
+  type_entity_resolve(&node->inferred_type, type_scalar(TYPE_STRING));
+  return node;
+}
+
+/**
+ * @brief Constructs an owned boolean literal.
+ * @param value Literal value.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new boolean node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_bool(bool value, size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_BOOL, line, column);
+
+  if (node != NULL) {
+    node->data.bool_value = value;
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_BOOL));
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned unit literal.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new unit node, or null on allocation failure.
+ */
+ASTNode *ast_node_create_unit(size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_CONSTANT_UNIT, line, column);
+
+  if (node != NULL) {
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_UNIT));
+  }
   return node;
 }
 
@@ -142,14 +174,51 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
 }
 
 /**
+ * @brief Constructs an owned list-constructor node.
+ * @param line One-based source line of the call.
+ * @param column One-based source column of the call.
+ * @return An owned node with @c kind AST_LIST_CONSTRUCTOR, or null for an
+ * invalid argument or allocation failure.
+ */
+ASTNode *ast_node_create_list_constructor(size_t line, size_t column) {
+  ASTNode *node = ast_node_create(AST_LIST_CONSTRUCTOR, line, column);
+  return node;
+}
+
+/**
+ * @brief Constructs an owned list-indexing node.
+ * @param list Non-null node representing the list.
+ * @param index Non-null node representing the index.
+ * @param line One-based source line of the indexing.
+ * @param column One-based source column of the indexing.
+ * @return An owned node with @c kind AST_LIST_INDEXING, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
+                                       size_t line, size_t column) {
+  if (list == NULL || index == NULL) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_create(AST_LIST_INDEXING, line, column);
+  if (node != NULL) {
+    node->data.binary_op.left = list;
+    node->data.binary_op.right = index;
+  }
+  return node;
+}
+
+/**
  * @brief Transfers an argument node into a function-call node.
  * @details On failure, @p argument remains owned by the caller.
- * @param call Non-null AST_FUNCTION_CALL node receiving the argument.
+ * @param call Non-null AST_FUNCTION_CALL or AST_LIST_CONSTRUCTOR node receiving
+ * the argument.
  * @param argument Non-null owned child to transfer on success.
  * @return Construction status.
  */
 ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
-  if (call == NULL || argument == NULL || call->kind != AST_FUNCTION_CALL) {
+  if (call == NULL || argument == NULL ||
+      (call->kind != AST_FUNCTION_CALL && call->kind != AST_LIST_CONSTRUCTOR)) {
     return AST_INVALID_ARGUMENT;
   }
   if (dynamic_array_reserve((void **)&call->data.call.arguments,
@@ -266,13 +335,17 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
 
 /**
  * @brief Constructs an owned binary arithmetic node.
- * @details On failure, both operands remain owned by the caller.
- * @param kind Arithmetic node kind.
+ * @details Ownership of both operands transfers on success only.
+ * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
+ * AST_DIVIDE, AST_LIST_CONCAT, AST_EQUAL, AST_NOT_EQUAL, AST_LESS,
+ * AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_AND, AST_OR, AST_TO,
+ * AST_UNTIL, AST_BY.
  * @param left Non-null owned left operand.
  * @param right Non-null owned right operand.
  * @param line One-based source line.
  * @param column One-based source column.
- * @return A binary-operation node, or null for invalid input or OOM.
+ * @return An owned node of the requested @p kind, or null for an invalid
+ * argument or allocation failure.
  */
 ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
                                    ASTNode *right, size_t line, size_t column) {
@@ -281,14 +354,58 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   if (left == NULL || right == NULL) {
     return NULL;
   }
-  if (kind != AST_ADD && kind != AST_SUBTRACT && kind != AST_MULTIPLY &&
-      kind != AST_DIVIDE) {
+
+  /// guard against invalid kinds that are not binary operations
+  switch (kind) {
+  case AST_ADD:
+  case AST_SUBTRACT:
+  case AST_MULTIPLY:
+  case AST_DIVIDE:
+  case AST_LIST_CONCAT:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_AND:
+  case AST_OR:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
+    break;
+  default:
     return NULL;
   }
+
   node = ast_node_create(kind, line, column);
   if (node != NULL) {
     node->data.binary_op.left = left;
     node->data.binary_op.right = right;
+  }
+  // TODO: should there be type dependency here?
+  return node;
+}
+
+/**
+ * @brief Creates a logical NOT node.
+ * @details Ownership of the operand transfers on success only.
+ * @param operand Non-null operand whose ownership transfers on success only.
+ * @param line One-based source line of the operator.
+ * @param column One-based source column of the operator.
+ * @return An owned node with @c kind AST_NOT, or null for an invalid argument
+ * or allocation failure.
+ */
+ASTNode *ast_node_create_not(ASTNode *operand, size_t line, size_t column) {
+  ASTNode *node;
+
+  if (operand == NULL) {
+    return NULL;
+  }
+  node = ast_node_create(AST_NOT, line, column);
+  if (node != NULL) {
+    node->data.unary_op.operand = operand;
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_BOOL));
   }
   return node;
 }
@@ -309,7 +426,7 @@ ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand) {
       ast_node_create(AST_IMPLICIT_INT_TO_REAL, operand->line, operand->column);
   if (node != NULL) {
     node->data.conversion.operand = operand;
-    type_entity_resolve(&node->inferred_type, TYPE_REAL);
+    type_entity_resolve(&node->inferred_type, type_scalar(TYPE_REAL));
   }
   return node;
 }
@@ -330,6 +447,7 @@ void ast_node_destroy(ASTNode *node) {
     free(node->data.string_value);
     break;
   case AST_FUNCTION_CALL:
+  case AST_LIST_CONSTRUCTOR:
     for (index = 0U; index < node->data.call.argument_count; index += 1U) {
       ast_node_destroy(node->data.call.arguments[index]);
     }
@@ -350,6 +468,19 @@ void ast_node_destroy(ASTNode *node) {
   case AST_SUBTRACT:
   case AST_MULTIPLY:
   case AST_DIVIDE:
+  case AST_LIST_CONCAT:
+  case AST_EQUAL:
+  case AST_NOT_EQUAL:
+  case AST_LESS:
+  case AST_LESS_EQUAL:
+  case AST_GREATER:
+  case AST_GREATER_EQUAL:
+  case AST_AND:
+  case AST_OR:
+  case AST_LIST_INDEXING:
+  case AST_TO:
+  case AST_UNTIL:
+  case AST_BY:
     ast_node_destroy(node->data.binary_op.left);
     ast_node_destroy(node->data.binary_op.right);
     break;
@@ -362,8 +493,13 @@ void ast_node_destroy(ASTNode *node) {
   case AST_IMPLICIT_INT_TO_REAL:
     ast_node_destroy(node->data.conversion.operand);
     break;
+  case AST_NOT:
+    ast_node_destroy(node->data.unary_op.operand);
+    break;
   case AST_CONSTANT_INT:
   case AST_CONSTANT_REAL:
+  case AST_CONSTANT_BOOL:
+  case AST_CONSTANT_UNIT:
   case AST_VARIABLE_REF:
     break;
   }

@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <string.h>
 
-/** All 22 IFJ26 keywords. Whether `(` may follow is decided by the parser. */
+/** All 24 IFJ26 keywords. Whether `(` may follow is decided by the parser. */
 static const Keyword keywords[] = {
     {"def", TOKEN_KW_DEF},         {"do", TOKEN_KW_DO},
     {"Double", TOKEN_KW_DOUBLE},   {"else", TOKEN_KW_ELSE},
@@ -25,7 +25,7 @@ static const Keyword keywords[] = {
     {"class", TOKEN_KW_CLASS},     {"extension", TOKEN_KW_EXTENSION},
     {"for", TOKEN_KW_FOR},         {"List", TOKEN_KW_LIST},
     {"match", TOKEN_KW_MATCH},     {"type", TOKEN_KW_TYPE},
-};
+    {"true", TOKEN_KW_TRUE},       {"false", TOKEN_KW_FALSE}};
 
 const Keyword *keyword_lookup(const char *spelling) {
   size_t index;
@@ -41,7 +41,7 @@ const Keyword *keyword_lookup(const char *spelling) {
   return NULL;
 }
 
-DataType keyword_to_type(TokenType type) {
+BaseType keyword_to_type(TokenType type) {
   switch (type) {
   case TOKEN_KW_INT:
     return TYPE_INT;

@@ -11,7 +11,64 @@
 
 #include "dynamic_array.h"
 
+#include <stdint.h>
 #include <stdlib.h>
+
+DataType type_unknown(void) {
+  DataType type = {TYPE_UNKNOWN, 0U};
+  return type;
+}
+
+DataType type_scalar(BaseType base) {
+  DataType type = {base, 0U};
+  return type;
+}
+
+DataType type_list(DataType element_type) {
+  if (element_type.base == TYPE_UNKNOWN ||
+      element_type.list_depth == SIZE_MAX) {
+    return type_unknown();
+  }
+
+  element_type.list_depth += 1U;
+  return element_type;
+}
+
+DataType type_member(DataType list) {
+  if (!type_is_list(list)) {
+    return type_unknown();
+  }
+
+  list.list_depth -= 1U;
+  return list;
+}
+
+bool type_is_unknown(DataType type) {
+  return type.base == TYPE_UNKNOWN && type.list_depth == 0U;
+}
+
+bool type_is_list(DataType type) {
+  return type.base != TYPE_UNKNOWN && type.list_depth > 0U;
+}
+
+bool type_is_scalar(DataType type, BaseType base) {
+  return type.base != TYPE_UNKNOWN && type.base == base &&
+         type.list_depth == 0U;
+}
+
+bool type_equal(DataType left, DataType right) {
+  return left.base == right.base && left.list_depth == right.list_depth;
+}
+
+bool type_element_type(DataType list, DataType *element_type) {
+  if (element_type == NULL || !type_is_list(list)) {
+    return false;
+  }
+
+  list.list_depth -= 1U;
+  *element_type = list;
+  return true;
+}
 
 /** Appends a non-owning dependent edge to an unresolved type entity. */
 static TypeResolveStatus type_entity_append_dependent(TypeEntity *source,
@@ -34,7 +91,7 @@ static TypeResolveStatus type_entity_resolve_recursive(TypeEntity *entity,
   size_t index;
   TypeResolveStatus status;
 
-  if (entity->type != TYPE_UNKNOWN && entity->type != type) {
+  if (!type_is_unknown(entity->type) && !type_equal(entity->type, type)) {
     return TYPE_RESOLVE_CONFLICT;
   }
 
@@ -65,7 +122,7 @@ void type_entity_init(TypeEntity *entity) {
     return;
   }
 
-  entity->type = TYPE_UNKNOWN;
+  entity->type = type_unknown();
   entity->dependents = NULL;
   entity->dependent_count = 0U;
   entity->dependent_capacity = 0U;
@@ -81,7 +138,7 @@ void type_entity_destroy(TypeEntity *entity) {
   entity->dependents = NULL;
   entity->dependent_count = 0U;
   entity->dependent_capacity = 0U;
-  entity->type = TYPE_UNKNOWN;
+  entity->type = type_unknown();
   entity->resolving = false;
 }
 
@@ -92,7 +149,7 @@ TypeResolveStatus type_entity_depend(TypeEntity *source,
   if (source == NULL || dependent == NULL) {
     return TYPE_RESOLVE_INVALID_ARGUMENT;
   }
-  if (source->type != TYPE_UNKNOWN) {
+  if (!type_is_unknown(source->type)) {
     return type_entity_resolve(dependent, source->type);
   }
 
@@ -101,7 +158,7 @@ TypeResolveStatus type_entity_depend(TypeEntity *source,
 }
 
 TypeResolveStatus type_entity_resolve(TypeEntity *entity, DataType type) {
-  if (entity == NULL || type == TYPE_UNKNOWN) {
+  if (entity == NULL || type.base == TYPE_UNKNOWN) {
     return TYPE_RESOLVE_INVALID_ARGUMENT;
   }
 
