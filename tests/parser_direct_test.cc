@@ -502,6 +502,87 @@ TEST(ParserDirectLexerTest, RejectsStatementAfterIfOperandOnTheSameLine) {
       PARSER_SYNTAX_ERROR);
 }
 
+TEST(ParserDirectLexerTest, SemicolonSeparatesStatementsOnOneLine) {
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1; val b = 2\n"), PARSER_OK);
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1; val b = 2; val c = 3"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, RejectsSemicolonAfterLastStatementOfLine) {
+  /// A semicolon only separates statements on one line, so nothing may end
+  /// with it.
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1;\n  val b = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1; val b = 2;\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1;"), PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  return;\n"), PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserDirectLexerTest, RejectsEmptyStatements) {
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1;; val b = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  ; val a = 1\n"), PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  val a = 1\n  ;\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserDirectLexerTest, BareReturnFollowedBySemicolon) {
+  EXPECT_EQ(parse_status("def foo() =\n  return; val a = 1\n"), PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, SemicolonAfterIfOperand) {
+  EXPECT_EQ(
+      parse_status("def foo() =\n"
+                   "  val value = if true then 1 else 2; val other = 2\n"),
+      PARSER_OK);
+  EXPECT_EQ(
+      parse_status("def foo() =\n"
+                   "  val value = (if true then 1 else 2); val other = 2\n"),
+      PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, SemicolonEndsOneLineIfStatement) {
+  FILE *stream =
+      stream_from("def foo() =\n  if true then val a = 1; val b = 2\n");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "foo");
+  ASSERT_NE(function, nullptr);
+  ASSERT_NE(function->ast_root, nullptr);
+  /// `val b = 2` follows the if; it is not part of its then branch.
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 2U);
+  ASTNode *conditional = function->ast_root->data.block.statements[0];
+  ASSERT_EQ(conditional->kind, AST_IF);
+  ASSERT_NE(conditional->data.if_statement.then_branch, nullptr);
+  EXPECT_EQ(conditional->data.if_statement.then_branch->kind, AST_ASSIGN);
+  EXPECT_EQ(conditional->data.if_statement.else_branch, nullptr);
+  EXPECT_EQ(function->ast_root->data.block.statements[1]->kind, AST_ASSIGN);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, RejectsSemicolonStartingLineAfterBlockBranch) {
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  if true then\n"
+                         "    val a = 1\n"
+                         "  ; val b = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n"
+                         "  val a = if true then 1 else\n"
+                         "    2\n"
+                         "  ; val b = 2\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
 TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
   FILE *stream = stream_from("def foo() =\n"
                              "  if true then\n"

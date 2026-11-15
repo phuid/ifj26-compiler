@@ -1606,8 +1606,10 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
 
   /// Parse the optional return expression
   ASTNode *expression_node = NULL;
+  /// A bare `return` is followed by the end of the statement: a newline, a
+  /// statement separator, or the end of the block/file.
   if (lexer->token.type != TOKEN_NEWLINE && lexer->token.type != TOKEN_DEDENT &&
-      lexer->token.type != TOKEN_EOF) {
+      lexer->token.type != TOKEN_EOF && lexer->token.type != TOKEN_SEMICOLON) {
     status = p_expression(lexer, program, function, scope, &expression_node,
                           false, NULL);
     if (status != PARSER_OK) {
@@ -1710,18 +1712,20 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 }
 
 /**
- * @brief Tells whether a statement ends with an if, i.e. whether its rightmost
- * part is an if statement or expression.
+ * @brief Finds the if a statement ends with, i.e. its rightmost part if that is
+ * an if statement or expression.
  * @details Such an if takes the rest of its line and consumes the NEWLINE
  * ending it while looking for a following `else`. A parenthesized if is
  * reported as well; it is followed by `)`, so the caller still sees that
  * line's NEWLINE and only stops requiring it.
+ * @return The trailing if node, or NULL if the statement does not end with an
+ * if.
  */
-static bool parser_ends_with_if(const ASTNode *node) {
+static const ASTNode *parser_trailing_if(const ASTNode *node) {
   while (node != NULL) {
     switch (node->kind) {
     case AST_IF:
-      return true;
+      return node;
     case AST_ASSIGN:
       node = node->data.assignment.value;
       break;
@@ -1750,8 +1754,38 @@ static bool parser_ends_with_if(const ASTNode *node) {
       node = node->data.binary_op.right;
       break;
     default:
+      return NULL;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * @brief Tells whether a statement ends with an if whose last branch is an
+ * indented block (possibly through a chain of one-line branches ending with
+ * such an if).
+ * @details The DEDENT closing that block has been consumed, so the statement's
+ * line has certainly ended, even if a `;` follows (it then starts a new line).
+ */
+static bool parser_ends_with_block_branch(const ASTNode *node) {
+  const ASTNode *if_node = parser_trailing_if(node);
+
+  /// Loops into the deepest if, because trailig_if returns the shallowest
+  /// rightmost one. The trailing if may contain another ifs in its branches, so
+  /// we need to check the last branch, which is the physically rightmost.
+  while (if_node != NULL) {
+    /// The last branch is the else branch if it exists, otherwise the then
+    /// branch.
+    const ASTNode *last_branch = if_node->data.if_statement.else_branch != NULL
+                                     ? if_node->data.if_statement.else_branch
+                                     : if_node->data.if_statement.then_branch;
+    if (last_branch == NULL) {
       return false;
     }
+    if (last_branch->kind == AST_BLOCK) {
+      return true;
+    }
+    if_node = parser_trailing_if(last_branch);
   }
   return false;
 }
@@ -1797,31 +1831,15 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   /// Loop over statements until a DEDENT or EOF is reached.
   while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF) {
 
-    /// Skip any semicolons or newlines before the next statement.
-    while (lexer->token.type == TOKEN_SEMICOLON) {
-      status = parser_expect_and_consume(lexer, TOKEN_SEMICOLON);
-      if (status != PARSER_OK) {
-        ast_node_destroy(block_node);
-        return status;
-      }
-
-      status = parser_consume_newlines(lexer, false, false, NULL);
-      if (status != PARSER_OK) {
-        ast_node_destroy(block_node);
-        return status;
-      }
-    }
-
+    /// IFJ26 has no empty statement: a semicolon is only a separator after a
+    /// statement, so it can never start one (`;;` and a leading `;` are
+    /// errors). Deeper indentation and nested definitions are not allowed.
     if (lexer->token.type == TOKEN_INVALID ||
         lexer->token.type == TOKEN_KW_DEF ||
-        lexer->token.type == TOKEN_INDENT) {
+        lexer->token.type == TOKEN_INDENT ||
+        lexer->token.type == TOKEN_SEMICOLON) {
       ast_node_destroy(block_node);
       return PARSER_SYNTAX_ERROR;
-    }
-
-    /// The separators may have been the last tokens of the block.
-    if (lexer->token.type == TOKEN_DEDENT || lexer->token.type == TOKEN_EOF) {
-      break;
     }
 
     /// Parse the next statement and append it to the block.
@@ -1842,7 +1860,14 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     /// so the caller still sees that line's NEWLINE and only stops requiring
     /// it, because the `)` indicates the end of the expression so nothing
     /// except newlines is allowed. This is not a bug but a feature.
-    bool ends_with_block = parser_ends_with_if(statement);
+    ///
+    /// A one-line if followed by `;` has not consumed the NEWLINE either, so
+    /// the statement is then treated like any other one. After a block branch
+    /// the line has ended for sure; a `;` then starts the next line, which is
+    /// rejected at the start of the loop.
+    bool ends_with_block = parser_trailing_if(statement) != NULL &&
+                           (lexer->token.type != TOKEN_SEMICOLON ||
+                            parser_ends_with_block_branch(statement));
 
     /// Update the block's inferred type based on the return inferred type
     if (statement->kind == AST_RETURN) {
@@ -1866,6 +1891,24 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       ast_node_destroy(statement);
       ast_node_destroy(block_node);
       return PARSER_INTERNAL_ERROR;
+    }
+
+    /// A semicolon is only a separator: it must be followed by the next
+    /// statement on the same logical line, so it cannot end a line, a block
+    /// or the file (spec 1.2).
+    if (!ends_with_block && lexer->token.type == TOKEN_SEMICOLON) {
+      status = parser_expect_and_consume(lexer, TOKEN_SEMICOLON);
+      if (status != PARSER_OK) {
+        ast_node_destroy(block_node);
+        return status;
+      }
+      if (lexer->token.type == TOKEN_NEWLINE ||
+          lexer->token.type == TOKEN_DEDENT || lexer->token.type == TOKEN_EOF) {
+        ast_node_destroy(block_node);
+        return PARSER_SYNTAX_ERROR;
+      }
+      /// The next statement is on the same line: parse it right away.
+      continue;
     }
 
     /// Consume at least one newline after the statement, or report a syntax
