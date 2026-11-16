@@ -403,6 +403,56 @@ static ASTNode **last_value_slot(ASTNode **slot) {
 }
 
 /**
+ * @brief Converts the value(s) a body ends with to @p to.
+ * @details Like @ref coerce on @ref last_value_slot, but a final `if`
+ * statement (not an expression) is not a value itself: its branches are
+ * processed recursively instead, so a conversion is inserted around each
+ * branch value rather than around the whole `if`. Branches ending with
+ * `return` are skipped; a missing else counts as ().
+ * @param slot Slot holding the body; nested slots may be rewritten.
+ * @param to Required type of the value.
+ * @param mismatch Status returned for incompatible types.
+ * @return SEMANTIC_OK, @p mismatch, or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus coerce_tail(ASTNode **slot, DataType to,
+                                  SemanticStatus mismatch) {
+  ASTNode *node;
+  SemanticStatus status;
+
+  /// The last statement of a body may be a block, so descend to the last
+  /// non-block statement (or an empty block).
+  slot = last_value_slot(slot);
+  node = *slot;
+  if (node->kind == AST_RETURN) {
+    /// A return statement ends the body with no value
+    return SEMANTIC_OK;
+  }
+
+  /// A final `if` statement is not a value itself; its branches are processed
+  /// recursively instead, so a conversion is inserted around each branch value
+  /// rather than around the whole `if`. Branches ending with `return` are
+  /// skipped; a missing else counts as ().
+  if (node->kind == AST_IF && !node->data.if_statement.used_as_an_expression) {
+    status = coerce_tail(&node->data.if_statement.then_branch, to, mismatch);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (node->data.if_statement.else_branch != NULL) {
+      return coerce_tail(&node->data.if_statement.else_branch, to, mismatch);
+    }
+    return type_is_scalar(to, TYPE_UNIT) ? SEMANTIC_OK : mismatch;
+  }
+
+  if (node->kind == AST_ASSIGN || node->kind == AST_BLOCK) {
+    /// A definition/assignment or an empty block has the value ().
+    return coerce(slot, type_scalar(TYPE_UNIT), to, mismatch);
+  }
+
+  /// A final expression is coerced like any other expression.
+  return coerce(slot, node->inferred_type.type, to, mismatch);
+}
+
+/**
  * @brief Type-checks a call and yields the callee's return type.
  * @details Arguments are checked against the parameter types of the callee and
  * Int arguments are widened to Double where needed. A callee without an
@@ -738,11 +788,11 @@ static SemanticStatus if_result(ASTNode *node, BodyResult *out_result) {
   }
 
   /// Widen the Int branch value(s) to Double where the types differ.
-  status = coerce(last_value_slot(&node->data.if_statement.then_branch),
-                  then_result.type, common, SEMANTIC_INTERNAL_ERROR);
+  status = coerce_tail(&node->data.if_statement.then_branch, common,
+                       SEMANTIC_INTERNAL_ERROR);
   if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
-    status = coerce(last_value_slot(&node->data.if_statement.else_branch),
-                    else_result.type, common, SEMANTIC_INTERNAL_ERROR);
+    status = coerce_tail(&node->data.if_statement.else_branch, common,
+                         SEMANTIC_INTERNAL_ERROR);
   }
   out_result->kind = RESULT_VALUE;
   out_result->type = common;
@@ -1293,8 +1343,7 @@ static SemanticStatus check_function(SemanticContext *ctx,
       if (result.kind == RESULT_BAD_IF) {
         return SEMANTIC_TYPE_ERROR;
       }
-      status = coerce(last_value_slot(&function->ast_root), result.type,
-                      declared, SEMANTIC_TYPE_ERROR);
+      status = coerce_tail(&function->ast_root, declared, SEMANTIC_TYPE_ERROR);
       if (status != SEMANTIC_OK) {
         return status;
       }

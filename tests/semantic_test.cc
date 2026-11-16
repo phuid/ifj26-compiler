@@ -554,3 +554,59 @@ TEST_F(SemanticTest, TailIfStatementInUnitFunctionReturnsUnitInBranches) {
   EXPECT_TRUE(is_unit_return(last(then_b)));
   EXPECT_TRUE(is_unit_return(last(i->data.if_statement.else_branch)));
 }
+
+TEST_F(SemanticTest, TrailingIfWithoutElseInUnitFunctionIsOk) {
+  // def k(): Unit =
+  //   if 1 < 2 then { val y: Int = 1 }      (BOOLTHEN, no else)
+  def_main();
+  FunctionSymbol *k = def("k", TYPE_UNIT);
+  Symbol *y = var(k, "y", TYPE_INT, true);
+  add(k, if_(bin(AST_LESS, integer(1), integer(2)),
+             block({define(y, integer(1))}), nullptr));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASSERT_EQ(k->ast_root->data.block.statement_count, 2U);
+  EXPECT_EQ(k->ast_root->data.block.statements[0]->kind, AST_IF);
+  EXPECT_TRUE(is_unit_return(last(k->ast_root)));
+}
+
+TEST_F(SemanticTest, TrailingIfWithoutElseInInferredFunctionIsUnit) {
+  // def k() =
+  //   if 1 < 2 then { print(1) }   -> both branches (), inferred Unit
+  def_main();
+  FunctionSymbol *k = def("k");
+  add(k, if_(bin(AST_LESS, integer(1), integer(2)),
+             block({call(ref("print"), {integer(1)})}), nullptr));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  EXPECT_TRUE(type_is_scalar(k->return_type.type, TYPE_UNIT));
+}
+
+TEST_F(SemanticTest, TrailingIfWithoutElseInIntFunctionIsError6) {
+  // def f(): Int =
+  //   if 1 < 2 then { 1 }          -> missing else counts as ()
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_INT);
+  add(f,
+      if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}), nullptr));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
+TEST_F(SemanticTest, TrailingIfStatementWidensEachBranchToReturnType) {
+  // def f(): Double =
+  //   if 1 < 2 then { 1 } else { 2 }   -> conversion inside each branch
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_REAL);
+  add(f, if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}),
+             block({integer(2)})));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASTNode *i = last(f->ast_root);
+  ASSERT_EQ(i->kind, AST_IF);
+  for (ASTNode *branch :
+       {i->data.if_statement.then_branch, i->data.if_statement.else_branch}) {
+    ASTNode *r = last(branch);
+    ASSERT_EQ(r->kind, AST_RETURN);
+    EXPECT_EQ(r->data.return_statement.value->kind, AST_IMPLICIT_INT_TO_REAL);
+  }
+}

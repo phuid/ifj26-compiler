@@ -2271,6 +2271,10 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     return status;
   }
 
+  /// A trailing `if` stays a statement (it may lack else); the
+  /// value a block ends with is determined by the semantic pass. Only an `if`
+  /// inside an expression is marked as one.
+
   /// Hand the block over to the caller only on success, so the caller never
   /// receives an already destroyed node.
   *return_node = block_node;

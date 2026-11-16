@@ -226,9 +226,7 @@ TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
   fclose(stream);
 }
 
-/// The parser marks only an `if` in operand position; whether the value of a
-/// final `if` of a block is used is decided by the semantic pass.
-TEST(ParserDirectLexerTest, IfStatementsInBlockAreNotMarkedAsExpression) {
+TEST(ParserDirectLexerTest, TrailingIfStatementInBlockIsNotAnExpression) {
   FILE *stream = stream_with_main("def foo() =\n  if true then return\n"
                                   "  if false then return\n  else return");
   ASSERT_NE(stream, nullptr);
