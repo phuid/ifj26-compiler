@@ -47,6 +47,20 @@ static const ASTNodeHandler ast_handlers[] = {
     [AST_IMPLICIT_INT_TO_REAL] = handle_implicit_int_to_real,
 };
 
+void pair_real_var(InstructionOperand operand, Symbol *symbol) {
+  if (operand.type != REAL_VARIABLE_TYPE) {
+    fprintf(stderr, "pair_real_var - invalid operand type\n");
+    exit(1);
+  }
+
+  if (symbol->assembler_suffix == -1) {
+    symbol->assembler_suffix = variable_suffix_counter;
+    variable_suffix_counter++;
+
+    print_DEFVAR(operand);
+  }
+}
+
 void handle_block(const ASTNode *node) {
   for (size_t i = 0; i < node->data.block.statement_count; i++) {
     ASTNode *statement = node->data.block.statements[i];
@@ -69,12 +83,7 @@ void handle_asign(const ASTNode *node) {
       .type = REAL_VARIABLE_TYPE,
       .value = {.real_variable = {.frame = LF, .symbol = target}}};
 
-  if (target->assembler_suffix == -1) {
-    target->assembler_suffix = variable_suffix_counter;
-    variable_suffix_counter++;
-
-    print_DEFVAR(variable);
-  }
+  pair_real_var(variable, target);
 
   ASTNodeHandler handler = ast_handlers[value->kind];
   handler(value);
@@ -254,18 +263,14 @@ void handle_function_definition(const FunctionSymbol *function) {
   print_CREATEFRAME();
   print_PUSHFRAME();
 
-  // TODO implement argument loading - waiting for update to FunctionSymbol
-  // definition to add argument list
   for (size_t i = 0; i < function->argument_count; i++) {
-    // InstructionOperand operand = {
-    //   .type = REAL_VARIABLE_TYPE,
-    //   .value = {
-    //     .variable = {
-    //       .frame = LF,
-    //       .symbol = function.
-    //     }
-    //   }
-    // }
+    Symbol *parameter = function->parameters[function->argument_count - 1 - i];
+    InstructionOperand operand = {
+        .type = REAL_VARIABLE_TYPE,
+        .value = {.real_variable = {.frame = LF, .symbol = parameter}}};
+
+    pair_real_var(operand, parameter);
+    print_POPS(operand);
   }
 
   handle_block(function->ast_root);

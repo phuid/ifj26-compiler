@@ -1,6 +1,7 @@
 #include "codegen.h"
 #include "instructions.h"
 #include <stdio.h>
+#include <string.h>
 
 void print_operand(InstructionOperand operand) {
   switch (operand.type) {
@@ -11,12 +12,14 @@ void print_operand(InstructionOperand operand) {
     printf("float@%a", operand.value.real);
     break;
   case STRING_TYPE:
+    printf("string@");
     const char *str = operand.value.string;
-    for (const unsigned char *p = (const unsigned char *)str; *p != '\0'; p++) {
-      if (*p <= 32 || *p == 35 || *p == 92) {
-        printf("\\%03u", *p);
+    for (size_t i = 1; i < strlen(str) - 1; i++) {
+      unsigned char c = (unsigned char)str[i];
+      if (c <= 32 || c == 35 || c == 92) {
+        printf("\\%03u", c);
       } else {
-        putchar(*p);
+        putchar(c);
       }
     }
     break;

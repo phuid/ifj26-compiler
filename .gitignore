@@ -42,6 +42,7 @@ docs
 *.x86_64
 *.hex
 main
+*.code
 
 # Debug files
 *.dSYM/

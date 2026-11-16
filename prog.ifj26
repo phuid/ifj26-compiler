@@ -1,4 +1,7 @@
+def test2(number: Int): Int =
+    print(number)
+    return 0
+
 @main def test(): Unit =
-    val x: String =  subStr(readLine(), 0, 3)
-    print(x)
+    test2(10)
     return ()
