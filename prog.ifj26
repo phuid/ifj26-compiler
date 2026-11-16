@@ -3,5 +3,9 @@ def test2(number: Int): Int =
     return 0
 
 @main def test(): Unit =
-    test2(10)
+    val x: Int = if readInt() == 0 then
+        10
+    else
+        20
+    print(x)
     return ()

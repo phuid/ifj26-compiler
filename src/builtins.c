@@ -7,19 +7,19 @@ static const BuiltinSignature print = {
     .return_type = TYPE_UNIT,
     .parameter_count = 1U,
     .parameters = {TYPE_ANY},
-    .assembler_code = "LABEL print\n"
+    .assembler_code = "LABEL print$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@val\n"
                       "POPS LF@val\n"
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@val\n"
-                      "JUMPIFEQ $print_unit LF@type string@nil\n"
+                      "JUMPIFEQ print$0_UNIT LF@type string@nil\n"
                       "WRITE LF@val\n"
-                      "JUMP $print_end\n"
-                      "LABEL $print_unit\n"
+                      "JUMP print$0_END\n"
+                      "LABEL print$0_UNIT\n"
                       "WRITE string@()\n"
-                      "LABEL $print_end\n"
+                      "LABEL print$0_END\n"
                       "PUSHS nil@nil\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -29,16 +29,16 @@ static const BuiltinSignature readLine = {
     .return_type = TYPE_STRING,
     .parameter_count = 0U,
     .parameters = {TYPE_UNKNOWN},
-    .assembler_code = "LABEL readLine\n"
+    .assembler_code = "LABEL readLine$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@res\n"
                       "READ LF@res string\n"
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@res\n"
-                      "JUMPIFNEQ $readLine_ok LF@type string@nil\n"
+                      "JUMPIFNEQ readLine$0_OK LF@type string@nil\n"
                       "MOVE LF@res string@\n"
-                      "LABEL $readLine_ok\n"
+                      "LABEL readLine$0_OK\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -48,16 +48,16 @@ static const BuiltinSignature readInt = {
     .return_type = TYPE_INT,
     .parameter_count = 0U,
     .parameters = {TYPE_UNKNOWN},
-    .assembler_code = "LABEL readInt\n"
+    .assembler_code = "LABEL readInt$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@res\n"
                       "READ LF@res int\n"
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@res\n"
-                      "JUMPIFNEQ $readInt_ok LF@type string@nil\n"
+                      "JUMPIFNEQ readInt$0_OK LF@type string@nil\n"
                       "MOVE LF@res int@0\n"
-                      "LABEL $readInt_ok\n"
+                      "LABEL readInt$0_OK\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -67,16 +67,16 @@ static const BuiltinSignature readDouble = {
     .return_type = TYPE_REAL,
     .parameter_count = 0U,
     .parameters = {TYPE_UNKNOWN},
-    .assembler_code = "LABEL readDouble\n"
+    .assembler_code = "LABEL readDouble$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@res\n"
                       "READ LF@res float\n"
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@res\n"
-                      "JUMPIFNEQ $readDouble_ok LF@type string@nil\n"
+                      "JUMPIFNEQ readDouble$0_OK LF@type string@nil\n"
                       "MOVE LF@res float@0x0p+0\n"
-                      "LABEL $readDouble_ok\n"
+                      "LABEL readDouble$0_OK\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -86,16 +86,16 @@ static const BuiltinSignature readBoolean = {
     .return_type = TYPE_BOOL,
     .parameter_count = 0U,
     .parameters = {TYPE_UNKNOWN},
-    .assembler_code = "LABEL readBoolean\n"
+    .assembler_code = "LABEL readBoolean$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@res\n"
                       "READ LF@res bool\n"
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@res\n"
-                      "JUMPIFNEQ $readBoolean_ok LF@type string@nil\n"
+                      "JUMPIFNEQ readBoolean$0_OK LF@type string@nil\n"
                       "MOVE LF@res bool@false\n"
-                      "LABEL $readBoolean_ok\n"
+                      "LABEL readBoolean$0_OK\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -105,7 +105,7 @@ static const BuiltinSignature toStr = {
     .return_type = TYPE_STRING,
     .parameter_count = 1U,
     .parameters = {TYPE_ANY},
-    .assembler_code = "LABEL toStr\n"
+    .assembler_code = "LABEL toStr$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@val\n"
@@ -113,28 +113,28 @@ static const BuiltinSignature toStr = {
                       "DEFVAR LF@type\n"
                       "TYPE LF@type LF@val\n"
                       "DEFVAR LF@res\n"
-                      "JUMPIFEQ $toStr_int LF@type string@int\n"
-                      "JUMPIFEQ $toStr_float LF@type string@float\n"
-                      "JUMPIFEQ $toStr_bool LF@type string@bool\n"
-                      "JUMPIFEQ $toStr_unit LF@type string@nil\n"
+                      "JUMPIFEQ toStr$0_INT LF@type string@int\n"
+                      "JUMPIFEQ toStr$0_FLOAT LF@type string@float\n"
+                      "JUMPIFEQ toStr$0_BOOL LF@type string@bool\n"
+                      "JUMPIFEQ toStr$0_UNIT LF@type string@nil\n"
                       "MOVE LF@res LF@val\n"
-                      "JUMP $toStr_end\n"
-                      "LABEL $toStr_int\n"
+                      "JUMP toStr$0_END\n"
+                      "LABEL toStr$0_INT\n"
                       "INT2STR LF@res LF@val\n"
-                      "JUMP $toStr_end\n"
-                      "LABEL $toStr_float\n"
+                      "JUMP toStr$0_END\n"
+                      "LABEL toStr$0_FLOAT\n"
                       "FLOAT2STR LF@res LF@val\n"
-                      "JUMP $toStr_end\n"
-                      "LABEL $toStr_bool\n"
-                      "JUMPIFEQ $toStr_true LF@val bool@true\n"
+                      "JUMP toStr$0_END\n"
+                      "LABEL toStr$0_BOOL\n"
+                      "JUMPIFEQ toStr$0_TRUE LF@val bool@true\n"
                       "MOVE LF@res string@false\n"
-                      "JUMP $toStr_end\n"
-                      "LABEL $toStr_true\n"
+                      "JUMP toStr$0_END\n"
+                      "LABEL toStr$0_TRUE\n"
                       "MOVE LF@res string@true\n"
-                      "JUMP $toStr_end\n"
-                      "LABEL $toStr_unit\n"
+                      "JUMP toStr$0_END\n"
+                      "LABEL toStr$0_UNIT\n"
                       "MOVE LF@res string@()\n"
-                      "LABEL $toStr_end\n"
+                      "LABEL toStr$0_END\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -144,7 +144,7 @@ static const BuiltinSignature toInt = {.name = "toInt",
                                        .parameter_count = 1U,
                                        .parameters = {TYPE_REAL},
                                        .assembler_code =
-                                           "LABEL toInt\n"
+                                           "LABEL toInt$0\n"
                                            "CREATEFRAME\n"
                                            "PUSHFRAME\n"
                                            "DEFVAR LF@val\n"
@@ -160,7 +160,7 @@ static const BuiltinSignature strLength = {.name = "strLength",
                                            .parameter_count = 1U,
                                            .parameters = {TYPE_STRING},
                                            .assembler_code =
-                                               "LABEL strLength\n"
+                                               "LABEL strLength$0\n"
                                                "CREATEFRAME\n"
                                                "PUSHFRAME\n"
                                                "DEFVAR LF@val\n"
@@ -176,7 +176,7 @@ static const BuiltinSignature subStr = {
     .return_type = TYPE_STRING,
     .parameter_count = 3U,
     .parameters = {TYPE_STRING, TYPE_INT, TYPE_INT},
-    .assembler_code = "LABEL subStr\n"
+    .assembler_code = "LABEL subStr$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@end\n"
@@ -189,27 +189,27 @@ static const BuiltinSignature subStr = {
                       "STRLEN LF@len LF@val\n"
                       "DEFVAR LF@cond\n"
                       "LT LF@cond LF@start int@0\n"
-                      "JUMPIFEQ $subStr_err LF@cond bool@true\n"
+                      "JUMPIFEQ subStr$0_ERR LF@cond bool@true\n"
                       "LT LF@cond LF@end int@0\n"
-                      "JUMPIFEQ $subStr_err LF@cond bool@true\n"
+                      "JUMPIFEQ subStr$0_ERR LF@cond bool@true\n"
                       "GT LF@cond LF@start LF@end\n"
-                      "JUMPIFEQ $subStr_err LF@cond bool@true\n"
+                      "JUMPIFEQ subStr$0_ERR LF@cond bool@true\n"
                       "LT LF@cond LF@start LF@len\n"
-                      "JUMPIFEQ $subStr_err LF@cond bool@false\n"
+                      "JUMPIFEQ subStr$0_ERR LF@cond bool@false\n"
                       "GT LF@cond LF@end LF@len\n"
-                      "JUMPIFEQ $subStr_err LF@cond bool@true\n"
+                      "JUMPIFEQ subStr$0_ERR LF@cond bool@true\n"
                       "DEFVAR LF@res\n"
                       "MOVE LF@res string@\n"
                       "DEFVAR LF@ch\n"
-                      "LABEL $subStr_loop\n"
-                      "JUMPIFEQ $subStr_end LF@start LF@end\n"
+                      "LABEL subStr$0_LOOP\n"
+                      "JUMPIFEQ subStr$0_END LF@start LF@end\n"
                       "GETCHAR LF@ch LF@val LF@start\n"
                       "CONCAT LF@res LF@res LF@ch\n"
                       "ADD LF@start LF@start int@1\n"
-                      "JUMP $subStr_loop\n"
-                      "LABEL $subStr_err\n"
+                      "JUMP subStr$0_LOOP\n"
+                      "LABEL subStr$0_ERR\n"
                       "EXIT int@40\n"
-                      "LABEL $subStr_end\n"
+                      "LABEL subStr$0_END\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -219,7 +219,7 @@ static const BuiltinSignature ord = {
     .return_type = TYPE_INT,
     .parameter_count = 2U,
     .parameters = {TYPE_STRING, TYPE_INT},
-    .assembler_code = "LABEL ord\n"
+    .assembler_code = "LABEL ord$0\n"
                       "CREATEFRAME\n"
                       "PUSHFRAME\n"
                       "DEFVAR LF@idx\n"
@@ -231,14 +231,14 @@ static const BuiltinSignature ord = {
                       "STRLEN LF@len LF@val\n"
                       "DEFVAR LF@cond\n"
                       "LT LF@cond LF@idx int@0\n"
-                      "JUMPIFEQ $ord_bad LF@cond bool@true\n"
+                      "JUMPIFEQ ord$0_BAD LF@cond bool@true\n"
                       "LT LF@cond LF@idx LF@len\n"
-                      "JUMPIFEQ $ord_bad LF@cond bool@false\n"
+                      "JUMPIFEQ ord$0_BAD LF@cond bool@false\n"
                       "STRI2INT LF@res LF@val LF@idx\n"
-                      "JUMP $ord_end\n"
-                      "LABEL $ord_bad\n"
+                      "JUMP ord$0_END\n"
+                      "LABEL ord$0_BAD\n"
                       "MOVE LF@res int@-1\n"
-                      "LABEL $ord_end\n"
+                      "LABEL ord$0_END\n"
                       "PUSHS LF@res\n"
                       "POPFRAME\n"
                       "RETURN\n"};
@@ -248,7 +248,7 @@ static const BuiltinSignature chr = {.name = "chr",
                                      .parameter_count = 1U,
                                      .parameters = {TYPE_INT},
                                      .assembler_code =
-                                         "LABEL chr\n"
+                                         "LABEL chr$0\n"
                                          "CREATEFRAME\n"
                                          "PUSHFRAME\n"
                                          "DEFVAR LF@code\n"

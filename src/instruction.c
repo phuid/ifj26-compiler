@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-void print_operand(InstructionOperand operand) {
+void print_operand(const InstructionOperand operand) {
   switch (operand.type) {
   case INT_TYPE:
     printf("int@%lld", operand.value.integer);
@@ -54,58 +54,81 @@ void print_operand(InstructionOperand operand) {
 
 void print_prolog() { printf(".IFJcode26\n"); }
 
-void print_LABEL(const char *name) { printf("LABEL %s\n", name); }
+void print_LABEL(const char *name, const int suffix) {
+  printf("LABEL %s$%i\n", name, suffix);
+}
 
-void print_DEFVAR(InstructionOperand operand) {
+void print_DEFVAR(const InstructionOperand operand) {
   printf("DEFVAR ");
   print_operand(operand);
   printf("\n");
 }
 
-void print_PUSHS(InstructionOperand operand) {
+void print_PUSHS(const InstructionOperand operand) {
   printf("PUSHS ");
   print_operand(operand);
   printf("\n");
 }
 
-void print_POPS(InstructionOperand operand) {
+void print_POPS(const InstructionOperand operand) {
   printf("POPS ");
   print_operand(operand);
   printf("\n");
 }
 
-void print_ADDS() { printf("ADDS\n"); }
+void print_ADDS(void) { printf("ADDS\n"); }
 
-void print_SUBS() { printf("SUBS\n"); }
+void print_SUBS(void) { printf("SUBS\n"); }
 
-void print_MULS() { printf("MULS\n"); }
+void print_MULS(void) { printf("MULS\n"); }
 
-void print_DIVS() { printf("DIVS\n"); }
+void print_DIVS(void) { printf("DIVS\n"); }
 
-void print_IDIVS() { printf("IDIVS\n"); }
+void print_IDIVS(void) { printf("IDIVS\n"); }
 
-void print_LTS() { printf("LTS\n"); }
+void print_LTS(void) { printf("LTS\n"); }
 
-void print_GTS() { printf("GTS\n"); }
+void print_GTS(void) { printf("GTS\n"); }
 
-void print_EQS() { printf("EQS\n"); }
+void print_EQS(void) { printf("EQS\n"); }
 
-void print_ANDS() { printf("ANDS\n"); }
+void print_ANDS(void) { printf("ANDS\n"); }
 
-void print_ORS() { printf("ORS\n"); }
+void print_ORS(void) { printf("ORS\n"); }
 
-void print_NOTS() { printf("NOTS\n"); }
+void print_NOTS(void) { printf("NOTS\n"); }
 
-void print_INT2FLOATS() { printf("INT2FLOATS\n"); }
+void print_INT2FLOATS(void) { printf("INT2FLOATS\n"); }
 
-void print_CALL(const char *label) { printf("CALL %s\n", label); }
+void print_CALL(const char *label) { printf("CALL %s$0\n", label); }
 
-void print_CREATEFRAME() { printf("CREATEFRAME\n"); }
+void print_CREATEFRAME(void) { printf("CREATEFRAME\n"); }
 
-void print_PUSHFRAME() { printf("PUSHFRAME\n"); }
+void print_PUSHFRAME(void) { printf("PUSHFRAME\n"); }
 
-void print_POPFRAME() { printf("POPFRAME\n"); }
+void print_POPFRAME(void) { printf("POPFRAME\n"); }
 
-void print_RETURN() { printf("RETURN\n"); }
+void print_RETURN(void) { printf("RETURN\n"); }
 
-void print_EXIT(int code) { printf("EXIT int@%i\n", code); }
+void print_EXIT(const int code) { printf("EXIT int@%i\n", code); }
+
+void print_JUMP(const char *label, const int suffix) {
+  printf("JUMP %s$%i\n", label, suffix);
+}
+
+void print_JUMPIFEQS(const char *label, const int suffix) {
+  printf("JUMPIFEQS %s$%i\n", label, suffix);
+}
+
+void print_JUMPIFNEQS(const char *label, const int suffix) {
+  printf("JUMPIFNEQS %s$%i\n", label, suffix);
+}
+
+void print_JUMPIFEQS_bool(const char *label, const int suffix, bool value) {
+  InstructionOperand valueOp = {
+      .type = BOOL_TYPE,
+      .value.boolean = value,
+  };
+  print_PUSHS(valueOp);
+  print_JUMPIFEQS(label, suffix);
+}

@@ -39,38 +39,39 @@ typedef struct {
   } value;
 } InstructionOperand;
 
-typedef void (*ASTNodeHandler)(const ASTNode *node);
+typedef void (*ASTNodeHandler)(const ASTNode *node, bool discard_return_value);
 
-void handle_block(const ASTNode *node);
-void handle_asign(const ASTNode *node);
-void handle_variable_ref(const ASTNode *node);
+void handle_block(const ASTNode *node, bool discard_return_value);
+void handle_asign(const ASTNode *node, bool discard_return_value);
+void handle_variable_ref(const ASTNode *node, bool discard_return_value);
 
-void handle_int(const ASTNode *node);
-void handle_real(const ASTNode *node);
-void handle_string(const ASTNode *node);
-void handle_bool(const ASTNode *node);
-void handle_unit(const ASTNode *node);
+void handle_int(const ASTNode *node, bool discard_return_value);
+void handle_real(const ASTNode *node, bool discard_return_value);
+void handle_string(const ASTNode *node, bool discard_return_value);
+void handle_bool(const ASTNode *node, bool discard_return_value);
+void handle_unit(const ASTNode *node, bool discard_return_value);
 
-void resolve_binary_operands(const ASTNode *node);
+void handle_add(const ASTNode *node, bool discard_return_value);
+void handle_subtract(const ASTNode *node, bool discard_return_value);
+void handle_multiply(const ASTNode *node, bool discard_return_value);
+void handle_divide(const ASTNode *node, bool discard_return_value);
+void handle_equal(const ASTNode *node, bool discard_return_value);
+void handle_not_equal(const ASTNode *node, bool discard_return_value);
+void handle_less(const ASTNode *node, bool discard_return_value);
+void handle_less_equal(const ASTNode *node, bool discard_return_value);
+void handle_greater(const ASTNode *node, bool discard_return_value);
+void handle_greater_equal(const ASTNode *node, bool discard_return_value);
+void handle_and(const ASTNode *node, bool discard_return_value);
+void handle_or(const ASTNode *node, bool discard_return_value);
+void handle_not(const ASTNode *node, bool discard_return_value);
 
-void handle_add(const ASTNode *node);
-void handle_subtract(const ASTNode *node);
-void handle_multiply(const ASTNode *node);
-void handle_divide(const ASTNode *node);
-void handle_equal(const ASTNode *node);
-void handle_not_equal(const ASTNode *node);
-void handle_less(const ASTNode *node);
-void handle_less_equal(const ASTNode *node);
-void handle_greater(const ASTNode *node);
-void handle_greater_equal(const ASTNode *node);
-void handle_and(const ASTNode *node);
-void handle_or(const ASTNode *node);
-void handle_not(const ASTNode *node);
+void handle_implicit_int_to_real(const ASTNode *node,
+                                 bool discard_return_value);
 
-void handle_implicit_int_to_real(const ASTNode *node);
+void handle_call(const ASTNode *node, bool discard_return_value);
+void handle_return(const ASTNode *node, bool discard_return_value);
+void handle_if(const ASTNode *node, bool discard_return_value);
 
-void handle_call(const ASTNode *node);
-void handle_return(const ASTNode *node);
 void handle_function_definition(const FunctionSymbol *function);
 
 /* Main code generation entry point */

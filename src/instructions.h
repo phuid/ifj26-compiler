@@ -1,13 +1,13 @@
 #ifndef INSTRUCTIONS_H
 #define INSTRUCTIONS_H
 
-void print_operand(InstructionOperand operand);
+void print_operand(const InstructionOperand operand);
 
 void print_prolog(void);
-void print_LABEL(const char *name);
-void print_DEFVAR(InstructionOperand operand);
-void print_PUSHS(InstructionOperand operand);
-void print_POPS(InstructionOperand operand);
+void print_LABEL(const char *name, const int suffix);
+void print_DEFVAR(const InstructionOperand operand);
+void print_PUSHS(const InstructionOperand operand);
+void print_POPS(const InstructionOperand operand);
 
 void print_ADDS(void);
 void print_SUBS(void);
@@ -32,6 +32,10 @@ void print_PUSHFRAME(void);
 void print_POPFRAME(void);
 
 void print_RETURN(void);
-void print_EXIT(int code);
+void print_EXIT(const int code);
 
+void print_JUMP(const char *label, const int suffix);
+void print_JUMPIFEQS(const char *label, const int suffix);
+void print_JUMPIFNEQS(const char *label, const int suffix);
+void print_JUMPIFEQS_bool(const char *label, const int suffix, bool value);
 #endif // INSTRUCTIONS_H
