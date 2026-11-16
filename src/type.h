@@ -21,6 +21,9 @@ typedef enum {
   TYPE_STRING,
   TYPE_UNIT,
   TYPE_BOOL,
+  /** Placeholder parameter type of builtins accepting any value (print, toStr).
+   */
+  TYPE_ANY,
 } BaseType;
 
 /**

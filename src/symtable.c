@@ -56,6 +56,7 @@ static void *symbol_copy(const void *value) {
   type_entity_init(&copy->type);
   copy->type.type = source->type.type;
   copy->initialized = source->initialized;
+  copy->constant = source->constant;
   copy->owner = source->owner;
   return copy;
 }
