@@ -1141,7 +1141,7 @@ static ParserStatus p_index_suffix(Lexer *lexer, Program *program,
   }
 
   if (index_node == NULL) {
-    ast_node_destroy(&list_node);
+    ast_node_destroy(list_node);
     return PARSER_INTERNAL_ERROR;
   }
 
