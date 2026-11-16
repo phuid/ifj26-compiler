@@ -1134,10 +1134,15 @@ static ParserStatus p_index_suffix(Lexer *lexer, Program *program,
   ASTNode *index_node = NULL;
   status = p_expression(lexer, program, function, scope, &index_node, true,
                         &local_indent);
-  if (status != PARSER_OK || index_node == NULL) {
+  if (status != PARSER_OK) {
     ast_node_destroy(list_node);
     ast_node_destroy(index_node);
-    return status == PARSER_OK ? PARSER_SYNTAX_ERROR : status;
+    return status;
+  }
+
+  if (index_node == NULL) {
+    ast_node_destroy(&list_node);
+    return PARSER_INTERNAL_ERROR;
   }
 
   status = parser_consume_newlines(lexer, false, true, &local_indent);
@@ -1350,7 +1355,7 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
       }
       if (operand_node == NULL) {
         terminal_stack_cleanup_nodes(&stack);
-        return PARSER_SYNTAX_ERROR;
+        return PARSER_INTERNAL_ERROR;
       }
 
       /// Wrap the now-complete operand in the saved unary operation. Unary
@@ -1513,9 +1518,6 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
 
       case PREC_INVALID:
       default:
-        /// No valid precedence relation exists, so consuming the lookahead
-        /// would only hide the syntax error. Discard owned ASTs and report
-        /// it.
         terminal_stack_cleanup_nodes(&stack);
         return PARSER_SYNTAX_ERROR;
       }
