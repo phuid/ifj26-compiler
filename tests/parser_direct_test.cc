@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <string>
 
 #include "gtest/gtest.h"
 
@@ -18,9 +19,33 @@ FILE *stream_from(const char *text) {
   return stream;
 }
 
-/// Parses @p text as a whole program and returns only the parser status.
+/** Valid main function added to parsed test programs. */
+const char *const kMainFunction = "@main def added_main(): Unit =\n"
+                                  "  return\n";
+
+/**
+ * @brief Like @ref stream_from, but prepends a valid main function.
+ * @details Keeps the missing-main error (code 3) out of tests aimed at other
+ * constructs. The main function goes first so that @p text keeps its exact
+ * ending (e.g. no trailing newline).
+ */
+FILE *stream_with_main(const char *text) {
+  return stream_from((std::string(kMainFunction) + text).c_str());
+}
+
+/**
+ * @brief Like @ref stream_from, but appends a valid main function.
+ * @details Used by error tests: every error in @p text is detected before the
+ * appended main, and an `@main` in @p text stays the first one.
+ */
+FILE *stream_with_main_after(const char *text) {
+  return stream_from((std::string(text) + "\n" + kMainFunction).c_str());
+}
+
+/// Parses @p text preceded by a valid main function and returns only the
+/// parser status. Prepending keeps the exact ending of @p text.
 ParserStatus parse_status(const char *text) {
-  FILE *stream = stream_from(text);
+  FILE *stream = stream_with_main(text);
   if (stream == nullptr) {
     return PARSER_INTERNAL_ERROR;
   }
@@ -42,7 +67,7 @@ ParserStatus parse_status(const char *text) {
 
 } // namespace
 
-TEST(ParserDirectLexerTest, EmptyInputFinishesWithoutSyntaxRules) {
+TEST(ParserDirectLexerTest, EmptyInputMissesMainFunction) {
   FILE *stream = stream_from("");
   ASSERT_NE(stream, nullptr);
 
@@ -50,7 +75,7 @@ TEST(ParserDirectLexerTest, EmptyInputFinishesWithoutSyntaxRules) {
   ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
-  EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
+  EXPECT_EQ(p_program(&lexer, &program), PARSER_UNDEFINED_ERROR);
   EXPECT_EQ(program.functions.function_count, 0U);
 
   program_destroy(&program);
@@ -60,7 +85,7 @@ TEST(ParserDirectLexerTest, EmptyInputFinishesWithoutSyntaxRules) {
 
 TEST(ParserDirectLexerTest, IfOperandIsMarkedAsExpression) {
   FILE *stream =
-      stream_from("def foo() =\n  val value = if true then 1 else 2");
+      stream_with_main("def foo() =\n  val value = if true then 1 else 2");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -86,7 +111,7 @@ TEST(ParserDirectLexerTest, IfOperandIsMarkedAsExpression) {
 }
 
 TEST(ParserDirectLexerTest, ElseIfOperandCreatesNestedConditional) {
-  FILE *stream = stream_from(
+  FILE *stream = stream_with_main(
       "def foo() =\n  val value = if true then 1 else if false then 2 else 3");
   ASSERT_NE(stream, nullptr);
 
@@ -119,7 +144,7 @@ TEST(ParserDirectLexerTest, ElseIfOperandCreatesNestedConditional) {
 }
 
 TEST(ParserDirectLexerTest, IfExpressionMarksNestedBranchesAsExpressions) {
-  FILE *stream = stream_from(
+  FILE *stream = stream_with_main(
       "def foo() =\n  val value = if true then if false then 1 else 2 else 3");
   ASSERT_NE(stream, nullptr);
 
@@ -150,7 +175,7 @@ TEST(ParserDirectLexerTest, IfExpressionMarksNestedBranchesAsExpressions) {
 }
 
 TEST(ParserDirectLexerTest, ElseIfOperandWithoutFinalElseIsAllowed) {
-  FILE *stream = stream_from(
+  FILE *stream = stream_with_main(
       "def foo() =\n  val value = if true then 1 else if false then 2");
   ASSERT_NE(stream, nullptr);
 
@@ -166,10 +191,10 @@ TEST(ParserDirectLexerTest, ElseIfOperandWithoutFinalElseIsAllowed) {
 }
 
 TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
-  FILE *stream = stream_from("def foo() =\n"
-                             "  val value = (if true then 1 else\n"
-                             "    if false then 2 else\n"
-                             "    if true then 3 else 4)");
+  FILE *stream = stream_with_main("def foo() =\n"
+                                  "  val value = (if true then 1 else\n"
+                                  "    if false then 2 else\n"
+                                  "    if true then 3 else 4)");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -202,8 +227,8 @@ TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
 }
 
 TEST(ParserDirectLexerTest, OnlyLastIfStatementInBlockIsMarkedAsExpression) {
-  FILE *stream = stream_from("def foo() =\n  if true then return\n"
-                             "  if false then return\n  else return");
+  FILE *stream = stream_with_main("def foo() =\n  if true then return\n"
+                                  "  if false then return\n  else return");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -230,7 +255,7 @@ TEST(ParserDirectLexerTest, OnlyLastIfStatementInBlockIsMarkedAsExpression) {
 }
 
 TEST(ParserDirectLexerTest, IfOperandWithoutElseIsAllowed) {
-  FILE *stream = stream_from("def foo() =\n  val value = if true then 1");
+  FILE *stream = stream_with_main("def foo() =\n  val value = if true then 1");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -245,7 +270,7 @@ TEST(ParserDirectLexerTest, IfOperandWithoutElseIsAllowed) {
 }
 
 TEST(ParserDirectLexerTest, LastIfStatementWithoutElseIsAllowed) {
-  FILE *stream = stream_from("def foo() =\n  if true then return");
+  FILE *stream = stream_with_main("def foo() =\n  if true then return");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -260,8 +285,8 @@ TEST(ParserDirectLexerTest, LastIfStatementWithoutElseIsAllowed) {
 }
 
 TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
-  FILE *stream =
-      stream_from("def consume(matrix: List[List[List[Int]]]) =\n  return");
+  FILE *stream = stream_with_main(
+      "def consume(matrix: List[List[List[Int]]]) =\n  return");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -285,7 +310,8 @@ TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
 }
 
 TEST(ParserDirectLexerTest, RejectsMalformedNestedListTypeAnnotation) {
-  FILE *stream = stream_from("def consume(matrix: List[List[Int]) =\n  return");
+  FILE *stream =
+      stream_with_main("def consume(matrix: List[List[Int]) =\n  return");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -300,7 +326,7 @@ TEST(ParserDirectLexerTest, RejectsMalformedNestedListTypeAnnotation) {
 }
 
 TEST(ParserDirectLexerTest, ChainedIndexingWrapsThePreviousResult) {
-  FILE *stream = stream_from(
+  FILE *stream = stream_with_main(
       "def index(matrix: List[List[Int]]) =\n  val value = matrix(0)(1)");
   ASSERT_NE(stream, nullptr);
 
@@ -337,7 +363,7 @@ TEST(ParserDirectLexerTest, ChainedIndexingWrapsThePreviousResult) {
 }
 
 TEST(ParserDirectLexerTest, IndexesListConstructorResult) {
-  FILE *stream = stream_from("def make() =\n  val value = List(1, 2)(0)");
+  FILE *stream = stream_with_main("def make() =\n  val value = List(1, 2)(0)");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -368,10 +394,10 @@ TEST(ParserDirectLexerTest, IndexesListConstructorResult) {
 }
 
 TEST(ParserDirectLexerTest, IndexesFunctionCallResult) {
-  FILE *stream = stream_from("def getItems() =\n"
-                             "  return List(1, 2)\n"
-                             "def use() =\n"
-                             "  val value = getItems()(0)");
+  FILE *stream = stream_with_main("def getItems() =\n"
+                                  "  return List(1, 2)\n"
+                                  "def use() =\n"
+                                  "  val value = getItems()(0)");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -400,12 +426,12 @@ TEST(ParserDirectLexerTest, IndexesFunctionCallResult) {
 }
 
 TEST(ParserDirectLexerTest, ParsesMultilinePostfixIndexes) {
-  FILE *stream = stream_from("def index(matrix: List[List[Int]]) =\n"
-                             "  val value = matrix(\n"
-                             "    0\n"
-                             "    )(\n"
-                             "    1\n"
-                             "    )");
+  FILE *stream = stream_with_main("def index(matrix: List[List[Int]]) =\n"
+                                  "  val value = matrix(\n"
+                                  "    0\n"
+                                  "    )(\n"
+                                  "    1\n"
+                                  "    )");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -420,11 +446,11 @@ TEST(ParserDirectLexerTest, ParsesMultilinePostfixIndexes) {
 }
 
 TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
-  FILE *stream = stream_from("def make() =\n"
-                             "  val value = (\n"
-                             "    List(1, 2)\n"
-                             "    (0)\n"
-                             "    )");
+  FILE *stream = stream_with_main("def make() =\n"
+                                  "  val value = (\n"
+                                  "    List(1, 2)\n"
+                                  "    (0)\n"
+                                  "    )");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -447,6 +473,125 @@ TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
   program_destroy(&program);
   lexer_destroy(&lexer);
   fclose(stream);
+}
+
+namespace {
+
+/**
+ * @brief Parses @p text followed by a valid main function.
+ * @return The parser status.
+ */
+ParserStatus parse_text(const char *text) {
+  FILE *stream = stream_with_main_after(text);
+  if (stream == nullptr) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  Lexer lexer;
+  if (lexer_init(&lexer, stream) != LEXER_OK) {
+    fclose(stream);
+    return PARSER_INTERNAL_ERROR;
+  }
+  Program program;
+  if (program_init(&program) != PARSER_OK) {
+    lexer_destroy(&lexer);
+    fclose(stream);
+    return PARSER_INTERNAL_ERROR;
+  }
+  ParserStatus status = p_program(&lexer, &program);
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+  return status;
+}
+
+} // namespace
+
+TEST(ParserErrorTest, StatusValuesAreExitCodes) {
+  EXPECT_EQ(parser_status_exit_code(PARSER_OK), 0);
+  EXPECT_EQ(parser_status_exit_code(PARSER_LEXER_ERROR), 1);
+  EXPECT_EQ(parser_status_exit_code(PARSER_SYNTAX_ERROR), 2);
+  EXPECT_EQ(parser_status_exit_code(PARSER_UNDEFINED_ERROR), 3);
+  EXPECT_EQ(parser_status_exit_code(PARSER_REDEFINITION_ERROR), 4);
+  EXPECT_EQ(parser_status_exit_code(PARSER_BAD_CALL_ERROR), 5);
+  EXPECT_EQ(parser_status_exit_code(PARSER_TYPE_ERROR), 6);
+  EXPECT_EQ(parser_status_exit_code(PARSER_INTERNAL_ERROR), 99);
+  EXPECT_EQ(parser_status_exit_code(PARSER_INVALID_ARGUMENT), 99);
+}
+
+TEST(ParserErrorTest, MissingMainIsUndefined) {
+  FILE *stream = stream_from("def f(): Unit =\n  return\n");
+  ASSERT_NE(stream, nullptr);
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  EXPECT_EQ(p_program(&lexer, &program), PARSER_UNDEFINED_ERROR);
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserErrorTest, DuplicateParameterIsRedefinition) {
+  EXPECT_EQ(parse_text("def f(a: Int, a: Int): Unit =\n  return\n"),
+            PARSER_REDEFINITION_ERROR);
+}
+
+TEST(ParserErrorTest, DuplicateFunctionIsRedefinition) {
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return\n"
+                       "def f(): Unit =\n  return\n"),
+            PARSER_REDEFINITION_ERROR);
+}
+
+TEST(ParserErrorTest, SecondMainIsRedefinition) {
+  EXPECT_EQ(parse_text("@main def m(): Unit =\n  return\n"
+                       "@main def n(): Unit =\n  return\n"),
+            PARSER_REDEFINITION_ERROR);
+}
+
+TEST(ParserErrorTest, MainWithParameterIsBadCall) {
+  EXPECT_EQ(parse_text("@main def m(a: Int): Unit =\n  return\n"),
+            PARSER_BAD_CALL_ERROR);
+}
+
+TEST(ParserErrorTest, SemicolonSeparatesStatementsOnOneLine) {
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return; return; return\n"),
+            PARSER_OK);
+}
+
+TEST(ParserErrorTest, TrailingSemicolonIsNotAllowed) {
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return;\n  return\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserErrorTest, EmptyStatementsAreNotAllowed) {
+  EXPECT_EQ(parse_text("def f(): Unit =\n  ; return\n"), PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return;; return\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(): Unit =\n  ;;return;;\n  return\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return;;\n"), PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(): Unit =\n  ;\n"), PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserErrorTest, StatementsOnOneLineNeedSeparator) {
+  EXPECT_EQ(parse_text("def f(): Unit =\n  return return\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserErrorTest, BlankLinesBetweenTopLevelDefinitions) {
+  EXPECT_EQ(parse_text("\n\ndef f(): Unit =\n  return\n\n\n"
+                       "def g(): Unit =\n  return\n\n"),
+            PARSER_OK);
+}
+
+TEST(ParserErrorTest, LineInsideParenthesesMustBeIndentedMore) {
+  EXPECT_EQ(parse_text("def f(\na: Int): Unit =\n  return\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(a: Int,\nb: Int): Unit =\n  return\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_text("def f(a: Int,\n  b: Int): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_text("def f(a: Int,\n  ): Unit =\n  return\n"), PARSER_OK);
 }
 
 TEST(ParserDirectLexerTest, IfOperandFollowedByNewlineEndsTheBlock) {
@@ -544,7 +689,7 @@ TEST(ParserDirectLexerTest, SemicolonAfterIfOperand) {
 
 TEST(ParserDirectLexerTest, SemicolonEndsOneLineIfStatement) {
   FILE *stream =
-      stream_from("def foo() =\n  if true then val a = 1; val b = 2\n");
+      stream_with_main("def foo() =\n  if true then val a = 1; val b = 2\n");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
@@ -584,12 +729,12 @@ TEST(ParserDirectLexerTest, RejectsSemicolonStartingLineAfterBlockBranch) {
 }
 
 TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
-  FILE *stream = stream_from("def foo() =\n"
-                             "  if true then\n"
-                             "    val a = 1\n"
-                             "  else\n"
-                             "    val b = 2\n"
-                             "  val c = 3\n");
+  FILE *stream = stream_with_main("def foo() =\n"
+                                  "  if true then\n"
+                                  "    val a = 1\n"
+                                  "  else\n"
+                                  "    val b = 2\n"
+                                  "  val c = 3\n");
   ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
