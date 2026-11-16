@@ -948,9 +948,17 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     if (node->data.return_statement.value == NULL) {
       /// A bare `return` is allowed only with an explicit Unit return type.
-      return type_is_scalar(function->return_type.type, TYPE_UNIT)
-                 ? SEMANTIC_OK
-                 : SEMANTIC_TYPE_ERROR;
+      if (!type_is_scalar(function->return_type.type, TYPE_UNIT)) {
+        return SEMANTIC_TYPE_ERROR;
+      }
+      /// Attach an implicit Unit constant so that every return has a value.
+      ASTNode *unit = ast_node_create_unit(node->line, node->column);
+      if (unit == NULL) {
+        return SEMANTIC_INTERNAL_ERROR;
+      }
+      node->data.return_statement.value = unit;
+      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      return SEMANTIC_OK;
     }
     status = check_expression(ctx, function, &node->data.return_statement.value,
                               &type);

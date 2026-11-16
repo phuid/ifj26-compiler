@@ -87,3 +87,13 @@ TEST(AstTest, CallRetainsFunctionAndArgumentOrder) {
   ast_node_destroy(call);
   function_table_destroy(&table);
 }
+
+TEST(AstTest, ReturnKeepsExplicitValue) {
+  ASTNode *value = ast_node_create_int(7, 1U, 8U);
+  ASSERT_NE(value, nullptr);
+  ASTNode *node = ast_node_create_return(value, 1U, 1U);
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->data.return_statement.value, value);
+
+  ast_node_destroy(node);
+}

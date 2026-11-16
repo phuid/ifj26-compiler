@@ -218,6 +218,24 @@ TEST_F(SemanticTest, ReturnWithoutReturnTypeIsError6) {
   EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
 }
 
+TEST_F(SemanticTest, BareReturnInUnitFunctionIsOk) {
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_UNIT);
+  ASTNode *r = ret(nullptr);
+  add(f, r);
+  EXPECT_EQ(check(), SEMANTIC_OK);
+  /// The semantic pass attaches an implicit Unit constant.
+  ASSERT_NE(r->data.return_statement.value, nullptr);
+  EXPECT_EQ(r->data.return_statement.value->kind, AST_CONSTANT_UNIT);
+}
+
+TEST_F(SemanticTest, BareReturnInIntFunctionIsError6) {
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_INT);
+  add(f, ret(nullptr));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
 TEST_F(SemanticTest, UndefinedFunctionIsError3) {
   FunctionSymbol *m = def_main();
   add(m, call(ref("nope")));

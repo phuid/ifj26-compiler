@@ -1629,7 +1629,9 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// Consume the 'return' keyword
+  /// Remember the position of the 'return' keyword, then consume it
+  size_t return_line = lexer->token.line;
+  size_t return_column = lexer->token.column;
   status = parser_expect_and_consume(lexer, TOKEN_KW_RETURN);
   if (status != PARSER_OK) {
     return status;
@@ -1653,9 +1655,10 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
     /// (and type-checked, and may call functions), only its value is dropped.
   }
 
-  /// Create a return statement node
-  ASTNode *return_node_local = ast_node_create_return(
-      expression_node, lexer->token.line, lexer->token.column);
+  /// Create a return statement node; a bare `return` gets an implicit
+  /// AST_CONSTANT_UNIT value from ast_node_create_return.
+  ASTNode *return_node_local =
+      ast_node_create_return(expression_node, return_line, return_column);
   if (return_node_local == NULL) {
     ast_node_destroy(expression_node);
     return PARSER_INTERNAL_ERROR;
