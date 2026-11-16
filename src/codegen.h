@@ -13,13 +13,19 @@ typedef enum {
   REAL_TYPE,
   BOOL_TYPE,
   NIL_TYPE,
-  VARIABLE_TYPE
+  REAL_VARIABLE_TYPE,
+  COMPILER_VAR_TYPE
 } OperandType;
 
 typedef struct {
   VariableFrame frame;
   Symbol *symbol;
-} AssemblerVariable;
+} RealVariable;
+
+typedef struct {
+  VariableFrame frame;
+  const char *name;
+} CompilerVariable;
 
 typedef struct {
   OperandType type;
@@ -28,12 +34,12 @@ typedef struct {
     double real;
     bool boolean;
     char *string;
-    AssemblerVariable variable;
+    CompilerVariable compiler_variable;
+    RealVariable real_variable;
   } value;
 } InstructionOperand;
 
 typedef void (*ASTNodeHandler)(const ASTNode *node);
-/* AST handlers */
 
 void handle_block(const ASTNode *node);
 void handle_asign(const ASTNode *node);

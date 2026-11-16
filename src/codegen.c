@@ -5,7 +5,7 @@
 #include "parser.h"
 #include <string.h>
 
-static const char *global_var_names[] = {"GF@trash"};
+static const char *global_var_names[] = {"trash"};
 
 static const size_t global_var_count =
     sizeof(global_var_names) / sizeof(global_var_names[0]);
@@ -53,8 +53,10 @@ void handle_block(const ASTNode *node) {
     ASTNodeHandler handler = ast_handlers[statement->kind];
     handler(statement);
     if (statement->kind == AST_FUNCTION_CALL) {
-      // TODO this is shit
-      printf("POPS GF@trash\n");
+      const InstructionOperand operand = {
+          .type = COMPILER_VAR_TYPE,
+          .value = {.compiler_variable = {.frame = GF, .name = "trash"}}};
+      print_POPS(operand);
     }
   }
 }
@@ -63,7 +65,9 @@ void handle_asign(const ASTNode *node) {
   Symbol *target = node->data.assignment.target;
   ASTNode *value = node->data.assignment.value;
 
-  AssemblerVariable variable = {.frame = LF, .symbol = target};
+  InstructionOperand variable = {
+      .type = REAL_VARIABLE_TYPE,
+      .value = {.real_variable = {.frame = LF, .symbol = target}}};
 
   if (target->assembler_suffix == -1) {
     target->assembler_suffix = variable_suffix_counter;
@@ -75,18 +79,15 @@ void handle_asign(const ASTNode *node) {
   ASTNodeHandler handler = ast_handlers[value->kind];
   handler(value);
 
-  InstructionOperand operand = {.type = VARIABLE_TYPE,
-                                .value = {.variable = variable}};
-
-  print_POPS(operand);
+  print_POPS(variable);
 }
 
 void handle_variable_ref(const ASTNode *node) {
   Symbol *symbol = node->data.variable.symbol;
 
   InstructionOperand operand = {
-      .type = VARIABLE_TYPE,
-      .value = {.variable = {.frame = LF, .symbol = symbol}}};
+      .type = REAL_VARIABLE_TYPE,
+      .value = {.real_variable = {.frame = LF, .symbol = symbol}}};
 
   print_PUSHS(operand);
 }
@@ -257,7 +258,7 @@ void handle_function_definition(const FunctionSymbol *function) {
   // definition to add argument list
   for (size_t i = 0; i < function->argument_count; i++) {
     // InstructionOperand operand = {
-    //   .type = VARIABLE_TYPE,
+    //   .type = REAL_VARIABLE_TYPE,
     //   .value = {
     //     .variable = {
     //       .frame = LF,
@@ -274,7 +275,12 @@ void convert_AST_to_assembler(Program *program) {
   print_prolog();
 
   for (size_t i = 0; i < global_var_count; i++) {
-    printf("DEFVAR %s\n", global_var_names[i]);
+    const InstructionOperand operand = {
+        .type = COMPILER_VAR_TYPE,
+        .value = {
+            .compiler_variable = {.frame = GF, .name = global_var_names[i]}}};
+
+    print_DEFVAR(operand);
   }
 
   FunctionSymbol *main = NULL;
@@ -285,8 +291,8 @@ void convert_AST_to_assembler(Program *program) {
     }
   }
   if (main == NULL) {
-    // TODO error, but shouldnt happen
-    return;
+    fprintf(stderr, "no main function presesnt\n");
+    exit(1);
   }
 
   print_CALL(main->name);
