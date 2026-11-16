@@ -1,7 +1,7 @@
 #include "codegen.h"
 #include "ast.h"
+#include "instructions.h"
 #include "parser.h"
-#include <stdarg.h>
 
 char *global_var_names[] = {};
 
@@ -12,67 +12,35 @@ static const ASTNodeHandler ast_handlers[] = {
     [AST_BLOCK] = handle_block,
     [AST_CONSTANT_INT] = handle_int,
     [AST_CONSTANT_REAL] = handle_real,
-    [AST_CONSTANT_STRING] = NULL,
+    [AST_CONSTANT_STRING] = handle_string,
+    [AST_CONSTANT_BOOL] = handle_bool,
+    [AST_CONSTANT_UNIT] = handle_unit,
     [AST_VARIABLE_REF] = handle_variable_ref,
     [AST_FUNCTION_CALL] = handle_call,
+    [AST_LIST_CONSTRUCTOR] = NULL,
+    [AST_LIST_INDEXING] = NULL,
+    [AST_LIST_CONCAT] = NULL,
+    [AST_TO] = NULL,
+    [AST_UNTIL] = NULL,
+    [AST_BY] = NULL,
     [AST_ASSIGN] = handle_asign,
-    [AST_RETURN] = NULL,
+    [AST_RETURN] = handle_return,
     [AST_IF] = NULL,
     [AST_ADD] = handle_add,
-    [AST_SUBTRACT] = handle_sub,
-    [AST_MULTIPLY] = handle_mul,
-    [AST_DIVIDE] = NULL,
-    [AST_IMPLICIT_INT_TO_REAL] = NULL,
+    [AST_SUBTRACT] = handle_subtract,
+    [AST_MULTIPLY] = handle_multiply,
+    [AST_DIVIDE] = handle_divide,
+    [AST_EQUAL] = handle_equal,
+    [AST_NOT_EQUAL] = handle_not_equal,
+    [AST_LESS] = handle_less,
+    [AST_LESS_EQUAL] = handle_less_equal,
+    [AST_GREATER] = handle_greater,
+    [AST_GREATER_EQUAL] = handle_greater_equal,
+    [AST_AND] = handle_and,
+    [AST_OR] = handle_or,
+    [AST_NOT] = handle_not,
+    [AST_IMPLICIT_INT_TO_REAL] = handle_implicit_int_to_real,
 };
-
-void print_variable_name(VariableFrame frame, const char *name, int suffix) {
-  char *frameStr = frame == TF ? "TF" : (frame == LF ? "LF" : "GF");
-  printf("%s@%s$%i", frameStr, name, suffix);
-}
-
-void print_LABEL(const char *name) { printf("LABEL %s\n", name); }
-
-void print_DEFVAR(const char *name, VariableFrame frame, int suffix) {
-  printf("DEFVAR ");
-  print_variable_name(frame, name, suffix);
-  printf("\n");
-}
-
-void print_PUSHS(const char *name, VariableFrame frame, int suffix) {
-  printf("PUSHS ");
-  print_variable_name(frame, name, suffix);
-  printf("\n");
-}
-
-void print_POPS(const char *name, VariableFrame frame, int suffix) {
-  printf("POPS ");
-  print_variable_name(frame, name, suffix);
-  printf("\n");
-}
-
-void print_ADDS() { printf("ADDS\n"); }
-
-void print_SUBS() { printf("SUBS\n"); }
-
-void print_MULS() { printf("MULS\n"); }
-
-// TODO division by zero handling?
-void print_DIVS() { printf("DIVS\n"); }
-
-// TODO division by zero handling?
-void print_IDIVS() { printf("IDIVS\n"); }
-
-void print_CALL(const char *label) { printf("CALL %s\n", label); }
-
-void print_CREATEFRAME() { printf("CREATEFRAME\n"); }
-
-void print_PUSHFRAME() { printf("PUSHFRAME\n"); }
-
-void print_POPFRAME() { printf("POPFRAME\n"); }
-
-void print_RETURN() { printf("RETURN\n"); }
-
-void print_EXIT(int code) { printf("EXIT %i\n", code); }
 
 void handle_block(const ASTNode *node) {
   for (size_t i = 0; i < node->data.block.statement_count; i++) {
@@ -82,40 +50,73 @@ void handle_block(const ASTNode *node) {
   }
 }
 
-// Should it also work with TF?
 void handle_asign(const ASTNode *node) {
   Symbol *target = node->data.assignment.target;
   ASTNode *value = node->data.assignment.value;
 
-  if (target->assemblerSuffix == -1) {
-    print_DEFVAR(target->name, LF, variable_suffix_counter);
-    target->assemblerSuffix = variable_suffix_counter;
+  AssemblerVariable variable = {.frame = LF, .symbol = target};
+
+  if (target->assembler_suffix == -1) {
+    target->assembler_suffix = variable_suffix_counter;
     variable_suffix_counter++;
+
+    print_DEFVAR(variable);
   }
 
   ASTNodeHandler handler = ast_handlers[value->kind];
   handler(value);
 
-  print_POPS(target->name, LF, target->assemblerSuffix);
+  InstructionOperand operand = {.type = VARIABLE_TYPE,
+                                .value = {.variable = variable}};
+
+  print_POPS(operand);
 }
 
 void handle_variable_ref(const ASTNode *node) {
   Symbol *symbol = node->data.variable.symbol;
-  print_PUSHS(symbol->name, LF, symbol->assemblerSuffix);
+
+  InstructionOperand operand = {
+      .type = VARIABLE_TYPE,
+      .value = {.variable = {.frame = LF, .symbol = symbol}}};
+
+  print_PUSHS(operand);
 }
 
 void handle_int(const ASTNode *node) {
-  printf("PUSHS int@%lld", node->data.int_value);
+  InstructionOperand operand = {.type = INT_TYPE,
+                                .value = {.integer = node->data.int_value}};
+
+  print_PUSHS(operand);
 }
 
 void handle_real(const ASTNode *node) {
-  printf("PUSHS float@%a", node->data.real_value);
+  InstructionOperand operand = {.type = REAL_TYPE,
+                                .value = {.real = node->data.real_value}};
+
+  print_PUSHS(operand);
 }
 
 void handle_string(const ASTNode *node) {
-  // TODO this is wrong, propably need to handle escaping characters
-  exit(1);
-  printf("PUSHS string@%s", node->data.string_value);
+  InstructionOperand operand = {.type = STRING_TYPE,
+                                .value = {.string = node->data.string_value}};
+
+  print_PUSHS(operand);
+}
+
+void handle_bool(const ASTNode *node) {
+  InstructionOperand operand = {.type = BOOL_TYPE,
+                                .value = {.boolean = node->data.bool_value}};
+
+  print_PUSHS(operand);
+}
+
+void handle_unit(const ASTNode *node) {
+  (void)node;
+  InstructionOperand operand = {
+      .type = NIL_TYPE,
+  };
+
+  print_PUSHS(operand);
 }
 
 void resolve_binary_operands(const ASTNode *node) {
@@ -133,20 +134,90 @@ void handle_add(const ASTNode *node) {
   print_ADDS();
 }
 
-void handle_sub(const ASTNode *node) {
+void handle_subtract(const ASTNode *node) {
   resolve_binary_operands(node);
   print_SUBS();
 }
 
-void handle_mul(const ASTNode *node) {
+void handle_multiply(const ASTNode *node) {
   resolve_binary_operands(node);
   print_MULS();
 }
 
-void handle_div(const ASTNode *node) {
+void handle_divide(const ASTNode *node) {
   resolve_binary_operands(node);
-  // TODO handle DIVS/IDIVS
-  exit(1);
+
+  switch (node->inferred_type.type.base) {
+  case TYPE_REAL:
+    print_DIVS();
+    break;
+  case TYPE_INT:
+    print_IDIVS();
+    break;
+  default:
+    fprintf(stderr, "handle_divide - division of invalid types - parser error, "
+                    "shouldn happen\n");
+    exit(1);
+    break;
+  }
+}
+
+void handle_equal(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_EQS();
+}
+
+void handle_not_equal(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_EQS();
+  print_NOTS();
+}
+
+void handle_less(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_LTS();
+}
+
+void handle_less_equal(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_GTS();
+  print_NOTS();
+}
+
+void handle_greater(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_GTS();
+}
+
+void handle_greater_equal(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_LTS();
+  print_NOTS();
+}
+
+void handle_and(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_ANDS();
+}
+
+void handle_or(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_ORS();
+}
+
+void handle_not(const ASTNode *node) {
+  resolve_binary_operands(node);
+  print_NOTS();
+}
+
+void handle_implicit_int_to_real(const ASTNode *node) {
+  // node->data.conversion.operand
+  ASTNode *operand = node->data.conversion.operand;
+
+  ASTNodeHandler handler = ast_handlers[operand->kind];
+  handler(operand);
+
+  print_INT2FLOATS();
 }
 
 void handle_call(const ASTNode *node) {
@@ -173,25 +244,28 @@ void handle_function_definition(const FunctionSymbol *function) {
   print_CREATEFRAME();
   print_PUSHFRAME();
 
-  for (int i = function->argument_count - 1; i >= 0; i--) {
-    // TODO
-    // print_DEFVAR()
-    // print_POPS(...)
+  // TODO implement argument loading - waiting for update to FunctionSymbol
+  // definition to add argument list
+  for (size_t i = 0; i < function->argument_count; i++) {
+    // InstructionOperand operand = {
+    //   .type = VARIABLE_TYPE,
+    //   .value = {
+    //     .variable = {
+    //       .frame = LF,
+    //       .symbol = function.
+    //     }
+    //   }
+    // }
   }
 
-  for (size_t i = 0; i < function->ast_root->data.block.statement_count; i++) {
-    ASTNode *statement = function->ast_root->data.block.statements[i];
-    ASTNodeHandler handler = ast_handlers[statement->kind];
-    handler(statement);
-  }
+  handle_block(function->ast_root);
 }
 
 void convert_AST_to_assembler(Program *program) {
-  printf(".IFJcode2026");
+  print_prolog();
 
   // TODO global var definitions
 
-  // TODO what is the name of the main function?
   FunctionSymbol *main = NULL;
   for (size_t i = 0; i < program->functions.function_count; i++) {
     if (program->functions.functions[i]->is_main) {
@@ -200,7 +274,7 @@ void convert_AST_to_assembler(Program *program) {
     }
   }
   if (main == NULL) {
-    // TODO error
+    // TODO error, but shouldnt happen
     return;
   }
 

@@ -11,11 +11,12 @@ SOURCES = $(wildcard src/*.c)
 configure:
 	cmake -S . -B $(BUILD_DIR)
 
-build:
-	gcc -Wall -Wextra -Werror -std=c11 -g $(SOURCES) -o ifj26-compiler
+build: $(SOURCES)
+	gcc -Wall -Wextra -std=c11 -g $(SOURCES) -o ifj26-compiler
 
 run: build
-	./ifj26-compiler
+	./ifj26-compiler > prg.code
+	ic26int prg.code < prg.in > prg.out
 
 test: build configure
 	cmake --build $(BUILD_DIR)
