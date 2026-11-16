@@ -1546,7 +1546,9 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  /// Consume the 'val' or 'var' keyword
+  /// Remember the position of the 'val'/'var' keyword, then consume it
+  size_t definition_line = lexer->token.line;
+  size_t definition_column = lexer->token.column;
   status =
       parser_expect_and_consume(lexer, constant ? TOKEN_KW_VAL : TOKEN_KW_VAR);
   if (status != PARSER_OK) {
@@ -1605,7 +1607,7 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
 
   /// Create an assignment node for the variable initialization
   ASTNode *assignment_node = ast_node_create_assign(
-      var_symbol, expression_node, lexer->token.line, lexer->token.column);
+      var_symbol, expression_node, definition_line, definition_column);
   if (assignment_node == NULL) {
     ast_node_destroy(expression_node);
     return PARSER_INTERNAL_ERROR;

@@ -1084,6 +1084,171 @@ static SemanticStatus statement_result(ASTNode *node, BodyResult *out_result) {
 }
 
 /**
+ * @brief Creates a typed `return ()` at the position of @p at.
+ * @param at Node whose source position the new nodes take.
+ * @return An owned return node, or null on allocation failure.
+ */
+static ASTNode *create_unit_return(const ASTNode *at) {
+  ASTNode *unit = ast_node_create_unit(at->line, at->column);
+  ASTNode *ret;
+
+  if (unit == NULL) {
+    return NULL;
+  }
+  ret = ast_node_create_return(unit, at->line, at->column);
+  if (ret == NULL) {
+    ast_node_destroy(unit);
+    return NULL;
+  }
+  ret->inferred_type.type = type_scalar(TYPE_UNIT);
+  return ret;
+}
+
+/**
+ * @brief Places a `return ()` right after the statement in @p slot.
+ * @details Two cases are distinguished by @p parent_block:
+ *
+ * @code
+ *   BLOCK                 BLOCK
+ *     ASSIGN       ->       ASSIGN
+ *                           RETURN
+ *                             UNIT
+ *
+ *   IF                    IF
+ *     cond                  cond
+ *     ASSIGN       ->       BLOCK        <- new block in the branch slot
+ *     ...                     ASSIGN     <- the original statement
+ *                             RETURN
+ *                               UNIT
+ *                           ...
+ * @endcode
+ * @param slot Slot holding the last statement of a body.
+ * @param parent_block Block whose last statement is in @p slot, or null.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus append_unit_return(ASTNode **slot,
+                                         ASTNode *parent_block) {
+  ASTNode *statement = *slot;
+  ASTNode *ret = create_unit_return(statement);
+  ASTNode *block;
+
+  if (ret == NULL) {
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+
+  /// The return is appended to the parent block when the statement is that
+  /// block's last one; otherwise the statement is wrapped in a new block.
+  if (parent_block != NULL) {
+    if (ast_node_block_append_statement(parent_block, ret) != AST_OK) {
+      ast_node_destroy(ret);
+      return SEMANTIC_INTERNAL_ERROR;
+    }
+    return SEMANTIC_OK;
+  }
+
+  /// Case 2: the statement is a bare `if` branch; wrap it in a new block
+  /// `{ statement; return () }` that replaces it in the branch slot.
+  block = ast_node_create_block(statement->line, statement->column);
+  if (block == NULL) {
+    ast_node_destroy(ret);
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  block->inferred_type.type = type_scalar(TYPE_UNIT);
+  if (ast_node_block_append_statement(block, statement) != AST_OK) {
+    ast_node_destroy(block);
+    ast_node_destroy(ret);
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  /// The block owns the statement from now on.
+  *slot = block;
+  if (ast_node_block_append_statement(block, ret) != AST_OK) {
+    ast_node_destroy(ret);
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  return SEMANTIC_OK;
+}
+
+/**
+ * @brief Makes every path through an already checked body end with an
+ * explicit `return` that has a value.
+ * @details In a Unit function the final statement is kept (evaluated and
+ * dropped) and a `return ()` is placed after it. In other functions the final
+ * value expression is wrapped in a return. A final `if` statement is handled
+ * per branch; in a Unit function a missing else gets a `return ()` after the
+ * `if`. Existing returns are left untouched.
+ * @param slot Slot holding the body (or the tail statement being processed).
+ * @param parent_block Block whose last statement is in @p slot, or null.
+ * @param unit_function True when the function returns Unit.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus add_implicit_return(ASTNode **slot, ASTNode *parent_block,
+                                          bool unit_function) {
+  ASTNode *node = *slot;
+  ASTNode *ret;
+  SemanticStatus status;
+
+  switch (node->kind) {
+  case AST_RETURN:
+    /// Already a return, nothing to do.
+    return SEMANTIC_OK;
+
+  case AST_BLOCK:
+    /// The block itself is Unit, but its last statement may be a value
+    /// expression.
+    if (node->data.block.statement_count == 0U) {
+      /// An empty block has the value (), valid only in a Unit function.
+      ret = create_unit_return(node);
+      if (ret == NULL) {
+        return SEMANTIC_INTERNAL_ERROR;
+      }
+      if (ast_node_block_append_statement(node, ret) != AST_OK) {
+        ast_node_destroy(ret);
+        return SEMANTIC_INTERNAL_ERROR;
+      }
+      return SEMANTIC_OK;
+    }
+    return add_implicit_return(
+        &node->data.block.statements[node->data.block.statement_count - 1U],
+        node, unit_function);
+
+  case AST_IF:
+    /// The branches are checked separately; a missing else is handled below.
+    if (node->data.if_statement.used_as_an_expression) {
+      break;
+    }
+    status = add_implicit_return(&node->data.if_statement.then_branch, NULL,
+                                 unit_function);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (node->data.if_statement.else_branch != NULL) {
+      return add_implicit_return(&node->data.if_statement.else_branch, NULL,
+                                 unit_function);
+    }
+    /// A missing else behaves as () (only valid in a Unit function).
+    return unit_function ? append_unit_return(slot, parent_block) : SEMANTIC_OK;
+
+  default:
+    break;
+  }
+
+  if (unit_function) {
+    /// The final statement is evaluated and its value is dropped; a `return ()`
+    /// is placed after it.
+    return append_unit_return(slot, parent_block);
+  }
+
+  /// The final value becomes the returned value.
+  ret = ast_node_create_return(node, node->line, node->column);
+  if (ret == NULL) {
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  ret->inferred_type.type = node->inferred_type.type;
+  *slot = ret;
+  return SEMANTIC_OK;
+}
+
+/**
  * @brief Checks one function body and fixes its return type (memoized DFS).
  * @details Functions reached through calls of not-annotated functions are
  * checked first, so this resolves the return types in topological order.
@@ -1140,6 +1305,14 @@ static SemanticStatus check_function(SemanticContext *ctx,
       return SEMANTIC_TYPE_ERROR;
     }
     function->return_type.type = result.type;
+  }
+
+  /// Make the implicit return at the end of the body explicit.
+  status = add_implicit_return(
+      &function->ast_root, NULL,
+      type_is_scalar(function->return_type.type, TYPE_UNIT));
+  if (status != SEMANTIC_OK) {
+    return status;
   }
 
   function->check_state = FUNCTION_CHECKED;

@@ -331,10 +331,13 @@ TEST_F(SemanticTest, IfAsLastStatementYieldsCommonValue) {
              block({real(2.5)})));
   ASSERT_EQ(check(), SEMANTIC_OK);
   EXPECT_TRUE(type_is_scalar(f->return_type.type, TYPE_REAL));
-  ASTNode *then_value =
+  /// The branch value is widened and then wrapped in an implicit return.
+  ASTNode *then_tail =
       f->ast_root->data.block.statements[0]
           ->data.if_statement.then_branch->data.block.statements[0];
-  EXPECT_EQ(then_value->kind, AST_IMPLICIT_INT_TO_REAL);
+  ASSERT_EQ(then_tail->kind, AST_RETURN);
+  EXPECT_EQ(then_tail->data.return_statement.value->kind,
+            AST_IMPLICIT_INT_TO_REAL);
 }
 
 TEST_F(SemanticTest, IfWithIncompatibleBranchValuesIsError6) {
@@ -436,4 +439,118 @@ TEST_F(SemanticTest, EmptyListTakesAnnotatedType) {
                       true, true, &e);
   add(m, define(e, ast_node_create_list_constructor(1, 1)));
   EXPECT_EQ(check(), SEMANTIC_OK);
+}
+
+namespace {
+/// Last statement of a block.
+ASTNode *last(ASTNode *block) {
+  return block->data.block.statements[block->data.block.statement_count - 1U];
+}
+/// True for `return ()`.
+bool is_unit_return(ASTNode *node) {
+  return node->kind == AST_RETURN &&
+         node->data.return_statement.value != nullptr &&
+         node->data.return_statement.value->kind == AST_CONSTANT_UNIT;
+}
+} // namespace
+
+TEST_F(SemanticTest, EmptyUnitBodyGetsImplicitUnitReturn) {
+  FunctionSymbol *m = def_main();
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASSERT_EQ(m->ast_root->data.block.statement_count, 1U);
+  EXPECT_TRUE(is_unit_return(last(m->ast_root)));
+}
+
+TEST_F(SemanticTest, UnitBodyKeepsLastStatementAndReturnsUnit) {
+  // @main def main(): Unit =
+  //   val x: Int = 0         -> followed by an implicit `return ()`
+  FunctionSymbol *m = def_main();
+  Symbol *x = var(m, "x", TYPE_INT, true);
+  add(m, define(x, integer(0)));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASSERT_EQ(m->ast_root->data.block.statement_count, 2U);
+  EXPECT_EQ(m->ast_root->data.block.statements[0]->kind, AST_ASSIGN);
+  EXPECT_TRUE(is_unit_return(last(m->ast_root)));
+}
+
+TEST_F(SemanticTest, IntBodyTailValueIsWrappedInReturn) {
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_INT);
+  add(f, integer(7));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASSERT_EQ(f->ast_root->data.block.statement_count, 1U);
+  ASTNode *r = last(f->ast_root);
+  ASSERT_EQ(r->kind, AST_RETURN);
+  EXPECT_EQ(r->data.return_statement.value->kind, AST_CONSTANT_INT);
+  EXPECT_TRUE(type_is_scalar(r->inferred_type.type, TYPE_INT));
+}
+
+TEST_F(SemanticTest, WidenedTailValueIsWrappedInReturn) {
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_REAL);
+  add(f, integer(7));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASTNode *r = last(f->ast_root);
+  ASSERT_EQ(r->kind, AST_RETURN);
+  EXPECT_EQ(r->data.return_statement.value->kind, AST_IMPLICIT_INT_TO_REAL);
+}
+
+TEST_F(SemanticTest, InferredBodyTailValueIsWrappedInReturn) {
+  def_main();
+  FunctionSymbol *g = def("g");
+  add(g, integer(2));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASTNode *r = last(g->ast_root);
+  ASSERT_EQ(r->kind, AST_RETURN);
+  EXPECT_EQ(r->data.return_statement.value->kind, AST_CONSTANT_INT);
+}
+
+TEST_F(SemanticTest, ExplicitTailReturnIsNotDuplicated) {
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_INT);
+  add(f, ret(integer(1)));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASSERT_EQ(f->ast_root->data.block.statement_count, 1U);
+  EXPECT_EQ(last(f->ast_root)->data.return_statement.value->kind,
+            AST_CONSTANT_INT);
+}
+
+TEST_F(SemanticTest, TailIfStatementGetsReturnInEachBranch) {
+  // def f(): Int =
+  //   if 1 < 2 then { 1 } else { return 2 }
+  def_main();
+  FunctionSymbol *f = def("f", TYPE_INT);
+  add(f, if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}),
+             block({ret(integer(2))})));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASTNode *i = last(f->ast_root);
+  ASSERT_EQ(i->kind, AST_IF);
+  ASTNode *then_tail = last(i->data.if_statement.then_branch);
+  ASSERT_EQ(then_tail->kind, AST_RETURN);
+  EXPECT_EQ(then_tail->data.return_statement.value->kind, AST_CONSTANT_INT);
+  ASSERT_EQ(i->data.if_statement.else_branch->data.block.statement_count, 1U);
+}
+
+TEST_F(SemanticTest, TailIfStatementInUnitFunctionReturnsUnitInBranches) {
+  // A non-block branch is wrapped in a block together with `return ()`.
+  FunctionSymbol *m = def_main();
+  Symbol *x = var(m, "x", TYPE_INT, false);
+  add(m, if_(bin(AST_LESS, integer(1), integer(2)), assign(x, integer(1)),
+             block({assign(x, integer(2))})));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  ASTNode *i = last(m->ast_root);
+  ASSERT_EQ(i->kind, AST_IF);
+  ASTNode *then_b = i->data.if_statement.then_branch;
+  ASSERT_EQ(then_b->kind, AST_BLOCK);
+  ASSERT_EQ(then_b->data.block.statement_count, 2U);
+  EXPECT_EQ(then_b->data.block.statements[0]->kind, AST_ASSIGN);
+  EXPECT_TRUE(is_unit_return(last(then_b)));
+  EXPECT_TRUE(is_unit_return(last(i->data.if_statement.else_branch)));
 }
