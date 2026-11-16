@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include <string>
 
 extern "C" {
 #include "../src/ast.h"
@@ -25,9 +26,14 @@ protected:
                       std::initializer_list<BaseType> params = {}) {
     FunctionSymbol *f = ref(name);
     f->is_defined = true;
-    function_symbol_create_local_scope(f);
+    SymbolTable *scope = function_symbol_create_local_scope(f);
+    int index = 0;
     for (BaseType p : params) {
-      function_symbol_add_parameter(f, type_scalar(p));
+      std::string name = "p" + std::to_string(index++);
+      Symbol *symbol = nullptr;
+      symbol_table_define(scope, name.c_str(), type_scalar(p), true, true,
+                          &symbol);
+      function_symbol_add_parameter(f, symbol);
     }
     if (explicit_ret != TYPE_UNKNOWN) {
       f->return_type.type = type_scalar(explicit_ret);

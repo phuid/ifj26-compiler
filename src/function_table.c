@@ -55,7 +55,7 @@ void function_table_destroy(FunctionTable *table) {
     ast_node_destroy(table->functions[index]->ast_root);
     type_entity_destroy(&table->functions[index]->return_type);
     symbol_table_destroy(table->functions[index]->local_scope);
-    free(table->functions[index]->parameter_types);
+    free(table->functions[index]->parameters);
     free(table->functions[index]->callees);
     free(table->functions[index]->name);
     free(table->functions[index]);
@@ -154,17 +154,17 @@ FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
 }
 
 FunctionTableStatus function_symbol_add_parameter(FunctionSymbol *function,
-                                                  DataType type) {
-  if (function == NULL) {
+                                                  Symbol *symbol) {
+  if (function == NULL || symbol == NULL) {
     return FUNCTION_TABLE_INVALID_ARGUMENT;
   }
   if (dynamic_array_reserve(
-          (void **)&function->parameter_types, &function->parameter_capacity,
+          (void **)&function->parameters, &function->parameter_capacity,
           function->argument_count + 1U,
-          sizeof(*function->parameter_types)) != DYNAMIC_ARRAY_OK) {
+          sizeof(*function->parameters)) != DYNAMIC_ARRAY_OK) {
     return FUNCTION_TABLE_OUT_OF_MEMORY;
   }
-  function->parameter_types[function->argument_count] = type;
+  function->parameters[function->argument_count] = symbol;
   function->argument_count += 1U;
   return FUNCTION_TABLE_OK;
 }

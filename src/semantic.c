@@ -88,6 +88,7 @@ static const BuiltinSignature BUILTINS[] = {
 static SemanticStatus register_builtins(Program *program) {
   size_t index;
   size_t parameter;
+  SymbolTable *local_scope;
 
   for (index = 0U; index < sizeof(BUILTINS) / sizeof(BUILTINS[0]);
        index += 1U) {
@@ -111,11 +112,23 @@ static SemanticStatus register_builtins(Program *program) {
     function->has_explicit_return_type = true;
     function->return_type.type = type_scalar(BUILTINS[index].return_type);
     function->argument_count = 0U;
+    /// Parameters live in the builtin's own local scope like those of user
+    /// functions; their names are synthetic and never visible to the program.
+    local_scope = function_symbol_create_local_scope(function);
+    if (local_scope == NULL) {
+      return SEMANTIC_INTERNAL_ERROR;
+    }
     for (parameter = 0U; parameter < BUILTINS[index].parameter_count;
          parameter += 1U) {
-      if (function_symbol_add_parameter(
-              function, type_scalar(BUILTINS[index].parameters[parameter])) !=
-          FUNCTION_TABLE_OK) {
+      static const char *const NAMES[] = {"p0", "p1", "p2"};
+      Symbol *symbol;
+
+      if (symbol_table_define(
+              local_scope, NAMES[parameter],
+              type_scalar(BUILTINS[index].parameters[parameter]), true, true,
+              &symbol) != SYMTABLE_OK ||
+          function_symbol_add_parameter(function, symbol) !=
+              FUNCTION_TABLE_OK) {
         return SEMANTIC_INTERNAL_ERROR;
       }
     }
@@ -404,7 +417,7 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
   /// Arguments only need the callee's signature (known after parsing).
   for (index = 0U; index < node->data.call.argument_count; index += 1U) {
     DataType argument_type;
-    DataType parameter_type = callee->parameter_types[index];
+    DataType parameter_type = callee->parameters[index]->type.type;
 
     status = check_expression(ctx, function, &node->data.call.arguments[index],
                               &argument_type);
