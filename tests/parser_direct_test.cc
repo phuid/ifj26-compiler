@@ -226,7 +226,9 @@ TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
   fclose(stream);
 }
 
-TEST(ParserDirectLexerTest, OnlyLastIfStatementInBlockIsMarkedAsExpression) {
+/// The parser marks only an `if` in operand position; whether the value of a
+/// final `if` of a block is used is decided by the semantic pass.
+TEST(ParserDirectLexerTest, IfStatementsInBlockAreNotMarkedAsExpression) {
   FILE *stream = stream_with_main("def foo() =\n  if true then return\n"
                                   "  if false then return\n  else return");
   ASSERT_NE(stream, nullptr);
@@ -247,7 +249,7 @@ TEST(ParserDirectLexerTest, OnlyLastIfStatementInBlockIsMarkedAsExpression) {
   ASSERT_EQ(first->kind, AST_IF);
   ASSERT_EQ(last->kind, AST_IF);
   EXPECT_FALSE(first->data.if_statement.used_as_an_expression);
-  EXPECT_TRUE(last->data.if_statement.used_as_an_expression);
+  EXPECT_FALSE(last->data.if_statement.used_as_an_expression);
 
   program_destroy(&program);
   lexer_destroy(&lexer);

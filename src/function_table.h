@@ -31,7 +31,7 @@ typedef struct FunctionSymbol {
   char *name;
   TypeEntity return_type;
   /// True when the header contains `: type`. Only then may the function take
-  /// part in (mutual) recursion or contain `return` (spec 2.3).
+  /// part in (mutual) recursion or contain `return`.
   bool has_explicit_return_type;
   size_t argument_count;
   /// Parameter bindings in source order; @c argument_count items. Borrowed

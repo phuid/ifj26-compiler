@@ -59,6 +59,11 @@ typedef enum {
   AST_RETURN,
   /** Conditional expression or statement; activates @c data.if_statement. */
   AST_IF,
+  /** While loop statement; activates @c data.while_loop. */
+  AST_WHILE,
+  /** For loop statement iterating over a list (ranges built by `to`, `until`
+     and `by` are lists too); activates @c data.for_loop. */
+  AST_FOR,
   /** Addition; activates @c data.binary_op. */
   AST_ADD,
   /** Subtraction; activates @c data.binary_op. */
@@ -150,6 +155,23 @@ struct ASTNode {
       ASTNode *else_branch;
       bool used_as_an_expression;
     } if_statement;
+    struct {
+      /** Boolean condition evaluated before every iteration. */
+      ASTNode *condition;
+      /** Loop body; a block or a one-line statement. */
+      ASTNode *body;
+    } while_loop;
+    struct {
+      /** Borrowed immutable control variable defined in the loop scope. */
+      Symbol *variable;
+      /** List the generator iterates over; evaluated once. */
+      ASTNode *iterable;
+      /** All guards joined by AST_AND (left to right), or null without
+         guards. Evaluated for every element; the body runs only when true. */
+      ASTNode *guard;
+      /** Loop body; a block or a one-line statement. */
+      ASTNode *body;
+    } for_loop;
     struct {
       ASTNode **statements;
       size_t statement_count;
@@ -315,6 +337,35 @@ ASTNode *ast_node_create_return(ASTNode *value, size_t line, size_t column);
  */
 ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
                             ASTNode *else_branch, size_t line, size_t column);
+
+/**
+ * @brief Creates a while-loop node.
+ * @details Ownership of both children transfers on success only.
+ * @param condition Non-null condition expression.
+ * @param body Non-null loop body (block or one-line statement).
+ * @param line One-based source line of the `while` keyword.
+ * @param column One-based source column of the `while` keyword.
+ * @return An owned node with @c kind AST_WHILE, or null for an invalid
+ * argument or allocation failure.
+ */
+ASTNode *ast_node_create_while(ASTNode *condition, ASTNode *body, size_t line,
+                               size_t column);
+
+/**
+ * @brief Creates a for-loop node `for variable <- iterable [if guard] do body`.
+ * @details Ownership of all non-null children transfers on success only.
+ * @param variable Non-null borrowed control variable; it must outlive the AST.
+ * @param iterable Non-null expression producing the iterated list.
+ * @param guard Combined guard expression, or null when there is no guard.
+ * @param body Non-null loop body (block or one-line statement).
+ * @param line One-based source line of the `for` keyword.
+ * @param column One-based source column of the `for` keyword.
+ * @return An owned node with @c kind AST_FOR, or null for an invalid argument
+ * or allocation failure.
+ */
+ASTNode *ast_node_create_for(Symbol *variable, ASTNode *iterable,
+                             ASTNode *guard, ASTNode *body, size_t line,
+                             size_t column);
 
 /**
  * @brief Constructs an owned binary arithmetic node.
