@@ -34,8 +34,10 @@ typedef struct FunctionSymbol {
   /// part in (mutual) recursion or contain `return` (spec 2.3).
   bool has_explicit_return_type;
   size_t argument_count;
-  /// Declared parameter types in source order; @c argument_count items.
-  DataType *parameter_types;
+  /// Parameter bindings in source order; @c argument_count items. Borrowed
+  /// from @c local_scope (owned by its BVS); the declared type of a parameter
+  /// is its symbol's type.
+  Symbol **parameters;
   size_t parameter_capacity;
   SymbolTable *local_scope;
   ASTNode *ast_root;
@@ -46,7 +48,7 @@ typedef struct FunctionSymbol {
   /// Semantic-analysis data, filled by semantic_check().
   /// Call-graph edges: distinct functions called anywhere in the body
   /// (borrowed).
-  struct FunctionSymbol **callees;
+  FunctionSymbol **callees;
   size_t callee_count;
   size_t callee_capacity;
   bool contains_return;
@@ -90,9 +92,13 @@ SymbolTable *function_symbol_create_local_scope(FunctionSymbol *function);
 FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
                                                  ASTNode *ast_root);
 
-/** Appends one declared parameter type to the function signature. */
+/**
+ * Appends one declared parameter to the function signature.
+ * @param symbol Borrowed binding of the parameter in the function's local
+ * scope; its type is the parameter's declared type.
+ */
 FunctionTableStatus function_symbol_add_parameter(FunctionSymbol *function,
-                                                  DataType type);
+                                                  Symbol *symbol);
 
 /** Records a call-graph edge @p function -> @p callee (duplicates ignored). */
 FunctionTableStatus function_symbol_add_callee(FunctionSymbol *function,

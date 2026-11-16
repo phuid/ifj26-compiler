@@ -2007,7 +2007,7 @@ static ParserStatus p_def_args(Lexer *lexer, Program *program,
       }
 
       /// Record the parameter type in the signature (in source order).
-      if (function_symbol_add_parameter(function, arg_symbol->type.type) !=
+      if (function_symbol_add_parameter(function, arg_symbol) !=
           FUNCTION_TABLE_OK) {
         return PARSER_INTERNAL_ERROR;
       }
