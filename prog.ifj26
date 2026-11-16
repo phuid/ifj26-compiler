@@ -1,3 +1,4 @@
 @main def test(): Unit =
-    val x: Int = 0
-    return
+    val x: String =  subStr(readLine(), 0, 3)
+    print(x)
+    return ()

@@ -16,7 +16,7 @@ build: $(SOURCES)
 
 run: build
 	./ifj26-compiler > prg.code
-	ic26int prg.code < prg.in > prg.out
+	./ic26int prg.code < prg.in > prg.out
 
 test: build configure
 	cmake --build $(BUILD_DIR)

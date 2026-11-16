@@ -8,6 +8,7 @@
 #include "codegen.h"
 #include "lexer.h"
 #include "parser.h"
+#include "semantic.h"
 #include <stdio.h>
 
 int main() {
@@ -33,6 +34,13 @@ int main() {
   err = p_program(&lexer, &program);
   if (err != PARSER_OK) {
     fprintf(stderr, "program parse error %i\n", err);
+    return 1;
+  }
+
+  SemanticStatus semantic_status = semantic_check(&program);
+
+  if (semantic_status != SEMANTIC_OK) {
+    fprintf(stderr, "semantic error %i\n", semantic_status);
     return 1;
   }
 

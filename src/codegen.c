@@ -1,9 +1,14 @@
 #include "codegen.h"
 #include "ast.h"
+#include "builtins.h"
 #include "instructions.h"
 #include "parser.h"
+#include <string.h>
 
-char *global_var_names[] = {};
+static const char *global_var_names[] = {"GF@trash"};
+
+static const size_t global_var_count =
+    sizeof(global_var_names) / sizeof(global_var_names[0]);
 
 // This is such a disqusting solution, i dont like this
 static int variable_suffix_counter = 0;
@@ -47,6 +52,10 @@ void handle_block(const ASTNode *node) {
     ASTNode *statement = node->data.block.statements[i];
     ASTNodeHandler handler = ast_handlers[statement->kind];
     handler(statement);
+    if (statement->kind == AST_FUNCTION_CALL) {
+      // TODO this is shit
+      printf("POPS GF@trash\n");
+    }
   }
 }
 
@@ -264,7 +273,9 @@ void handle_function_definition(const FunctionSymbol *function) {
 void convert_AST_to_assembler(Program *program) {
   print_prolog();
 
-  // TODO global var definitions
+  for (size_t i = 0; i < global_var_count; i++) {
+    printf("DEFVAR %s\n", global_var_names[i]);
+  }
 
   FunctionSymbol *main = NULL;
   for (size_t i = 0; i < program->functions.function_count; i++) {
@@ -281,8 +292,15 @@ void convert_AST_to_assembler(Program *program) {
   print_CALL(main->name);
   print_EXIT(0);
 
+  for (size_t i = 0; i < BUILTIN_COUNT; i++) {
+    printf("%s", BUILTINS[i].assembler_code);
+  }
+
   for (size_t i = 0; i < program->functions.function_count; i++) {
     const FunctionSymbol *function = program->functions.functions[i];
-    handle_function_definition(function);
+    // built in functions are handled separately
+    if (!function->is_builtin) {
+      handle_function_definition(function);
+    }
   }
 }

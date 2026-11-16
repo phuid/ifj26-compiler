@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "builtins.h"
+
 /** State shared by the whole semantic pass. */
 typedef struct {
   Program *program; ///< Program being checked (borrowed).
@@ -49,34 +51,6 @@ typedef struct {
   DataType type;   ///< Type of the value; meaningful only for RESULT_VALUE.
 } BodyResult;
 
-/* ------------------------------------------------------------------------- */
-/* Builtin functions                                                         */
-/* ------------------------------------------------------------------------- */
-
-/** Fixed signature of one builtin function of IFJ26. */
-typedef struct {
-  const char *name;       ///< Name as written in the source code.
-  BaseType return_type;   ///< Type of the value the builtin returns.
-  size_t parameter_count; ///< Number of used items in @c parameters.
-  /// Parameter types in source order; TYPE_ANY accepts any value.
-  BaseType parameters[3];
-} BuiltinSignature;
-
-/** Signatures of all builtin functions, matched to the program by name. */
-static const BuiltinSignature BUILTINS[] = {
-    {"print", TYPE_UNIT, 1U, {TYPE_ANY}},
-    {"readLine", TYPE_STRING, 0U, {TYPE_UNKNOWN}},
-    {"readInt", TYPE_INT, 0U, {TYPE_UNKNOWN}},
-    {"readDouble", TYPE_REAL, 0U, {TYPE_UNKNOWN}},
-    {"readBoolean", TYPE_BOOL, 0U, {TYPE_UNKNOWN}},
-    {"toStr", TYPE_STRING, 1U, {TYPE_ANY}},
-    {"toInt", TYPE_INT, 1U, {TYPE_REAL}},
-    {"strLength", TYPE_INT, 1U, {TYPE_STRING}},
-    {"subStr", TYPE_STRING, 3U, {TYPE_STRING, TYPE_INT, TYPE_INT}},
-    {"ord", TYPE_INT, 2U, {TYPE_STRING, TYPE_INT}},
-    {"chr", TYPE_STRING, 1U, {TYPE_INT}},
-};
-
 /**
  * @brief Gives signatures to builtins referenced (but not defined) by the
  * program.
@@ -91,8 +65,7 @@ static SemanticStatus register_builtins(Program *program) {
   size_t parameter;
   SymbolTable *local_scope;
 
-  for (index = 0U; index < sizeof(BUILTINS) / sizeof(BUILTINS[0]);
-       index += 1U) {
+  for (index = 0U; index < BUILTIN_COUNT; index += 1U) {
     FunctionSymbol *function =
         function_table_lookup(&program->functions, BUILTINS[index].name);
 
