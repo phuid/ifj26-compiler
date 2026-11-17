@@ -103,7 +103,8 @@ const OpCase kOps[] = {
     {AST_ADD, S, S, OK, S}, {AST_LESS, S, S, OK, B}, {AST_EQUAL, U, U, OK, B},
     {AST_SUBTRACT, S, S, E6, N}, {AST_MULTIPLY, S, S, E6, N}, {AST_DIVIDE, S, S, E6, N},
     {AST_LESS, U, U, E6, N}, {AST_EQUAL, I, S, E6, N}, {AST_ADD, R, S, E6, N},
-    {AST_LESS, B, I, E6, N}, {AST_ADD, I, B, E6, N},
+    {AST_LESS, B, I, E6, N}, {AST_ADD, I, B, E6, N}, {AST_EQUAL, B, B, E6, N},
+    {AST_NOT_EQUAL, S, S, OK, B},
 };
 class OperatorTable : public TableTest<OpCase> {};
 TEST_P(OperatorTable, TypesOperands) {
@@ -135,6 +136,7 @@ const BuiltinCase kBuiltins[] = {
     {"print", {R}, OK, U}, {"print", {U}, OK, U}, {"toStr", {I}, OK, S}, {"toStr", {U}, OK, S},
     {"print", {B}, E5, N}, {"toStr", {B}, E5, N}, {"print", {}, E5, N}, {"print", {I, I}, E5, N},
     {"readInt", {I}, E5, N}, {"subStr", {S, I}, E5, N}, {"ord", {S, R}, E5, N}, {"chr", {S}, E5, N},
+    {"strLength", {S}, OK, I}, {"readInt", {}, OK, I},
 };
 class BuiltinTable : public TableTest<BuiltinCase> {};
 TEST_P(BuiltinTable, ChecksCallAgainstSignature) {
@@ -174,6 +176,7 @@ const CoercionCase kCoercions[] = {
     {DEFINE, R, I, OK, true}, {DEFINE, I, S, E6, false}, {DEFINE, N, U, OK, false}, {DEFINE, N, B, E6, false},
     {ASSIGN, R, I, OK, true}, {ASSIGN, I, R, E6, false}, {ASSIGN, I, B, E6, false},
     {RETURN, R, I, OK, true}, {RETURN, U, N, OK, false}, {RETURN, I, N, E6, false}, {RETURN, I, B, E6, false},
+    {RETURN, U, I, OK, false}, {RETURN, U, S, OK, false}, // Unit: value evaluated and discarded (rule 4)
     {ARG, R, I, OK, true}, {ARG, I, B, E5, false},
     {LAST, R, I, OK, true}, {LAST, U, I, OK, false}, {LAST, S, I, E6, false}, {LAST, I, B, E6, false},
     {LAST, N, B, E6, false},
@@ -236,6 +239,14 @@ const BodyCase kBodies[] = {
     {U, [](FunctionSymbol *f) { f->is_main = true; }, E4, N},
     {U, [](FunctionSymbol *f) { function_symbol_add_parameter(f, I); add(f, assign(var(f, "n", I), integer(2))); }, E7, N},
     {U, [](FunctionSymbol *f) { Symbol *x = var(f, "x", N); add(f, define(x, ref_var(x))); }, E3, N},
+    // An error nested in a return value, an if condition or a left operand is
+    // reported unchanged (3), not replaced by the enclosing node's 6 checks.
+    {I, [](FunctionSymbol *f) { add(f, ret(ref_var(var(f, "x", N)))); }, E3, N},
+    {U, [](FunctionSymbol *f) { add(f, if_(ref_var(var(f, "x", N)), block({unit()}))); }, E3, N},
+    {U, [](FunctionSymbol *f) { Symbol *x = var(f, "x", N); add(f, define(x, bin(AST_ADD, ref_var(x), integer(1)))); },
+     E3, N},
+    // A conversion node already in the AST has type Double (ast.h).
+    {N, [](FunctionSymbol *f) { add(f, ast_node_create_implicit_int_to_real(integer(1))); }, OK, R},
 };
 class BodyTable : public TableTest<BodyCase> {};
 TEST_P(BodyTable, InfersOrRejectsResult) {
@@ -297,4 +308,75 @@ TEST_F(SemanticGapTest, FunctionCalledTwiceIsCheckedOnce) {
   ASTNode *v = stmt(g, 0)->data.assignment.value;
   ASSERT_TRUE(widened(v));
   EXPECT_EQ(v->data.conversion.operand->kind, AST_CONSTANT_INT);
+}
+
+/*
+ * AI-generated test block — pass order and first-error reporting.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Errors follow the semantic.h pass order (builtins, undefined/main,
+ *   return/cycle, typing); an error in a callee checked on demand is reported.
+ */
+TEST_F(SemanticGapTest, ErrorInOnDemandCalleeIsReported) {
+  // main (first in the table) calls not-annotated g, whose body is "a" + 1,
+  // and only then assigns to a `val` (7). g is checked at the call, so its 6
+  // is the first error; checking g only after main would report 7.
+  FunctionSymbol *m = def_main();
+  FunctionSymbol *g = def("g");
+  Symbol *k = var(m, "k", I);
+  add(m, call(g));
+  add(m, define(k, integer(1)));
+  add(m, assign(k, integer(2)));
+  add(g, bin(AST_ADD, str("a"), integer(1)));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
+TEST_F(SemanticGapTest, BuiltinRedefinitionIsReportedBeforeMissingMain) {
+  def("print", U);
+  EXPECT_EQ(check(), SEMANTIC_REDEFINITION);
+}
+
+TEST_F(SemanticGapTest, UndefinedCalleeIsReportedBeforeMissingAnnotation) {
+  def_main();
+  FunctionSymbol *f = def("f");
+  add(f, call(ref("undef")));
+  add(f, ret(nullptr));
+  EXPECT_EQ(check(), SEMANTIC_UNDEFINED);
+}
+
+TEST_F(SemanticGapTest, UndefinedFunctionIsReportedBeforeTypeErrors) {
+  FunctionSymbol *m = def_main();
+  add(m, bin(AST_ADD, str("a"), integer(1)));
+  FunctionSymbol *g = def("g", U);
+  add(g, call(ref("nope")));
+  EXPECT_EQ(check(), SEMANTIC_UNDEFINED);
+}
+
+/*
+ * AI-generated test block — cycle detection behind an acyclic caller.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   a -> b -> c -> b with only c annotated: a is not on a cycle but b is,
+ *   so the program is 6 even though a is queried first.
+ */
+TEST_F(SemanticGapTest, CycleBehindAcyclicCallerIsError6) {
+  def_main();
+  FunctionSymbol *a = def("a"), *b = def("b"), *c = def("c", I);
+  add(a, call(b)); add(b, call(c)); add(c, call(b)); add(c, integer(1));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
+
+/*
+ * AI-generated test block — malformed program without a function body.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   A defined function whose ast_root is NULL is an internal error (99),
+ *   not a crash, like the NULL/uninitialized program case.
+ */
+TEST_F(SemanticGapTest, DefinedFunctionWithoutBodyIsInternalError) {
+  def_main();
+  FunctionSymbol *f = def("f", U);
+  ast_node_destroy(f->ast_root);
+  f->ast_root = nullptr;
+  EXPECT_EQ(check(), SEMANTIC_INTERNAL_ERROR);
 }
