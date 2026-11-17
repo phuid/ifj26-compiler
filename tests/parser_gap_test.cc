@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 
 #include "gtest/gtest.h"
 
@@ -116,6 +117,7 @@ TEST(ParserGapStatusTest, ValidSourcesAreAccepted) {
       {"def f(a:\n  Int) =\n  return\n", 1},
       {"def f(a\n  : Int) =\n  return\n", 1},
       {"@main\n\ndef main() =\n  return\n", 1},
+      {"def f(\n    a: Int,\n  b: Int) =\n  return\n", 1},
   };
   for (const Case &c : cases) {
     SCOPED_TRACE(c.source);
@@ -163,6 +165,8 @@ TEST(ParserGapStatusTest, MalformedSourcesAreSyntaxErrors) {
       "def f() =\n    return\n  return\n", "def f() =\n  return\n  else\n",
       "def f() =\n  then\n", "def f() =\n  import\n",
       "def f() =\n  return return\n",
+      "def f(): List =\n  return\n",                          // not a type
+      "def f(\n  a: Int,\nb: Int) =\n  return\n",           // `(` line indent
   };
   expect_status(sources, PARSER_SYNTAX_ERROR);
 }
@@ -180,6 +184,12 @@ TEST(ParserGapStatusTest, SemanticAndLexerErrorsArePropagated) {
   const char *const lexical[] = {
       "  def f() =\n  return\n", "def f() =\n  return\n  $\n",
       "def f() =\n  return\ndef g() =\n  return\n\"abc",
+      "def $", "def f$", "def f($", "def f(a$", "def f(a:$", "def f(a:\n  $",
+      "def f(a: Int$", "def f(a: Int,\n$", "def f()$", "def f():$",
+      "def f(): Int$", "def f() =$", "def f() =\n  $", "def f() =\n  return$",
+      "def f() =\n  val x$", "def f() =\n  val x:$",
+      "def f() =\n  val x: Int$", "def f() =\n  if$", "def f() =\n  ;$",
+      "@main$", "@main\n$", "@main def$", "def f() =\n  return\n$",
   };
   expect_status(lexical, PARSER_LEXER_ERROR);
 }
@@ -269,12 +279,21 @@ TEST(ParserGapKnownGapTest, DISABLED_IfElseIsAccepted) {
 
 // Needs p_expression (p_call_args / p_operand are never reached).
 TEST(ParserGapKnownGapTest, DISABLED_CallArgumentsAreAccepted) {
-  EXPECT_EQ(parse("def g(a: Int) =\n  h(1, 2.5, \"s\", a, h())\n"), PARSER_OK);
+  EXPECT_EXIT(
+      {
+        std::exit(parse("def g(a: Int) =\n  h(1, 2.5, \"s\", a, h())\n") ==
+                          PARSER_OK
+                      ? 0
+                      : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
 // Bug: null statement dereferenced at parser.c:870 (crashes if enabled).
 TEST(ParserGapKnownGapTest, DISABLED_ExpressionStatementIsAccepted) {
-  EXPECT_EQ(parse("def f() =\n  5\n"), PARSER_OK);
+  EXPECT_EXIT(
+      { std::exit(parse("def f() =\n  5\n") == PARSER_OK ? 0 : 1); },
+      ::testing::ExitedWithCode(0), "");
 }
 
 // Bug: statement must be followed by NEWLINE, `;` rejected (parser.c:884).
@@ -296,4 +315,53 @@ TEST(ParserGapKnownGapTest, DISABLED_InitializerReferencingItselfIsError) {
 TEST(ParserGapKnownGapTest, DISABLED_WhileLoopIsAccepted) {
   EXPECT_EQ(parse("def f(a: Boolean) =\n  while a do\n    return\n"),
             PARSER_OK);
+}
+
+/*
+ * AI-generated test block — function header followed by end of input.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   A function whose `=` is followed by end of input has no body; the
+ *   unexpected TOKEN_EOF must be a syntax error, not PARSER_OK.
+ */
+// Bug parser.c:1161-1176: '=' then EOF returns PARSER_OK with ast_root NULL.
+TEST(ParserGapKnownGapTest, DISABLED_MissingFunctionBodyIsSyntaxError) {
+  const char *const sources[] = {
+      "@main\ndef main(): Unit =", "@main\ndef main(): Unit = ", "def f() =",
+  };
+  expect_status(sources, PARSER_SYNTAX_ERROR);
+}
+
+/*
+ * AI-generated test block — parameter lines at the opening indentation.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Lines inside parentheses must be indented more than the line with `(`
+ *   (parser.c design rule); a line at the same indentation is a syntax error.
+ */
+// Bug parser.c:187: indent checked only on INDENT/DEDENT; same-indent passes.
+TEST(ParserGapKnownGapTest,
+     DISABLED_ParameterLineAtOpeningIndentIsSyntaxError) {
+  const char *const sources[] = {
+      "def f(\nx: Int) =\n  return\n", "def f(a:\nInt) =\n  return\n",
+  };
+  expect_status(sources, PARSER_SYNTAX_ERROR);
+}
+
+/*
+ * AI-generated test block — position of a return statement node.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   The AST_RETURN node carries the line and column of the `return`
+ *   keyword, as ast.h documents for ast_node_create_return.
+ */
+// Bug parser.c:616-617: uses the token after `return` (ast.h:238-239 differs).
+TEST(ParserGapKnownGapTest, DISABLED_ReturnNodeHasPositionOfReturnKeyword) {
+  ParsedProgram p("def f() =\n  return\n");
+  ASSERT_EQ(p.status, PARSER_OK);
+  ASSERT_NE(p.at(0)->ast_root, nullptr);
+  ASTNode *r = p.at(0)->ast_root->data.block.statements[0];
+  EXPECT_EQ(r->kind, AST_RETURN);
+  EXPECT_EQ(r->line, 2U);
+  EXPECT_EQ(r->column, 3U);
 }
