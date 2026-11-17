@@ -5,6 +5,7 @@
 
 extern "C" {
 #include "../src/parser.h"
+#include "../src/semantic.h"
 }
 
 /*
@@ -364,4 +365,36 @@ TEST(ParserGapKnownGapTest, DISABLED_ReturnNodeHasPositionOfReturnKeyword) {
   EXPECT_EQ(r->kind, AST_RETURN);
   EXPECT_EQ(r->line, 2U);
   EXPECT_EQ(r->column, 3U);
+}
+
+/*
+ * AI-generated test block — parser to semantic pipeline.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Feed real parser output into semantic_check and assert the documented
+ *   exit codes for programs the current parser accepts.
+ */
+TEST(ParserGapPipelineTest, ParsedProgramsGetDocumentedSemanticCodes) {
+  struct Case { const char *source; SemanticStatus expected; };
+  const Case cases[] = {
+      {"@main\ndef main(): Unit =\n  return\n", SEMANTIC_OK},
+      {"def f(a: Int, b: Double): Unit =\n  return\n"
+       "@main\ndef main(): Unit =\n  return\n", SEMANTIC_OK},
+      {"", SEMANTIC_UNDEFINED},                          // @main is missing
+      {"@main\ndef main() =\n  return\n",
+       SEMANTIC_TYPE_ERROR},                     // `return` needs annotation
+      {"def print(x: Int): Unit =\n  return\n"
+       "@main\ndef main(): Unit =\n  return\n",
+       SEMANTIC_REDEFINITION},                      // builtin name redefined
+      {"@main\ndef main(): Int =\n  return\n",
+       SEMANTIC_TYPE_ERROR},     // bare return in non-Unit; also @main != Unit
+      {"def f(): Int =\n  return\n@main\ndef main(): Unit =\n  return\n",
+       SEMANTIC_TYPE_ERROR},                     // bare return in non-Unit
+  };
+  for (const Case &c : cases) {
+    SCOPED_TRACE(c.source);
+    ParsedProgram p(c.source);
+    ASSERT_EQ(p.status, PARSER_OK);
+    EXPECT_EQ(semantic_check(&p.program), c.expected);
+  }
 }
