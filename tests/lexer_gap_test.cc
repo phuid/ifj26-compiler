@@ -1,4 +1,6 @@
 #include <climits>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <set>
 #include <string>
@@ -120,6 +122,13 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
        {id("a"), T(TOKEN_NEWLINE), T(TOKEN_INDENT), T(TOKEN_INDENT),
         T(TOKEN_INDENT), T(TOKEN_INDENT), id("b"), T(TOKEN_NEWLINE),
         T(TOKEN_DEDENT), T(TOKEN_DEDENT), id("c")}},
+      {"1.5.2", {D(1.5), D(0.2)}}, {"x.5", {id("x"), D(0.5)}},
+      {".e5", {T(TOKEN_DOT, "."), id("e5")}},
+      {"..5", {T(TOKEN_DOT, "."), D(0.5)}}, {"1.5dd", {D(1.5), id("d")}},
+      {"\"\"\"\"a\"\"\"", {T(TOKEN_STRING, "\"\"\"\"a\"\"\"")}},
+      {"->", {T(TOKEN_MINUS, "-"), T(TOKEN_GREATER, ">")}},
+      {"a<-1", {id("a"), T(TOKEN_FOR_GENERATOR, "<-"), I(1)}},
+      {"a < -1", {id("a"), T(TOKEN_LESS, "<"), T(TOKEN_MINUS, "-"), I(1)}},
   };
   for (const auto &test_case : cases) {
     SCOPED_TRACE(shown(test_case.input));
@@ -143,6 +152,7 @@ TEST(LexerGapTest, RejectedInputsEndInInvalidToken) {
       "~",     "^",        "\x80",     "\xFF",   " a",      "\t",
       "a\fb",  "a\vb",     "a\r\nb",   "a\n\t",  "\"caf\xC3\xA9\"",
       "\"\"\"\xC3\xA9\"\"\"",          "\"\"\"a\"\"\"\"",
+      "\"\"\"\"",  "&&&",
   };
   for (const char *input : inputs) {
     SCOPED_TRACE(shown(input));
@@ -207,6 +217,47 @@ TEST(LexerGapTest, NullArgumentsAreRejectedOrIgnored) {
   fclose(stream);
 }
 
+/*
+ * AI-generated test block — indentation adjustment overflow guards.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   lexer_change_current_indent must reject negative and size_t overflow
+ *   results without changing current_indent and must keep pending tokens.
+ */
+TEST(LexerGapTest, IndentAdjustmentRejectsOverflowAndKeepsPendingTokens) {
+  FILE *stream = stream_from("");
+  ASSERT_NE(stream, nullptr);
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, PTRDIFF_MIN),
+            LEXER_INVALID_ARGUMENT);
+  EXPECT_EQ(lexer.current_indent, 0U);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, 0), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, 0U);
+  lexer.current_indent = SIZE_MAX - 1U;
+  EXPECT_EQ(lexer_change_current_indent(&lexer, 1), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, SIZE_MAX);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, 1), LEXER_INVALID_ARGUMENT);
+  EXPECT_EQ(lexer.current_indent, SIZE_MAX);
+  static_assert(SIZE_MAX - static_cast<size_t>(PTRDIFF_MAX) ==
+                    static_cast<size_t>(PTRDIFF_MAX) + 1U,
+                "expects size_t and ptrdiff_t of equal width");
+  EXPECT_EQ(lexer_change_current_indent(&lexer, PTRDIFF_MIN), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, static_cast<size_t>(PTRDIFF_MAX));
+  lexer.current_indent = 4U;
+  EXPECT_EQ(lexer_change_current_indent(&lexer, -4), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, 0U);
+  EXPECT_EQ(lexer_change_current_indent(&lexer, -1), LEXER_INVALID_ARGUMENT);
+  EXPECT_EQ(lexer.current_indent, 0U);
+  lexer.current_indent = 0U;
+  lexer.pending_indent_delta = 3;
+  EXPECT_EQ(lexer_change_current_indent(&lexer, 5), LEXER_OK);
+  EXPECT_EQ(lexer.current_indent, 5U);
+  EXPECT_EQ(lexer.pending_indent_delta, 3);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
 TEST(KeywordGapTest, KeywordTableCoversEveryKeywordTokenOnce) {
   LexResult result = lex_all(
       "def do Double else if import Int return String then Unit val var "
@@ -233,6 +284,7 @@ TEST(KeywordGapTest, KeywordTableCoversEveryKeywordTokenOnce) {
 // Bug lexer.c:213: strtoll saturates to LLONG_MAX without an errno check.
 TEST(LexerGapTest, DISABLED_IntegerOverflowIsLexicalError) {
   EXPECT_EQ(lex_all("9223372036854775808").status, LEXER_INVALID_TOKEN);
+  EXPECT_EQ(lex_all("99999999999999999999").status, LEXER_INVALID_TOKEN);
 }
 
 // Bug lexer.c:382: a char rejected in S is never consumed, so it repeats.
