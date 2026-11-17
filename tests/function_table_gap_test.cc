@@ -99,6 +99,23 @@ TEST_F(FunctionTableGapTest, NewSymbolHasDefaultFields) {
   EXPECT_EQ(f->check_state, FUNCTION_UNCHECKED);
 }
 
+/*
+ * AI-generated test block — re-setting the same AST root.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   set_ast_root(NULL) on a fresh function is OK; setting the same root
+ *   twice keeps it instead of destroying it.
+ */
+TEST_F(FunctionTableGapTest, SettingTheSameRootAgainKeepsIt) {
+  EXPECT_EQ(function_symbol_set_ast_root(f, nullptr), FUNCTION_TABLE_OK);
+  EXPECT_EQ(f->ast_root, nullptr);
+  ASTNode *root = ast_node_create_block(1U, 1U);
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(function_symbol_set_ast_root(f, root), FUNCTION_TABLE_OK);
+  EXPECT_EQ(function_symbol_set_ast_root(f, root), FUNCTION_TABLE_OK);
+  EXPECT_EQ(f->ast_root, root);
+}
+
 // Disabled: double free at function_table.c:148 (NULL over existing root).
 TEST_F(FunctionTableGapTest, DISABLED_SetAstRootNullOverExistingRootIsSafe) {
   ASTNode *body = ast_node_create_block(1U, 1U);

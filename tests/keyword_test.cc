@@ -37,6 +37,10 @@ TEST(KeywordTest, IgnoresNonKeywords) {
   EXPECT_EQ(keyword_lookup("de"), nullptr);
   EXPECT_EQ(keyword_lookup(""), nullptr);
   EXPECT_EQ(keyword_lookup(nullptr), nullptr);
+  EXPECT_EQ(keyword_lookup("true"), nullptr);
+  EXPECT_EQ(keyword_lookup("false"), nullptr);
+  EXPECT_EQ(keyword_lookup("def "), nullptr);
+  EXPECT_EQ(keyword_lookup("While"), nullptr);
 }
 
 TEST(KeywordTest, MapsTypeKeywordsToDataTypes) {
@@ -47,4 +51,38 @@ TEST(KeywordTest, MapsTypeKeywordsToDataTypes) {
   EXPECT_EQ(keyword_to_type(TOKEN_KW_BOOLEAN), TYPE_BOOL);
   EXPECT_EQ(keyword_to_type(TOKEN_KW_LIST), TYPE_UNKNOWN);
   EXPECT_EQ(keyword_to_type(TOKEN_IDENTIFIER), TYPE_UNKNOWN);
+}
+
+/*
+ * AI-generated test block — keyword_to_type over every token kind.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   Only Int/Double/String/Unit/Boolean keywords map to a DataType; every
+ *   other TokenType from TOKEN_INT to TOKEN_INVALID gives TYPE_UNKNOWN.
+ */
+TEST(KeywordTest, OnlyTypeKeywordsMapToDataTypes) {
+  for (int value = TOKEN_INT; value <= TOKEN_INVALID; value += 1) {
+    const TokenType type = static_cast<TokenType>(value);
+    DataType expected = TYPE_UNKNOWN;
+    switch (type) {
+    case TOKEN_KW_INT:
+      expected = TYPE_INT;
+      break;
+    case TOKEN_KW_DOUBLE:
+      expected = TYPE_REAL;
+      break;
+    case TOKEN_KW_STRING:
+      expected = TYPE_STRING;
+      break;
+    case TOKEN_KW_UNIT:
+      expected = TYPE_UNIT;
+      break;
+    case TOKEN_KW_BOOLEAN:
+      expected = TYPE_BOOL;
+      break;
+    default:
+      break;
+    }
+    EXPECT_EQ(keyword_to_type(type), expected) << value;
+  }
 }
