@@ -30,20 +30,19 @@ void print_operand(const InstructionOperand operand) {
   case NIL_TYPE:
     printf("nil@nil");
     break;
-  case REAL_VARIABLE_TYPE:
+  case REAL_VARIABLE_TYPE: {
     const VariableFrame frame = operand.value.real_variable.frame;
     const char *frameStr = frame == TF ? "TF" : (frame == LF ? "LF" : "GF");
     const char *name = operand.value.real_variable.symbol->name;
     const int suffix = operand.value.real_variable.symbol->assembler_suffix;
     printf("%s@%s$%i", frameStr, name, suffix);
-    break;
-  case COMPILER_VAR_TYPE:
-    const VariableFrame frame_c = operand.value.compiler_variable.frame;
-    const char *frameStr_c =
-        frame_c == TF ? "TF" : (frame_c == LF ? "LF" : "GF");
-    const char *name_c = operand.value.compiler_variable.name;
-    printf("%s@%s", frameStr_c, name_c);
-    break;
+  } break;
+  case COMPILER_VAR_TYPE: {
+    const VariableFrame frame = operand.value.compiler_variable.frame;
+    const char *frameStr = frame == TF ? "TF" : (frame == LF ? "LF" : "GF");
+    const char *name = operand.value.compiler_variable.name;
+    printf("%s@%s", frameStr, name);
+  } break;
   default:
     fprintf(stderr, "Invalid InstructionOperand type in print_operand - stupid "
                     "programer\n");
