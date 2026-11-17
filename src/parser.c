@@ -579,6 +579,12 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
 
     status =
         p_statement(lexer, program, function, then_scope, &then_branch_node);
+    /// `if` needs to end an expression only to delimit a for-loop guard; on the
+    /// same line after a one-line branch it cannot start another statement.
+    /// e.g. `4 + 4 if x then 5 else 6` is invalid
+    if (status == PARSER_OK && lexer->token.type == TOKEN_KW_IF) {
+      status = PARSER_SYNTAX_ERROR;
+    }
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
       ast_node_destroy(then_branch_node);
@@ -680,6 +686,10 @@ static ParserStatus p_if(Lexer *lexer, Program *program,
     } else {
       status =
           p_statement(lexer, program, function, else_scope, &else_branch_node);
+      /// See the one-line then branch above.
+      if (status == PARSER_OK && lexer->token.type == TOKEN_KW_IF) {
+        status = PARSER_SYNTAX_ERROR;
+      }
     }
     if (status != PARSER_OK) {
       ast_node_destroy(condition_node);
@@ -1660,6 +1670,297 @@ static ParserStatus p_return_statement(Lexer *lexer, Program *program,
   return PARSER_OK;
 }
 
+/**
+ * @brief Parses a loop (while or for) body after `do`.
+ * @details Entry: the token after `do`. A NEWLINE opens an indented block,
+ * anything else is a one-line statement (like an if branch). Exit: the token
+ * after the block's DEDENT(s), or after the one-line statement (its line end
+ * is left for the caller). The body gets its own child scope of @p scope.
+ */
+static ParserStatus p_loop_body(Lexer *lexer, Program *program,
+                                FunctionSymbol *function, SymbolTable *scope,
+                                ASTNode **return_node) {
+  ParserStatus status;
+
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  /// The body forms a separate scope.
+  SymbolTable *body_scope = symbol_table_create_child(scope);
+  if (body_scope == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  if (lexer->token.type != TOKEN_NEWLINE) {
+    /// One-line body: `while c do stmt`.
+    return p_statement(lexer, program, function, body_scope, return_node);
+  }
+
+  /// Block body: NEWLINE INDENT statements DEDENT.
+  status = parser_consume_newlines(lexer, true, false, NULL);
+  if (status != PARSER_OK) {
+    return status;
+  }
+  return p_code_block(lexer, program, function, body_scope, return_node);
+}
+
+/**
+ * @brief Parses a while loop `while condition do body`.
+ * @details Entry: @c lexer->token is @c while. Exit: the token after the body
+ * (see @ref p_loop_body).
+ */
+static ParserStatus p_while(Lexer *lexer, Program *program,
+                            FunctionSymbol *function, SymbolTable *scope,
+                            ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  size_t while_line = lexer->token.line;
+  size_t while_column = lexer->token.column;
+
+  /// Consume the 'while' keyword
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_WHILE);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the condition; `do` ends the expression.
+  ASTNode *condition_node = NULL;
+  status = p_expression(lexer, program, function, scope, &condition_node, false,
+                        NULL);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Consume the 'do' keyword
+  status = parser_expect_and_consume(lexer, TOKEN_KW_DO);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    return status;
+  }
+
+  /// Parse the body, which may be a one-line statement or a block.
+  ASTNode *body_node = NULL;
+  status = p_loop_body(lexer, program, function, scope, &body_node);
+  if (status != PARSER_OK) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(body_node);
+    return status;
+  }
+
+  /// Create the while loop AST node
+  ASTNode *while_node = ast_node_create_while(condition_node, body_node,
+                                              while_line, while_column);
+  if (while_node == NULL) {
+    ast_node_destroy(condition_node);
+    ast_node_destroy(body_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = while_node;
+  return PARSER_OK;
+}
+
+/**
+ * @brief Parses one for-loop guard `if expression` and joins it to @p guard.
+ * @details Entry: @c lexer->token is @c if. Exit: the token after the guard
+ * expression. Multiple guards are joined by `&&`, which evaluates them in
+ * order with the same short-circuit semantics. On failure @p guard is
+ * destroyed and set to null.
+ */
+static ParserStatus p_for_guard(Lexer *lexer, Program *program,
+                                FunctionSymbol *function, SymbolTable *scope,
+                                ASTNode **guard) {
+  size_t if_line = lexer->token.line;
+  size_t if_column = lexer->token.column;
+
+  /// Consume the 'if' keyword
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_IF);
+  if (status == PARSER_OK) {
+
+    /// Parse the guard expression; `do` ends the expression.
+    ASTNode *condition_node = NULL;
+    status = p_expression(lexer, program, function, scope, &condition_node,
+                          false, NULL);
+    if (status == PARSER_OK) {
+
+      if (*guard == NULL) {
+        /// If this is the first guard, it becomes the current guard.
+        *guard = condition_node;
+        return PARSER_OK;
+      }
+
+      /// Join the new guard with any previous guards using a logical AND.
+      ASTNode *and_node = ast_node_create_binary_op(
+          AST_AND, *guard, condition_node, if_line, if_column);
+      if (and_node != NULL) {
+        /// The new AND node becomes the current guard, and the previous guard
+        /// is now owned by it.
+        *guard = and_node;
+        return PARSER_OK;
+      }
+      ast_node_destroy(condition_node);
+      status = PARSER_INTERNAL_ERROR;
+    }
+  }
+
+  ast_node_destroy(*guard);
+  *guard = NULL;
+  return status;
+}
+
+/**
+ * @brief Parses a for loop with one generator and any number of guards.
+ * @details Grammar:
+ *   one-line:  `for id <- source {if guard} do body`
+ *   multiline: `for NEWLINE INDENT id <- source {if guard}
+ *              {NEWLINE if guard {if guard}} NEWLINE DEDENT do body`
+ * In the multiline form the generator and guard lines are aligned and
+ * indented more than `for`; `do` is aligned with `for`. The source is a list
+ * (ranges `to`/`until`/`by` are list-valued operators). It is parsed in the
+ * enclosing scope, so `for i <- 0 until i` refers to an outer `i`. The control
+ * variable is a new immutable variable of a loop scope, which also holds the
+ * guards; the body gets a child scope of it, so it may shadow the variable.
+ * Entry: @c lexer->token is @c for. Exit: the token after the body.
+ */
+static ParserStatus p_for(Lexer *lexer, Program *program,
+                          FunctionSymbol *function, SymbolTable *scope,
+                          ASTNode **return_node) {
+  if (lexer == NULL || program == NULL || scope == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  size_t for_line = lexer->token.line;
+  size_t for_column = lexer->token.column;
+
+  /// Consume the 'for' keyword
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_KW_FOR);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Multiline header: the generator starts on the next, indented line.
+  bool multiline = lexer->token.type == TOKEN_NEWLINE;
+  size_t indent_delta = 0U;
+  if (multiline) {
+    status = parser_consume_newlines(lexer, true, false, NULL);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    status = parser_consume_indent_delta(lexer, &indent_delta);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    if (indent_delta == 0U) {
+      return PARSER_SYNTAX_ERROR;
+    }
+  }
+
+  /// Generator: `id <- source`. Keep a copy of the name, the token is
+  /// replaced while the source is parsed.
+  if (lexer->token.type != TOKEN_IDENTIFIER) {
+    return PARSER_SYNTAX_ERROR;
+  }
+  size_t name_length = strlen(lexer->token.value.string_value) + 1U;
+  char *name = malloc(name_length);
+  if (name == NULL) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  memcpy(name, lexer->token.value.string_value, name_length);
+
+  status = parser_advance(lexer);
+  if (status == PARSER_OK) {
+    status = parser_expect_and_consume(lexer, TOKEN_FOR_GENERATOR);
+  }
+  if (status != PARSER_OK) {
+    free(name);
+    return status;
+  }
+
+  /// The source does not see the control variable yet.
+  ASTNode *iterable_node = NULL;
+  status = p_expression(lexer, program, function, scope, &iterable_node, false,
+                        NULL);
+  if (status != PARSER_OK) {
+    free(name);
+    return status;
+  }
+
+  /// Define the control variable in a new loop scope. It is initialized and
+  /// immutable; its type (element type of the source) is set by the semantic
+  /// pass.
+  SymbolTable *loop_scope = symbol_table_create_child(scope);
+  Symbol *variable = NULL;
+  if (loop_scope == NULL ||
+      symbol_table_define(loop_scope, name, type_unknown(), true, true,
+                          &variable) != SYMTABLE_OK) {
+    free(name);
+    ast_node_destroy(iterable_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+  free(name);
+
+  /// Guards: any number of `if guard`, on the generator line and, in the
+  /// multiline form, on further aligned lines.
+  ASTNode *guard_node = NULL;
+  while (status == PARSER_OK) {
+    if (lexer->token.type == TOKEN_KW_IF) {
+      status = p_for_guard(lexer, program, function, loop_scope, &guard_node);
+    } else if (multiline && lexer->token.type == TOKEN_NEWLINE) {
+      /// A line with the same indentation emits no layout token, so a guard
+      /// line directly follows the NEWLINE; a DEDENT ends the header.
+      status = parser_consume_newlines(lexer, true, false, NULL);
+      if (status == PARSER_OK && lexer->token.type != TOKEN_KW_IF) {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+
+  /// Multiline header: return to the indentation of `for`.
+  if (status == PARSER_OK && multiline) {
+    if (lexer->token.type == TOKEN_EOF) {
+      status = PARSER_SYNTAX_ERROR;
+    } else {
+      status = parser_consume_dedents(lexer, indent_delta);
+    }
+  }
+
+  /// Consume the 'do' keyword
+  if (status == PARSER_OK) {
+    status = parser_expect_and_consume(lexer, TOKEN_KW_DO);
+  }
+
+  ASTNode *body_node = NULL;
+  if (status == PARSER_OK) {
+    status = p_loop_body(lexer, program, function, loop_scope, &body_node);
+  }
+  if (status != PARSER_OK) {
+    ast_node_destroy(iterable_node);
+    ast_node_destroy(guard_node);
+    ast_node_destroy(body_node);
+    return status;
+  }
+
+  ASTNode *for_node = ast_node_create_for(variable, iterable_node, guard_node,
+                                          body_node, for_line, for_column);
+  if (for_node == NULL) {
+    ast_node_destroy(iterable_node);
+    ast_node_destroy(guard_node);
+    ast_node_destroy(body_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = for_node;
+  return PARSER_OK;
+}
+
 static ParserStatus p_statement(Lexer *lexer, Program *program,
                                 FunctionSymbol *function, SymbolTable *scope,
                                 ASTNode **return_node) {
@@ -1671,13 +1972,10 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   switch (lexer->token.type) {
   case TOKEN_KW_IF:
     return p_if(lexer, program, function, scope, return_node, false, NULL);
-    //  TODO: Implement these statement productions, then uncomment their
-    //  cases here. case TOKEN_KW_WHILE:
-    //    return p_while_statement(lexer, program, function, scope,
-    //    return_node); break;
-    //  case TOKEN_KW_FOR:
-    //    return p_for_statement(lexer, program, function, scope,
-    //    return_node); break;
+  case TOKEN_KW_WHILE:
+    return p_while(lexer, program, function, scope, return_node);
+  case TOKEN_KW_FOR:
+    return p_for(lexer, program, function, scope, return_node);
   case TOKEN_KW_VAL:
     return p_variable_init_statement(lexer, program, true, function, scope,
                                      return_node);
@@ -1707,20 +2005,36 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
 }
 
 /**
- * @brief Finds the if a statement ends with, i.e. its rightmost part if that is
- * an if statement or expression.
- * @details Such an if takes the rest of its line and consumes the NEWLINE
- * ending it while looking for a following `else`. A parenthesized if is
- * reported as well; it is followed by `)`, so the caller still sees that
- * line's NEWLINE and only stops requiring it.
- * @return The trailing if node, or NULL if the statement does not end with an
- * if.
+ * @brief Finds the compound statement a statement ends with, i.e. its rightmost
+ * part if that is an if (statement or expression) or a loop whose body is an
+ * indented block.
+ * @details Such a construct may already have consumed the NEWLINE ending its
+ * line:
+ * - an if takes the rest of its line and consumes the NEWLINE while looking
+ *   for a following `else`. A parenthesized if is reported as well; it is
+ *   followed by `)`, so the caller still sees that line's NEWLINE and only
+ *   stops requiring it;
+ * - a loop with a block body has consumed the NEWLINE and DEDENT(s) of its
+ *   block. A loop with a one-line body is not reported itself; the search
+ *   continues in that body.
+ * @return The trailing if or loop node, or NULL if the statement does not end
+ * with one.
  */
-static const ASTNode *parser_trailing_if(const ASTNode *node) {
+static const ASTNode *parser_trailing_compound(const ASTNode *node) {
   while (node != NULL) {
     switch (node->kind) {
     case AST_IF:
       return node;
+    case AST_WHILE:
+    case AST_FOR: {
+      const ASTNode *body = node->kind == AST_WHILE ? node->data.while_loop.body
+                                                    : node->data.for_loop.body;
+      if (body != NULL && body->kind == AST_BLOCK) {
+        return node;
+      }
+      node = body;
+      break;
+    }
     case AST_ASSIGN:
       node = node->data.assignment.value;
       break;
@@ -1756,41 +2070,70 @@ static const ASTNode *parser_trailing_if(const ASTNode *node) {
 }
 
 /**
- * @brief Tells whether a statement ends with an if whose last branch is an
- * indented block (possibly through a chain of one-line branches ending with
- * such an if).
- * @details The DEDENT closing that block has been consumed, so the statement's
- * line has certainly ended, even if a `;` follows (it then starts a new line).
+ * @brief Tells whether a statement physically ends with an indented block: the
+ * last branch of an if or the body of a loop, possibly reached through a chain
+ * of one-line branches/bodies.
+ * @details The DEDENT closing that block has already been consumed, so the
+ * statement's line has certainly ended, even if the current token is `;` (that
+ * `;` then starts a new line, which is an error).
+ *
+ * Examples (the statement is everything shown):
+ * @code
+ * if c then          // true: the else branch is a block
+ *   print(1)
+ * else
+ *   print(2)
+ *
+ * if c then 1 else   // true: the one-line then branch does not matter,
+ *   2                //       the last (else) branch is a block
+ *
+ * while c do         // true: the loop body is a block
+ *   print(1)
+ *
+ * if c then while d do   // true: the then branch is a one-line loop
+ *   print(1)             //       whose body is a block
+ *
+ * if c then print(1) else print(2)   // false: both branches are one-line
+ * while c do print(1)                // false: the body is one-line
+ * val x = 1 + 2                      // false: no if or loop at the end
+ * @endcode
  */
-static bool parser_ends_with_block_branch(const ASTNode *node) {
-  const ASTNode *if_node = parser_trailing_if(node);
+static bool parser_ends_with_block(const ASTNode *node) {
+  const ASTNode *trailing = parser_trailing_compound(node);
 
-  /// Loops into the deepest if, because trailig_if returns the shallowest
-  /// rightmost one. The trailing if may contain another ifs in its branches, so
-  /// we need to check the last branch, which is the physically rightmost.
-  while (if_node != NULL) {
+  /// Descends into the deepest construct, because parser_trailing_compound
+  /// returns the shallowest rightmost one. A trailing if may contain other
+  /// constructs in its branches, so the last branch, which is the physically
+  /// rightmost one, has to be checked.
+  while (trailing != NULL) {
+    /// A trailing loop is only reported with a block body.
+    if (trailing->kind == AST_WHILE || trailing->kind == AST_FOR) {
+      return true;
+    }
     /// The last branch is the else branch if it exists, otherwise the then
     /// branch.
-    const ASTNode *last_branch = if_node->data.if_statement.else_branch != NULL
-                                     ? if_node->data.if_statement.else_branch
-                                     : if_node->data.if_statement.then_branch;
+    const ASTNode *last_branch = trailing->data.if_statement.else_branch != NULL
+                                     ? trailing->data.if_statement.else_branch
+                                     : trailing->data.if_statement.then_branch;
     if (last_branch == NULL) {
       return false;
     }
     if (last_branch->kind == AST_BLOCK) {
       return true;
     }
-    if_node = parser_trailing_if(last_branch);
+    trailing = parser_trailing_compound(last_branch);
   }
   return false;
 }
 
-// TODO: Implement p_code_block and p_expression, then uncomment these
-// declarations and their calls in p_function.
-//
-// Parses an indented code block.
-// Entry: the first token of the block (after INDENT). Exit: the DEDENT
-// closing the block.
+/**
+ * @brief Parses an indented code block.
+ * @details Entry: the INDENT opening the block. Exit: the first token after
+ * the DEDENT(s) closing the block.
+ * A final `if` is not marked as an expression here: whether the value of the
+ * block is used depends on its context (declared return type, loop body), so
+ * the semantic pass decides it.
+ */
 static ParserStatus p_code_block(Lexer *lexer, Program *program,
                                  FunctionSymbol *function, SymbolTable *scope,
                                  ASTNode **return_node) {
@@ -1846,23 +2189,36 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       return status;
     }
 
-    /// A statement ending with an if (also inside an expression, such as
-    /// `val x = if c then 1 else 2`) has already consumed the NEWLINE ending
-    /// its line while looking for `else`, or the DEDENT closing its nested
-    /// block. Then no further newline follows it.
-
-    /// Special case: a parenthesized if is followed by `)`,
-    /// so the caller still sees that line's NEWLINE and only stops requiring
-    /// it, because the `)` indicates the end of the expression so nothing
-    /// except newlines is allowed. This is not a bug but a feature.
+    /// True if the line of the statement may have already ended inside the
+    /// statement. Then a NEWLINE after it is not required, and a `;` after it
+    /// is not a separator (it would start a new line, which is rejected at the
+    /// start of the next iteration).
     ///
-    /// A one-line if followed by `;` has not consumed the NEWLINE either, so
-    /// the statement is then treated like any other one. After a block branch
-    /// the line has ended for sure; a `;` then starts the next line, which is
-    /// rejected at the start of the loop.
-    bool ends_with_block = parser_trailing_if(statement) != NULL &&
-                           (lexer->token.type != TOKEN_SEMICOLON ||
-                            parser_ends_with_block_branch(statement));
+    /// This happens when the statement ends with an if or a loop (also inside
+    /// an expression, such as `val x = if c then 1 else 2`):
+    /// - an if has consumed the NEWLINE ending its line while looking for a
+    ///   following `else` (or the DEDENT closing its block branch):
+    ///       val x = if c then 1 else 2⏎   <- NEWLINE already consumed
+    ///       print(x)                      <- current token: `print`
+    /// - a loop with a block body has consumed the DEDENT closing that body:
+    ///       while c do⏎
+    ///         print(1)⏎
+    ///       print(2)                      <- current token: `print`
+    /// - special case: a parenthesized if is followed by `)`, so the NEWLINE
+    ///   of its line is still here; it is only no longer required. Nothing but
+    ///   a NEWLINE can follow the `)` anyway:
+    ///       val x = (if c then 1 else 2)⏎ <- current token: NEWLINE
+    ///
+    /// A one-line if or loop followed by `;` has not consumed the NEWLINE, so
+    /// the `;` is an ordinary separator:
+    ///       if c then print(1); print(2)  <- false, `;` separates statements
+    /// After a block, though, the line has ended for sure:
+    ///       if c then⏎
+    ///         print(1)⏎
+    ///       ; print(2)                    <- true, the `;` starts a line
+    bool line_may_have_ended = parser_trailing_compound(statement) != NULL &&
+                               (lexer->token.type != TOKEN_SEMICOLON ||
+                                parser_ends_with_block(statement));
 
     /// The block's result type is determined by the semantic pass.
 
@@ -1876,8 +2232,8 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
 
     /// A semicolon is only a separator: it must be followed by the next
     /// statement on the same logical line, so it cannot end a line, a block
-    /// or the file (spec 1.2).
-    if (!ends_with_block && lexer->token.type == TOKEN_SEMICOLON) {
+    /// or the file.
+    if (!line_may_have_ended && lexer->token.type == TOKEN_SEMICOLON) {
       status = parser_expect_and_consume(lexer, TOKEN_SEMICOLON);
       if (status != PARSER_OK) {
         ast_node_destroy(block_node);
@@ -1892,10 +2248,10 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       continue;
     }
 
-    /// Consume at least one newline after the statement, or report a syntax
-    /// error. Statements ending with a nested block have already consumed the
-    /// newline
-    status = parser_consume_newlines(lexer, !ends_with_block, false, NULL);
+    /// Consume the newlines after the statement. At least one is required
+    /// unless the line may have already ended inside the statement (see
+    /// line_may_have_ended above).
+    status = parser_consume_newlines(lexer, !line_may_have_ended, false, NULL);
     if (status != PARSER_OK) {
       ast_node_destroy(block_node);
       return status;
@@ -1908,15 +2264,6 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
   if (status != PARSER_OK) {
     ast_node_destroy(block_node);
     return status;
-  }
-
-  if (block_node->data.block.statement_count > 0U) {
-    ASTNode *last_statement =
-        block_node->data.block
-            .statements[block_node->data.block.statement_count - 1U];
-    if (last_statement->kind == AST_IF) {
-      parser_mark_if_chain_as_expression(last_statement);
-    }
   }
 
   /// Hand the block over to the caller only on success, so the caller never

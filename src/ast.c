@@ -334,6 +334,59 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
 }
 
 /**
+ * @brief Constructs an owned while-loop node.
+ * @details On failure, ownership of both children stays with the caller.
+ * @param condition Non-null condition expression.
+ * @param body Non-null loop body.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new while node, or null for an invalid argument or allocation
+ * failure.
+ */
+ASTNode *ast_node_create_while(ASTNode *condition, ASTNode *body, size_t line,
+                               size_t column) {
+  if (condition == NULL || body == NULL) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_create(AST_WHILE, line, column);
+  if (node != NULL) {
+    node->data.while_loop.condition = condition;
+    node->data.while_loop.body = body;
+  }
+  return node;
+}
+
+/**
+ * @brief Constructs an owned for-loop node.
+ * @details On failure, ownership of all children stays with the caller.
+ * @param variable Non-null borrowed control variable.
+ * @param iterable Non-null iterated list expression.
+ * @param guard Combined guard, or null.
+ * @param body Non-null loop body.
+ * @param line One-based source line.
+ * @param column One-based source column.
+ * @return A new for node, or null for an invalid argument or allocation
+ * failure.
+ */
+ASTNode *ast_node_create_for(Symbol *variable, ASTNode *iterable,
+                             ASTNode *guard, ASTNode *body, size_t line,
+                             size_t column) {
+  if (variable == NULL || iterable == NULL || body == NULL) {
+    return NULL;
+  }
+
+  ASTNode *node = ast_node_create(AST_FOR, line, column);
+  if (node != NULL) {
+    node->data.for_loop.variable = variable;
+    node->data.for_loop.iterable = iterable;
+    node->data.for_loop.guard = guard;
+    node->data.for_loop.body = body;
+  }
+  return node;
+}
+
+/**
  * @brief Constructs an owned binary arithmetic node.
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
@@ -463,6 +516,15 @@ void ast_node_destroy(ASTNode *node) {
     ast_node_destroy(node->data.if_statement.condition);
     ast_node_destroy(node->data.if_statement.then_branch);
     ast_node_destroy(node->data.if_statement.else_branch);
+    break;
+  case AST_WHILE:
+    ast_node_destroy(node->data.while_loop.condition);
+    ast_node_destroy(node->data.while_loop.body);
+    break;
+  case AST_FOR:
+    ast_node_destroy(node->data.for_loop.iterable);
+    ast_node_destroy(node->data.for_loop.guard);
+    ast_node_destroy(node->data.for_loop.body);
     break;
   case AST_ADD:
   case AST_SUBTRACT:

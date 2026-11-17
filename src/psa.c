@@ -54,6 +54,11 @@ TerminalType token_to_terminal(Token token) {
   case TOKEN_KW_THEN:
   case TOKEN_KW_DO:
   case TOKEN_KW_ELSE:
+  /// A for-loop guard (`for i <- xs if i > 0 do`) ends the preceding
+  /// generator source or guard. Unlike the other delimiters, `if` can start
+  /// a statement, so callers that are not for-loop headers must reject it
+  /// (e.g. p_if after a one-line branch).
+  case TOKEN_KW_IF:
     return TERMINAL_DOLLAR;
 
   case TOKEN_IDENTIFIER:

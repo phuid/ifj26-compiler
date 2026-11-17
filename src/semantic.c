@@ -14,7 +14,7 @@
  *
  * A function with an explicit return type is a leaf for type inference (its
  * type is in the header). A function without it must not lie on any cycle of
- * the call graph (spec 2.3), so the dependencies between such functions form
+ * the call graph, so the dependencies between such functions form
  * a DAG and a memoized DFS (check callee before caller) resolves them in a
  * topological order without building that order explicitly.
  */
@@ -39,10 +39,11 @@ typedef struct {
 typedef enum {
   RESULT_VALUE,   ///< Ends with a value of @c BodyResult::type.
   RESULT_RETURNS, ///< Every path ends with `return`.
-  RESULT_BAD_IF   ///< Ends with an `if` violating rule 3 of spec 2.3.
+  RESULT_BAD_IF   ///< Ends with an `if` which violates the rules (e.g., missing
+                  ///< `else`).
 } ResultKind;
 
-/** Result of a block, i.e. of its last statement (spec 2.3). */
+/** Result of a block, i.e. of its last statement. */
 typedef struct {
   ResultKind kind; ///< How the block ends.
   DataType type;   ///< Type of the value; meaningful only for RESULT_VALUE.
@@ -143,7 +144,7 @@ static SemanticStatus register_builtins(Program *program) {
 
 /**
  * @brief Collects call-graph edges and `return` occurrences of one body.
- * @details Walks the whole AST, unreachable code included (spec 2.3). Every
+ * @details Walks the whole AST, unreachable code included. Every
  * called function is added once to @c FunctionSymbol::callees and
  * @c FunctionSymbol::contains_return is set when a `return` is found.
  * @param function Function whose body is walked; receives the edges.
@@ -200,6 +201,21 @@ static SemanticStatus collect_graph(FunctionSymbol *function,
     }
     if (status == SEMANTIC_OK) {
       status = collect_graph(function, node->data.if_statement.else_branch);
+    }
+    return status;
+  case AST_WHILE:
+    status = collect_graph(function, node->data.while_loop.condition);
+    if (status == SEMANTIC_OK) {
+      status = collect_graph(function, node->data.while_loop.body);
+    }
+    return status;
+  case AST_FOR:
+    status = collect_graph(function, node->data.for_loop.iterable);
+    if (status == SEMANTIC_OK) {
+      status = collect_graph(function, node->data.for_loop.guard);
+    }
+    if (status == SEMANTIC_OK) {
+      status = collect_graph(function, node->data.for_loop.body);
     }
     return status;
   case AST_ADD:
@@ -288,7 +304,7 @@ static bool is_numeric(DataType type) {
 /**
  * @brief Tells whether @p node is an empty list literal `List()`.
  * @details Its element type cannot be inferred from the elements; it takes
- * the type expected by the context (spec 5.8).
+ * the type expected by the context.
  */
 static bool is_empty_list(const ASTNode *node) {
   return node->kind == AST_LIST_CONSTRUCTOR &&
@@ -680,7 +696,7 @@ static SemanticStatus check_if_parts(SemanticContext *ctx,
 }
 
 /**
- * @brief Determines the value of an already checked `if` (spec 2.3, CONTROL).
+ * @brief Determines the value of an already checked `if`.
  * @details A missing else behaves as `()`. A branch ending with `return`
  * yields no value and adapts to the other branch. Otherwise both branch
  * values must have a common type; Int branches are widened if the other one
@@ -846,6 +862,8 @@ static SemanticStatus check_expression(SemanticContext *ctx,
   case AST_BLOCK:
   case AST_ASSIGN:
   case AST_RETURN:
+  case AST_WHILE:
+  case AST_FOR:
     /// Statements are not expressions.
     return SEMANTIC_INTERNAL_ERROR;
   }
@@ -958,6 +976,57 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     return status;
 
+  case AST_WHILE:
+    /// The condition is any Boolean expression (BOOLTHEN).
+    status = check_expression(ctx, function, &node->data.while_loop.condition,
+                              &type);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (!type_is_scalar(type, TYPE_BOOL)) {
+      return SEMANTIC_TYPE_ERROR;
+    }
+    status = check_statement(ctx, function, &node->data.while_loop.body);
+    if (status == SEMANTIC_OK) {
+      /// A loop yields ().
+      node->inferred_type.type = type_scalar(TYPE_UNIT);
+    }
+    return status;
+
+  case AST_FOR: {
+    /// The source is a list (ranges are List[Int]); the control variable
+    /// takes its element type before the guard and body are checked.
+    Symbol *variable = node->data.for_loop.variable;
+    DataType element;
+
+    status =
+        check_expression(ctx, function, &node->data.for_loop.iterable, &type);
+    if (status != SEMANTIC_OK) {
+      return status;
+    }
+    if (!type_element_type(type, &element)) {
+      /// Not a list, or an empty `List()` without an element type.
+      return SEMANTIC_TYPE_ERROR;
+    }
+    variable->type.type = element;
+
+    if (node->data.for_loop.guard != NULL) {
+      status =
+          check_expression(ctx, function, &node->data.for_loop.guard, &type);
+      if (status != SEMANTIC_OK) {
+        return status;
+      }
+      if (!type_is_scalar(type, TYPE_BOOL)) {
+        return SEMANTIC_TYPE_ERROR;
+      }
+    }
+    status = check_statement(ctx, function, &node->data.for_loop.body);
+    if (status == SEMANTIC_OK) {
+      node->inferred_type.type = type_scalar(TYPE_UNIT);
+    }
+    return status;
+  }
+
   default:
     /// Expression statement (incl. a call whose result is dropped).
     return check_expression(ctx, function, slot, &type);
@@ -965,8 +1034,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
 }
 
 /**
- * @brief Determines the result of a statement as the last one of a block
- * (spec 2.3, rules 1-3).
+ * @brief Determines the result of a statement as the last one of a block.
  * @details Types of all nodes must already be computed. A final `if` yields
  * the common value of its branches (it is an expression with CONTROL).
  * @param node Statement to evaluate; branch slots of an `if` may be rewritten
@@ -984,7 +1052,9 @@ static SemanticStatus statement_result(ASTNode *node, BodyResult *out_result) {
     out_result->kind = RESULT_RETURNS;
     return SEMANTIC_OK;
   case AST_ASSIGN:
-    /// Definition/assignment: ()
+  case AST_WHILE:
+  case AST_FOR:
+    /// Definition/assignment/loop: ()
     return SEMANTIC_OK;
   case AST_BLOCK:
     if (node->data.block.statement_count == 0U) {

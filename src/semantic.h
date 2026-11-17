@@ -36,7 +36,7 @@ typedef enum {
  *  2. every called function must be defined and @main must exist,
  *  3. the call graph (function -> called functions) is built from the ASTs,
  *  4. a function without an explicit return type must not contain `return`
- *     and must not lie on a call-graph cycle (spec 2.3),
+ *     and must not lie on a call-graph cycle,
  *  5. every function is checked by a memoized DFS: a call of a function
  *     without an explicit return type first checks the callee, so return types
  *     are inferred in topological order of the (now acyclic) dependencies.
