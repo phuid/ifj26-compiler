@@ -1,3 +1,5 @@
+#include <string>
+
 #include "gtest/gtest.h"
 
 extern "C" {
@@ -106,4 +108,39 @@ TEST_F(SymbolTableGapTest, StoresEveryDataTypeValue) {
     ASSERT_NE(found, nullptr) << i;
     EXPECT_EQ(found->type.type, types[i]) << i;
   }
+}
+
+/*
+ * AI-generated test block — symbol pointer identity.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   A Symbol pointer returned by define stays the binding's identity after
+ *   1000 later defines (BVS rebalancing); edits through it stay visible.
+ */
+TEST_F(SymbolTableGapTest, SymbolPointerStaysValidAcrossLaterDefinitions) {
+  constexpr size_t kCount = 1000U;
+  Symbol *stored[kCount] = {nullptr};
+  for (size_t i = 0U; i < kCount; i += 1U) {
+    // 7919 is coprime to 1000, so the stride visits every id exactly once.
+    const size_t id = (i * 7919U) % kCount;
+    const std::string name = "s" + std::to_string(id);
+    ASSERT_EQ(symbol_table_define(root, name.c_str(), TYPE_INT, true, false,
+                                  &stored[id]),
+              SYMTABLE_OK)
+        << name;
+    ASSERT_NE(stored[id], nullptr) << name;
+    if (i == 0U) {
+      stored[0]->type.type = TYPE_STRING;
+    }
+  }
+  for (size_t id = 0U; id < kCount; id += 1U) {
+    const std::string name = "s" + std::to_string(id);
+    EXPECT_EQ(symbol_table_lookup_local(root, name.c_str()), stored[id])
+        << name;
+    EXPECT_STREQ(stored[id]->name, name.c_str());
+  }
+  EXPECT_EQ(symbol_table_lookup_local(root, "s0")->type.type, TYPE_STRING);
+  SymbolTable *child = symbol_table_create_child(root);
+  ASSERT_NE(child, nullptr);
+  EXPECT_EQ(symbol_table_resolve(child, "s0"), stored[0]);
 }
