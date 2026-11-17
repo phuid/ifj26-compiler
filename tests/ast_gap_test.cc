@@ -1,3 +1,5 @@
+#include <climits>
+
 #include "gtest/gtest.h"
 
 extern "C" {
@@ -147,4 +149,48 @@ TEST_F(AstGapTest, DestroyKeepsBorrowedSymbolAndFunction) {
   ast_node_destroy(ast_node_create_assign(x, call, 1U, 1U));
   EXPECT_EQ(symbol_table_lookup_local(scope, "x"), x);
   EXPECT_EQ(function_table_lookup(&table, "f"), f);
+}
+
+/*
+ * AI-generated test block — constructor fields and positions.
+ * Model: Claude (Claude Code).
+ * Prompt:
+ *   return/if/assign/int constructors store the given children, flags,
+ *   line/column and full long long range; destroy(NULL) is a no-op.
+ */
+TEST_F(AstGapTest, ConstructorsStoreChildrenFlagsAndPosition) {
+  ASTNode *value = Int(7);
+  ASTNode *ret = ast_node_create_return(value, 4U, 9U);
+  ASSERT_NE(ret, nullptr);
+  EXPECT_EQ(ret->data.return_statement.value, value);
+  EXPECT_EQ(ret->line, 4U);
+  EXPECT_EQ(ret->column, 9U);
+
+  ASTNode *cond = Int(1);
+  ASTNode *then_block = ast_node_create_block(5U, 8U);
+  ASTNode *else_block = ast_node_create_block(6U, 3U);
+  ASTNode *branch = ast_node_create_if(cond, then_block, else_block, 5U, 3U);
+  ASSERT_NE(branch, nullptr);
+  EXPECT_EQ(branch->data.if_statement.condition, cond);
+  EXPECT_EQ(branch->data.if_statement.else_branch, else_block);
+  EXPECT_EQ(branch->line, 5U);
+  EXPECT_EQ(branch->column, 3U);
+
+  ASTNode *assign = ast_node_create_assign(x, Int(3), 7U, 5U);
+  ASSERT_NE(assign, nullptr);
+  EXPECT_FALSE(assign->data.assignment.is_definition);
+  EXPECT_EQ(assign->data.assignment.value->data.int_value, 3);
+  EXPECT_EQ(assign->line, 7U);
+  EXPECT_EQ(assign->column, 5U);
+
+  ASTNode *low = ast_node_create_int(LLONG_MIN, 1U, 1U);
+  ASTNode *high = ast_node_create_int(LLONG_MAX, 1U, 1U);
+  ASSERT_TRUE(low != nullptr && high != nullptr);
+  EXPECT_EQ(low->data.int_value, LLONG_MIN);
+  EXPECT_EQ(high->data.int_value, LLONG_MAX);
+
+  ast_node_destroy(nullptr);
+  for (ASTNode *node : {ret, branch, assign, low, high}) {
+    ast_node_destroy(node);
+  }
 }
