@@ -5,6 +5,7 @@
 
 extern "C" {
 #include "../src/parser.h"
+#include "../src/semantic.h"
 }
 
 namespace {
@@ -63,6 +64,33 @@ ParserStatus parse_status(const char *text) {
   lexer_destroy(&lexer);
   fclose(stream);
   return status;
+}
+
+/// Parses @p text preceded by a valid main function and, when parsing
+/// succeeds, runs the semantic pass. Returns the compiler exit code.
+int compile_status(const char *text) {
+  FILE *stream = stream_with_main(text);
+  if (stream == nullptr) {
+    return PARSER_INTERNAL_ERROR;
+  }
+  Lexer lexer;
+  if (lexer_init(&lexer, stream) != LEXER_OK) {
+    fclose(stream);
+    return PARSER_INTERNAL_ERROR;
+  }
+  Program program;
+  ParserStatus status = program_init(&program);
+  if (status == PARSER_OK) {
+    status = p_program(&lexer, &program);
+  }
+  int code = parser_status_exit_code(status);
+  if (status == PARSER_OK) {
+    code = semantic_check(&program);
+  }
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+  return code;
 }
 
 } // namespace
@@ -760,4 +788,118 @@ TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
   program_destroy(&program);
   lexer_destroy(&lexer);
   fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, ParsesAssignmentToVariable) {
+  FILE *stream = stream_with_main("def foo() =\n"
+                                  "  var a = 1\n"
+                                  "  a = 5 + 6\n");
+  ASSERT_NE(stream, nullptr);
+
+  Lexer lexer;
+  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  Program program;
+  ASSERT_EQ(program_init(&program), PARSER_OK);
+  ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
+
+  FunctionSymbol *function = function_table_lookup(&program.functions, "foo");
+  ASSERT_NE(function, nullptr);
+  ASSERT_EQ(function->ast_root->data.block.statement_count, 2U);
+  ASTNode *definition = function->ast_root->data.block.statements[0];
+  ASTNode *assignment = function->ast_root->data.block.statements[1];
+  ASSERT_EQ(assignment->kind, AST_ASSIGN);
+  EXPECT_FALSE(assignment->data.assignment.is_definition);
+  EXPECT_EQ(assignment->data.assignment.target,
+            definition->data.assignment.target);
+  ASSERT_NE(assignment->data.assignment.value, nullptr);
+  EXPECT_EQ(assignment->data.assignment.value->kind, AST_ADD);
+  EXPECT_EQ(assignment->line, 5U); // after the 2-line main prelude
+  EXPECT_EQ(assignment->column, 3U);
+
+  program_destroy(&program);
+  lexer_destroy(&lexer);
+  fclose(stream);
+}
+
+TEST(ParserDirectLexerTest, AssignmentAcceptsAnyExpressionOnTheRight) {
+  EXPECT_EQ(compile_status("def bar(x: Int): Int = x\n"
+                           "def foo() =\n"
+                           "  var a = 1\n"
+                           "  a = bar(a) * 2\n"
+                           "  a = if a < 3 then 1 else 2\n"
+                           "  a = (a + 1)\n"
+                           "  var b = true\n"
+                           "  b = a == 2 && !b\n"
+                           "  var l = List(1, 2)\n"
+                           "  l = l ++ List(a)\n"
+                           "  a = l(0); a = 3\n"),
+            0);
+}
+
+TEST(ParserDirectLexerTest, AssignmentIfOperandFollowedByStatement) {
+  EXPECT_EQ(compile_status("def foo() =\n"
+                           "  var a = 1\n"
+                           "  a = if a < 3 then 1 else 2\n"
+                           "  a = 4\n"),
+            0);
+}
+
+TEST(ParserDirectLexerTest, AssignmentEndsBlockWithUnit) {
+  EXPECT_EQ(compile_status("def foo(): Unit =\n"
+                           "  var a = 1\n"
+                           "  a = 2\n"),
+            0);
+  EXPECT_EQ(compile_status("def foo(): Int =\n"
+                           "  var a = 1\n"
+                           "  a = 2\n"),
+            6);
+}
+
+TEST(ParserDirectLexerTest, RejectsAssignmentToNonVariable) {
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  a + 1 = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  (a) = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  (a = 2)\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  val l = List(1)\n  l(0) = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def bar() = 1\ndef foo() =\n  bar() = 2\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserDirectLexerTest, RejectsAssignmentInsideExpressions) {
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  val b = a = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  a = a = 2\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def bar(x: Int) = x\n"
+                         "def foo() =\n  var a = 1\n  bar(a = 2)\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n"
+                         "  if a = 2 then\n    a\n  else\n    a\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def foo() =\n  var a = 1\n  a =\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
+TEST(ParserDirectLexerTest, AssignmentToUndefinedVariable) {
+  EXPECT_EQ(compile_status("def foo() =\n  a = 1\n"), 3);
+  EXPECT_EQ(compile_status("def foo() =\n"
+                           "  if true then\n    var a = 1\n  else\n"
+                           "    ()\n"
+                           "  a = 2\n"),
+            3);
+}
+
+TEST(ParserDirectLexerTest, AssignmentToImmutableIsError7) {
+  EXPECT_EQ(compile_status("def foo() =\n  val a = 1\n  a = 2\n"), 7);
+  EXPECT_EQ(compile_status("def foo(a: Int) =\n  a = 2\n"), 7);
+}
+
+TEST(ParserDirectLexerTest, AssignmentOfIncompatibleTypeIsError6) {
+  EXPECT_EQ(compile_status("def foo() =\n  var a = 1\n  a = \"s\"\n"), 6);
+  EXPECT_EQ(compile_status("def foo() =\n  var a: String = \"x\"\n"
+                           "  a = 1 + 2\n"),
+            6);
 }
