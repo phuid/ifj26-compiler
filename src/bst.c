@@ -6,6 +6,8 @@
 
 #include "bst.h"
 #include "impl_bst.h"
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 /**
@@ -399,4 +401,73 @@ BST_STATUS bst_remove(BST *tree, const void *value) {
   BST_STATUS err = BST_OK;
   tree->root = remove_value(tree, tree->root, value, &err);
   return err;
+}
+
+BST_STATUS nodeArray_insert(NodeArray *array, const void *node) {
+  if (array == NULL || node == NULL) {
+    return BST_INVALID_PARAMS;
+  }
+
+  if (array->capacity >= SIZE_MAX / sizeof(*array->data)) {
+    return BST_INVALID_PARAMS;
+  }
+
+  size_t new_capacity = array->capacity + 1;
+
+  const void **new_data =
+      realloc(array->data, new_capacity * sizeof(*array->data));
+  if (new_data == NULL) {
+    return BST_ALLOCATION_FAIL;
+  } else {
+    array->data = new_data;
+    array->capacity = new_capacity;
+  }
+
+  array->data[new_capacity - 1] = node;
+  return BST_OK;
+}
+
+BST_STATUS bst_fill_list(const Node *node, NodeArray *array) {
+  if (array == NULL) {
+    return BST_INVALID_PARAMS;
+  }
+
+  if (node == NULL) {
+    return BST_OK;
+  }
+
+  BST_STATUS status = bst_fill_list(node->left, array);
+  if (status != BST_OK) {
+    return status;
+  }
+
+  status = nodeArray_insert(array, node->value);
+  if (status != BST_OK) {
+    return status;
+  }
+
+  status = bst_fill_list(node->right, array);
+  if (status != BST_OK) {
+    return status;
+  }
+
+  return BST_OK;
+}
+
+BST_STATUS bst_list(const BST *tree, NodeArray *result) {
+  if (tree == NULL || result == NULL) {
+    return BST_INVALID_PARAMS;
+  }
+
+  NodeArray array = {.data = NULL, .capacity = 0};
+
+  BST_STATUS status = bst_fill_list(tree->root, &array);
+  if (status != BST_OK) {
+    free(array.data);
+    return status;
+  }
+
+  *result = array;
+
+  return BST_OK;
 }

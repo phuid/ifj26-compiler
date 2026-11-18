@@ -3,12 +3,18 @@
  * @brief Public API for the binary search tree.
  * @author Milan Novák
  */
+#include <stddef.h>
 
 #ifndef BST_H
 #define BST_H
 
 typedef struct BST BST;
 typedef struct Node BST_Node;
+
+typedef struct {
+  const void **data;
+  size_t capacity;
+} NodeArray;
 
 /**
  * @brief Classic C comparison function, should return negative for A < B,
@@ -93,5 +99,16 @@ BST_STATUS bst_remove(BST *tree, const void *value);
  *         BST_INVALID_PARAMS for invalid arguments.
  */
 BST_STATUS bst_search(const BST *tree, const void *value, const void **result);
+
+/**
+ * @brief Fills an array with all values in the BST in sorted order.
+ *
+ * @param tree Tree to traverse.
+ * @param result Output parameter. Contains a NodeArray with pointers to all
+ *               stored values on success. The array is empty on BST_OK when
+ *               the tree is empty. The caller owns the array and must free it.
+ * @return BST_OK on success, or status code on fail.
+ */
+BST_STATUS bst_list(const BST *tree, NodeArray *result);
 
 #endif

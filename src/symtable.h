@@ -28,6 +28,12 @@ typedef struct {
   SymbolTable *owner;
 } Symbol;
 
+/** Array of pointers to symbols owned by a lexical symbol table. */
+typedef struct {
+  Symbol **data;
+  size_t capacity;
+} SymbolArray;
+
 /** Reports an operation on a lexical symbol table. */
 typedef enum {
   SYMTABLE_OK,
@@ -74,5 +80,20 @@ Symbol *symbol_table_resolve(const SymbolTable *start, const char *name);
 SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
                                       DataType type, bool initialized,
                                       bool constant, Symbol **symbol);
+
+/**
+ * @brief Fills a symbol array with all symbols in a scope and its children.
+ * @details This function recursively traverses the symbol table and collects
+ * pointers to all symbols into the provided array. The caller is responsible
+ * for freeing the memory allocated for the array.
+ * @param table The root symbol table to start the traversal.
+ * @param return_symbols Output parameter. Must not contain any data on entry.
+ * On success, it will contain an array of pointers to all symbols in the scope
+ * and its children.
+ * @return SYMTABLE_OK on success, or an error code on failure.
+ */
+SymbolTableStatus
+symbol_table_get_scope_symbol_list(SymbolTable *table,
+                                   SymbolArray *return_symbols);
 
 #endif // SRC_SYMTABLE_H_
