@@ -5,7 +5,7 @@
 
 // TODO make print_operand variadic
 
-void print_operand(const InstructionOperand operand) {
+static void _print_operand(const InstructionOperand operand) {
   switch (operand.type) {
   case INT_TYPE:
     printf("int@%lld", operand.value.integer);
@@ -54,6 +54,22 @@ void print_operand(const InstructionOperand operand) {
   }
 }
 
+static void _print_operands(const InstructionOperand *operands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    printf(" ");
+    _print_operand(operands[i]);
+  }
+  printf("\n");
+}
+
+// Macro that formats the arguments into an array, calculates the number of
+// arguments
+#define print_operands(...)                                                    \
+  do {                                                                         \
+    const InstructionOperand _ops[] = {__VA_ARGS__};                           \
+    _print_operands(_ops, sizeof(_ops) / sizeof(_ops[0]));                     \
+  } while (0)
+
 void print_prolog() { printf(".IFJcode26\n"); }
 
 void print_LABEL(const char *name, const int suffix) {
@@ -62,19 +78,19 @@ void print_LABEL(const char *name, const int suffix) {
 
 void print_DEFVAR(const InstructionOperand operand) {
   printf("DEFVAR ");
-  print_operand(operand);
+  print_operands(operand);
   printf("\n");
 }
 
 void print_PUSHS(const InstructionOperand operand) {
   printf("PUSHS ");
-  print_operand(operand);
+  print_operands(operand);
   printf("\n");
 }
 
 void print_POPS(const InstructionOperand operand) {
   printf("POPS ");
-  print_operand(operand);
+  print_operands(operand);
   printf("\n");
 }
 
@@ -140,13 +156,7 @@ void print_NEWARRAY(const InstructionOperand array,
                     const InstructionOperand size) {
   printf("NEWARRAY ");
 
-  print_operand(array);
-
-  printf(" ");
-
-  print_operand(size);
-
-  printf("\n");
+  print_operands(array, size);
 }
 
 void print_ARRAYGET(const InstructionOperand target_var,
@@ -154,17 +164,7 @@ void print_ARRAYGET(const InstructionOperand target_var,
                     const InstructionOperand index) {
   printf("ARRAYGET ");
 
-  print_operand(target_var);
-
-  printf(" ");
-
-  print_operand(array);
-
-  printf(" ");
-
-  print_operand(index);
-
-  printf("\n");
+  print_operands(target_var, array, index);
 }
 
 void print_ARRAYSET(const InstructionOperand array,
@@ -172,64 +172,28 @@ void print_ARRAYSET(const InstructionOperand array,
                     const InstructionOperand value) {
   printf("ARRAYSET ");
 
-  print_operand(array);
-
-  printf(" ");
-
-  print_operand(index);
-
-  printf(" ");
-
-  print_operand(value);
-
-  printf("\n");
+  print_operands(array, index, value);
 }
 
 void print_ADD(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right) {
   printf("ADD ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_SUB(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right) {
   printf("SUB ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_MOVE(const InstructionOperand target,
                 const InstructionOperand source) {
   printf("MOVE ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(source);
-
-  printf("\n");
+  print_operands(target, source);
 }
 
 void print_JUMPIFEQ(const char *label, const int suffix,
@@ -237,26 +201,14 @@ void print_JUMPIFEQ(const char *label, const int suffix,
                     const InstructionOperand right) {
   printf("JUMPIFEQ %s$%i ", label, suffix);
 
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(left, right);
 }
 void print_JUMPIFNEQ(const char *label, const int suffix,
                      const InstructionOperand left,
                      const InstructionOperand right) {
   printf("JUMPIFNEQ %s$%i ", label, suffix);
 
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(left, right);
 }
 
 void print_ISINTS(void) { printf("ISINTS\n"); }
@@ -265,68 +217,28 @@ void print_LT(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
   printf("LT ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_GT(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
   printf("GT ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_EQ(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
   printf("EQ ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_IDIV(const InstructionOperand target, const InstructionOperand left,
                 const InstructionOperand right) {
   printf("IDIV ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }
 
 void print_CONCAT(const InstructionOperand target,
@@ -334,15 +246,5 @@ void print_CONCAT(const InstructionOperand target,
                   const InstructionOperand right) {
   printf("CONCAT ");
 
-  print_operand(target);
-
-  printf(" ");
-
-  print_operand(left);
-
-  printf(" ");
-
-  print_operand(right);
-
-  printf("\n");
+  print_operands(target, left, right);
 }

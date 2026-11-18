@@ -1,8 +1,6 @@
 #ifndef INSTRUCTIONS_H
 #define INSTRUCTIONS_H
 
-void print_operand(const InstructionOperand operand);
-
 void print_prolog(void);
 void print_LABEL(const char *name, const int suffix);
 void print_DEFVAR(const InstructionOperand operand);
