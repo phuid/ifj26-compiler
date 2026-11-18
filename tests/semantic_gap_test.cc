@@ -113,7 +113,7 @@ protected:
     }
     f->has_explicit_return_type = ret_type != N;
     if (ret_type != N)
-      f->return_type.type = type_scalar(ret_type);
+      f->return_type = type_scalar(ret_type);
     f->ast_root = ast_node_create_block(1, 1);
     return f;
   }
@@ -162,7 +162,7 @@ TEST_P(OperatorTable, TypesOperands) {
   if (c.status != OK)
     return;
   ASTNode *n = in_if ? stmt(m, 0)->data.if_statement.condition : stmt(m, 0);
-  EXPECT_TRUE(has_type(n->inferred_type.type, c.result));
+  EXPECT_TRUE(has_type(n->inferred_type, c.result));
   EXPECT_EQ(widened(n->data.binary_op.left), c.left == I && c.right == R);
   EXPECT_EQ(widened(n->data.binary_op.right), c.right == I && c.left == R);
 }
@@ -209,11 +209,11 @@ TEST_P(BuiltinTable, ChecksCallAgainstSignature) {
     return;
   FunctionSymbol *b = ref(c.name);
   EXPECT_TRUE(b->is_defined && b->is_builtin && b->has_explicit_return_type);
-  EXPECT_TRUE(has_type(b->return_type.type, c.result));
-  EXPECT_TRUE(has_type(v->type.type, c.result));
+  EXPECT_TRUE(has_type(b->return_type, c.result));
+  EXPECT_TRUE(has_type(v->type, c.result));
   ASSERT_EQ(b->argument_count, c.args.size());
   for (size_t i = 0; i < c.args.size(); ++i) {
-    DataType p = b->parameters[i]->type.type;
+    DataType p = b->parameters[i]->type;
     bool widen = c.args[i] == I && has_type(p, R);
     EXPECT_TRUE(has_type(p, c.args[i]) || has_type(p, TYPE_ANY) || widen) << i;
     EXPECT_EQ(widened(cl->data.call.arguments[i]), widen) << i;
@@ -413,7 +413,7 @@ TEST_P(BodyTable, InfersOrRejectsResult) {
   c.body(f);
   ASSERT_EQ(check(), c.status);
   if (c.status == OK)
-    EXPECT_TRUE(has_type(f->return_type.type, c.result));
+    EXPECT_TRUE(has_type(f->return_type, c.result));
 }
 INSTANTIATE_TEST_SUITE_P(SemanticGap, BodyTable, ::testing::ValuesIn(kBodies));
 
@@ -454,7 +454,7 @@ TEST_F(SemanticGapTest, DiamondCallGraphIsNotACycle) {
   add(d, real(1.5));
   ASSERT_EQ(check(), SEMANTIC_OK);
   for (FunctionSymbol *f : {a, b, c, d})
-    EXPECT_TRUE(has_type(f->return_type.type, R));
+    EXPECT_TRUE(has_type(f->return_type, R));
 }
 
 TEST_F(SemanticGapTest, FunctionCalledTwiceIsCheckedOnce) {
@@ -469,7 +469,7 @@ TEST_F(SemanticGapTest, FunctionCalledTwiceIsCheckedOnce) {
   add(h, call(g));
   ASSERT_EQ(check(), SEMANTIC_OK);
   EXPECT_EQ(g->check_state, FUNCTION_CHECKED);
-  EXPECT_TRUE(has_type(h->return_type.type, R));
+  EXPECT_TRUE(has_type(h->return_type, R));
   ASTNode *v = stmt(g, 0)->data.assignment.value;
   ASSERT_TRUE(widened(v));
   EXPECT_EQ(v->data.conversion.operand->kind, AST_CONSTANT_INT);

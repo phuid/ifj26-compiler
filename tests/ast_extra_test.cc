@@ -98,7 +98,7 @@ TEST(AstExtraTest, ImplicitConversionWrapsIntAsReal) {
   EXPECT_EQ(conversion->kind, AST_IMPLICIT_INT_TO_REAL);
   EXPECT_EQ(conversion->data.conversion.operand, literal);
   EXPECT_TRUE(
-      type_equal(conversion->inferred_type.type, type_scalar(TYPE_REAL)));
+      type_equal(conversion->inferred_type, type_scalar(TYPE_REAL)));
   EXPECT_EQ(conversion->line, 6U);
   EXPECT_EQ(conversion->column, 19U);
   EXPECT_EQ(literal->kind, AST_CONSTANT_INT);
@@ -119,7 +119,7 @@ TEST(AstExtraTest, StringLiteralCopiesText) {
   EXPECT_NE(greeting->data.string_value, token_text);
   EXPECT_STREQ(greeting->data.string_value, "Hello, IFJ26");
   EXPECT_TRUE(
-      type_equal(greeting->inferred_type.type, type_scalar(TYPE_STRING)));
+      type_equal(greeting->inferred_type, type_scalar(TYPE_STRING)));
   EXPECT_EQ(greeting->line, 2U);
   EXPECT_EQ(greeting->column, 11U);
 

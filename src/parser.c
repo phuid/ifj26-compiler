@@ -69,25 +69,6 @@ int parser_status_exit_code(ParserStatus status) {
   return (int)status;
 }
 
-/**
- * @brief Translates a type resolution result to the parser status boundary.
- * @param status Result of @ref type_entity_resolve or @ref type_entity_depend.
- * @return PARSER_OK on success, PARSER_TYPE_ERROR on a type conflict,
- * otherwise an invalid-argument or internal error.
- */
-static ParserStatus parser_status_from_type(TypeResolveStatus status) {
-  switch (status) {
-  case TYPE_RESOLVE_OK:
-    return PARSER_OK;
-  case TYPE_RESOLVE_CONFLICT:
-    return PARSER_TYPE_ERROR;
-  case TYPE_RESOLVE_INVALID_ARGUMENT:
-    return PARSER_INVALID_ARGUMENT;
-  default:
-    return PARSER_INTERNAL_ERROR;
-  }
-}
-
 /** Translates a precedence-stack helper result to the parser status boundary.
  */
 static ParserStatus parser_status_from_psa(PsaStatus status) {
@@ -390,7 +371,7 @@ static ParserStatus p_type_name(Lexer *lexer, bool consume_newlines_indents,
  * @details Entry: @c lexer->token is the possible @c :. Without @c : nothing
  * is consumed. Exit: the token after the complete type name.
  * @param lexer Initialized lexer.
- * @param type_entity Type entity resolved to the annotated type.
+ * @param out_type Set to the annotated type; left unchanged without @c :.
  * @param required If true, a type annotation is required.
  * @param consume_newlines_indents If true, any number of newlines and layout
  * tokens is consumed.
@@ -399,12 +380,12 @@ static ParserStatus p_type_name(Lexer *lexer, bool consume_newlines_indents,
  * false.
  * @return PARSER_OK, PARSER_SYNTAX_ERROR, or a translated lexer failure.
  */
-static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
+static ParserStatus p_type(Lexer *lexer, DataType *out_type, bool required,
                            bool consume_newlines_indents,
                            ptrdiff_t *indentation_level) {
   ParserStatus status;
 
-  if (lexer == NULL || type_entity == NULL) {
+  if (lexer == NULL || out_type == NULL) {
     ERROR_INTERNAL("invalid argument");
     return PARSER_INVALID_ARGUMENT;
   }
@@ -441,25 +422,12 @@ static ParserStatus p_type(Lexer *lexer, TypeEntity *type_entity, bool required,
     }
   }
 
-  size_t type_line = lexer->token.line;
-  size_t type_column = lexer->token.column;
-  DataType type;
-  status =
-      p_type_name(lexer, consume_newlines_indents, indentation_level, &type);
+  status = p_type_name(lexer, consume_newlines_indents, indentation_level,
+                       out_type);
   if (status != PARSER_OK) {
     ERROR_TRACE("while parsing the type name of a type annotation");
-    return status;
   }
-
-  TypeResolveStatus resolve_status = type_entity_resolve(type_entity, type);
-  if (resolve_status == TYPE_RESOLVE_CONFLICT) {
-    ERROR_ORIGIN_AT(type_line, type_column, NULL,
-                    "conflicting types: the annotated type does not match the "
-                    "inferred type");
-  } else if (resolve_status != TYPE_RESOLVE_OK) {
-    ERROR_INTERNAL("failed to resolve the annotated type");
-  }
-  return parser_status_from_type(resolve_status);
+  return status;
 }
 
 static ParserStatus p_call_args(Lexer *lexer, Program *program,
@@ -1371,21 +1339,6 @@ static ParserStatus p_primary(Lexer *lexer, Program *program,
         ast_node_destroy(call_node);
         return status;
       }
-      status = parser_status_from_type(type_entity_depend(
-          &function->return_type, &call_node->inferred_type));
-      if (status != PARSER_OK) {
-        if (status == PARSER_TYPE_ERROR) {
-          ERROR_ORIGIN_AT(
-              line, column, NULL,
-              "conflicting types for the result of the call to '%s'",
-              function->name);
-        } else {
-          ERROR_INTERNAL("failed to infer the type of the call to '%s'",
-                         function->name);
-        }
-        ast_node_destroy(call_node);
-        return status;
-      }
       *return_node = call_node;
       return PARSER_OK;
     }
@@ -1408,19 +1361,6 @@ static ParserStatus p_primary(Lexer *lexer, Program *program,
     if (variable_node == NULL) {
       ERROR_INTERNAL("failed to allocate a variable reference node");
       return PARSER_INTERNAL_ERROR;
-    }
-    status = parser_status_from_type(
-        type_entity_depend(&symbol->type, &variable_node->inferred_type));
-    if (status != PARSER_OK) {
-      if (status == PARSER_TYPE_ERROR) {
-        ERROR_ORIGIN_AT(line, column, NULL,
-                        "conflicting types for variable '%s'", symbol->name);
-      } else {
-        ERROR_INTERNAL("failed to infer the type of variable '%s'",
-                       symbol->name);
-      }
-      ast_node_destroy(variable_node);
-      return status;
     }
 
     *return_node = variable_node;
@@ -2055,11 +1995,8 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   }
 
   /// Parse the optional type annotation for the variable
-  TypeEntity declared_type;
-  type_entity_init(&declared_type);
-  status = p_type(lexer, &declared_type, false, false, NULL);
-  DataType variable_type = declared_type.type;
-  type_entity_destroy(&declared_type);
+  DataType variable_type = type_unknown();
+  status = p_type(lexer, &variable_type, false, false, NULL);
   if (status != PARSER_OK) {
     ERROR_TRACE("while parsing the type annotation of variable '%s'",
                 variable_name);
@@ -3260,7 +3197,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
     return status;
   }
   function->has_explicit_return_type =
-      !type_is_unknown(function->return_type.type);
+      !type_is_unknown(function->return_type);
 
   /// Consume `=` to indicate the start of the function body
   status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);

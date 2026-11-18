@@ -55,8 +55,7 @@ static void *symbol_copy(const void *value) {
     return NULL;
   }
 
-  type_entity_init(&copy->type);
-  copy->type.type = source->type.type;
+  copy->type = source->type;
   copy->initialized = source->initialized;
   copy->assembler_suffix = source->assembler_suffix;
   copy->constant = source->constant;
@@ -71,7 +70,6 @@ static void symbol_destroy(void *value) {
   if (symbol == NULL) {
     return;
   }
-  type_entity_destroy(&symbol->type);
   free(symbol->name);
   free(symbol);
 }
@@ -181,8 +179,7 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
   /// Create a temporary candidate symbol to insert into the BVS.
   candidate.name = (char *)name;
   candidate.assembler_suffix = -1;
-  type_entity_init(&candidate.type);
-  candidate.type.type = type;
+  candidate.type = type;
   candidate.initialized = initialized;
   candidate.constant = constant;
   candidate.owner = table;

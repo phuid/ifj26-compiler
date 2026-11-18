@@ -29,7 +29,7 @@ typedef enum {
  * */
 typedef struct FunctionSymbol {
   char *name;
-  TypeEntity return_type;
+  DataType return_type;
   /// True when the header contains `: type`. Only then may the function take
   /// part in (mutual) recursion or contain `return`.
   bool has_explicit_return_type;
@@ -73,7 +73,7 @@ typedef enum {
 /** Initializes an empty function table. */
 FunctionTableStatus function_table_init(FunctionTable *table);
 
-/** Releases all function records, their local scopes, and dependency arrays. */
+/** Releases all function records, their local scopes, and ASTs. */
 void function_table_destroy(FunctionTable *table);
 
 /** Finds a function by its exact source name, or returns null. */

@@ -95,7 +95,7 @@ static SemanticStatus register_builtins(Program *program) {
     function->is_defined = true;
     function->is_builtin = true;
     function->has_explicit_return_type = true;
-    function->return_type.type = type_scalar(BUILTINS[index].return_type);
+    function->return_type = type_scalar(BUILTINS[index].return_type);
     function->argument_count = 0U;
     /// Parameters live in the builtin's own local scope like those of user
     /// functions; their names are synthetic and never visible to the program.
@@ -409,7 +409,7 @@ static bool has_unknown_element_type(const ASTNode *node) {
   const FunctionSymbol *callee = node->data.call.function;
   bool callee_returns_list =
       callee != NULL && callee->is_builtin &&
-      type_is_scalar(callee->return_type.type, TYPE_ANY_LIST);
+      type_is_scalar(callee->return_type, TYPE_ANY_LIST);
   return callee_returns_list &&
          has_unknown_element_type(node->data.call.arguments[0]);
 }
@@ -446,7 +446,7 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
     return SEMANTIC_OK;
   }
   if (has_unknown_element_type(*slot) && type_is_list(to)) {
-    (*slot)->inferred_type.type = to;
+    (*slot)->inferred_type = to;
     return SEMANTIC_OK;
   }
   if (mismatch == SEMANTIC_INTERNAL_ERROR) {
@@ -576,7 +576,7 @@ static SemanticStatus coerce_tail(ASTNode **slot, DataType to,
   }
 
   /// A final expression is coerced like any other expression.
-  return coerce(slot, node->inferred_type.type, to, mismatch);
+  return coerce(slot, node->inferred_type, to, mismatch);
 }
 
 /**
@@ -618,7 +618,7 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
   /// Arguments only need the callee's signature (known after parsing).
   for (index = 0U; index < node->data.call.argument_count; index += 1U) {
     DataType argument_type;
-    DataType parameter_type = callee->parameters[index]->type.type;
+    DataType parameter_type = callee->parameters[index]->type;
 
     status = check_expression(ctx, function, &node->data.call.arguments[index],
                               &argument_type);
@@ -676,7 +676,7 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     }
   }
 
-  if (type_is_scalar(callee->return_type.type, TYPE_ANY_LIST)) {
+  if (type_is_scalar(callee->return_type, TYPE_ANY_LIST)) {
     if (!callee->is_builtin) {
       ERROR_INTERNAL("non-builtin '%s' returns an arbitrary list",
                      callee->name);
@@ -687,8 +687,8 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     /// to the builtin. Empty-list expressions remain unknown here;
     /// has_unknown_element_type() follows these calls so their context can
     /// supply the element type.
-    *out_type = node->data.call.arguments[0]->inferred_type.type;
-  } else if (type_is_scalar(callee->return_type.type, TYPE_ANY)) {
+    *out_type = node->data.call.arguments[0]->inferred_type;
+  } else if (type_is_scalar(callee->return_type, TYPE_ANY)) {
     /// if the functions return type is TYPE_ANY and its first argument is a
     /// list, the return type is the element type of that list
 
@@ -701,7 +701,7 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     /// The result is the element type of the first argument passed to the
     /// builtin.
     DataType element_type;
-    if (!type_element_type(node->data.call.arguments[0]->inferred_type.type,
+    if (!type_element_type(node->data.call.arguments[0]->inferred_type,
                            &element_type)) {
       /// Return SEMANTIC_ERROR if the first argument is not a list or an empty
       /// untyped list
@@ -714,7 +714,7 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     }
     *out_type = element_type;
   } else {
-    *out_type = callee->return_type.type;
+    *out_type = callee->return_type;
   }
   return SEMANTIC_OK;
 }
@@ -768,7 +768,7 @@ static SemanticStatus check_list_constructor(SemanticContext *ctx,
   /// Second pass: widen the elements to the common type.
   for (index = 0U; index < node->data.call.argument_count; index += 1U) {
     status = coerce(&node->data.call.arguments[index],
-                    node->data.call.arguments[index]->inferred_type.type,
+                    node->data.call.arguments[index]->inferred_type,
                     element, SEMANTIC_TYPE_ERROR);
     if (status != SEMANTIC_OK) {
       ERROR_TRACE("while converting element %zu of a list literal", index + 1U);
@@ -830,11 +830,11 @@ static SemanticStatus check_binary(SemanticContext *ctx,
     if (type_is_list(left) &&
         has_unknown_element_type(node->data.binary_op.right)) {
       right = left;
-      node->data.binary_op.right->inferred_type.type = left;
+      node->data.binary_op.right->inferred_type = left;
     } else if (type_is_list(right) &&
                has_unknown_element_type(node->data.binary_op.left)) {
       left = right;
-      node->data.binary_op.left->inferred_type.type = right;
+      node->data.binary_op.left->inferred_type = right;
     }
     if (!type_is_list(left) || !type_equal(left, right)) {
       ERROR_ORIGIN_OPERANDS(node, left, right);
@@ -1084,7 +1084,7 @@ static SemanticStatus check_expression(SemanticContext *ctx,
     type = type_scalar(TYPE_UNIT);
     break;
   case AST_VARIABLE_REF:
-    type = node->data.variable.symbol->type.type;
+    type = node->data.variable.symbol->type;
     if (type_is_unknown(type)) {
       /// e.g. `val x = x`: used inside its own initialization.
       ERROR_ORIGIN_AT(node->line, node->column, NULL,
@@ -1186,7 +1186,7 @@ static SemanticStatus check_expression(SemanticContext *ctx,
   }
 
   /// Record the computed type in the AST node.
-  node->inferred_type.type = type;
+  node->inferred_type = type;
   *out_type = type;
   return SEMANTIC_OK;
 }
@@ -1224,7 +1224,7 @@ static SemanticStatus hoist_return_value(ASTNode **slot) {
   }
   /// The block owns the value from now on.
   ret->data.return_statement.value = unit;
-  ret->inferred_type.type = type_scalar(TYPE_UNIT);
+  ret->inferred_type = type_scalar(TYPE_UNIT);
   if (ast_node_block_append_statement(block, ret) != AST_OK) {
     /// Undo: give the value back to the return so nothing is freed twice.
     ret->data.return_statement.value = value;
@@ -1234,7 +1234,7 @@ static SemanticStatus hoist_return_value(ASTNode **slot) {
     ERROR_INTERNAL("cannot allocate the discarded value of a 'return'");
     return SEMANTIC_INTERNAL_ERROR;
   }
-  block->inferred_type.type = type_scalar(TYPE_UNIT);
+  block->inferred_type = type_scalar(TYPE_UNIT);
   *slot = block;
   return SEMANTIC_OK;
 }
@@ -1309,7 +1309,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
 
     /// The block node itself is Unit; its result is given by statement_result.
     if (status == SEMANTIC_OK) {
-      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      node->inferred_type = type_scalar(TYPE_UNIT);
     }
     return status;
 
@@ -1325,14 +1325,14 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     /// A variable is not in scope inside its own initializer. Hiding its type
     /// also detects self-references in ASTs constructed directly rather than by
     /// the parser, including definitions with an explicit type annotation.
-    DataType declared_type = target->type.type;
+    DataType declared_type = target->type;
     if (node->data.assignment.is_definition) {
-      target->type.type = type_unknown();
+      target->type = type_unknown();
     }
     status =
         check_expression(ctx, function, &node->data.assignment.value, &type);
     if (node->data.assignment.is_definition) {
-      target->type.type = declared_type;
+      target->type = declared_type;
     }
     if (status != SEMANTIC_OK) {
       ERROR_TRACE(node->data.assignment.is_definition
@@ -1342,7 +1342,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       return status;
     }
     if (node->data.assignment.is_definition &&
-        type_is_unknown(target->type.type)) {
+        type_is_unknown(target->type)) {
       /// `val x = expr`: the variable takes the initializer's type; it must be
       /// inferable (not e.g. `val x = List()`).
       if (type_is_unknown(type)) {
@@ -1353,18 +1353,18 @@ static SemanticStatus check_statement(SemanticContext *ctx,
                         target->name);
         return SEMANTIC_TYPE_ERROR;
       }
-      target->type.type = type;
+      target->type = type;
     } else {
       /// The variable already has a type: the value must match or be widened.
-      status = coerce(&node->data.assignment.value, type, target->type.type,
+      status = coerce(&node->data.assignment.value, type, target->type,
                       SEMANTIC_TYPE_ERROR);
       if (status != SEMANTIC_OK) {
         ERROR_TRACE("while assigning to variable '%s' of type " TYPE_FMT,
-                    target->name, TYPE_ARGS(target->type.type));
+                    target->name, TYPE_ARGS(target->type));
         return status;
       }
     }
-    node->inferred_type.type = type_scalar(TYPE_UNIT);
+    node->inferred_type = type_scalar(TYPE_UNIT);
     return SEMANTIC_OK;
   }
 
@@ -1379,11 +1379,11 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     if (node->data.return_statement.value == NULL) {
       /// A bare `return` is allowed only with an explicit Unit return type.
-      if (!type_is_scalar(function->return_type.type, TYPE_UNIT)) {
+      if (!type_is_scalar(function->return_type, TYPE_UNIT)) {
         ERROR_ORIGIN_AT(
             node->line, node->column, NULL,
             "'return' without a value in function '%s' returning " TYPE_FMT,
-            function->name, TYPE_ARGS(function->return_type.type));
+            function->name, TYPE_ARGS(function->return_type));
         return SEMANTIC_TYPE_ERROR;
       }
       /// Attach an implicit Unit constant so that every return has a value.
@@ -1393,7 +1393,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
         return SEMANTIC_INTERNAL_ERROR;
       }
       node->data.return_statement.value = unit;
-      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      node->inferred_type = type_scalar(TYPE_UNIT);
       return SEMANTIC_OK;
     }
     status = check_expression(ctx, function, &node->data.return_statement.value,
@@ -1402,8 +1402,8 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       ERROR_TRACE("while checking the returned value");
       return status;
     }
-    node->inferred_type.type = type;
-    if (type_is_scalar(function->return_type.type, TYPE_UNIT)) {
+    node->inferred_type = type;
+    if (type_is_scalar(function->return_type, TYPE_UNIT)) {
       /// The value is evaluated and discarded (rule 4).
       if (!type_is_scalar(type, TYPE_UNIT)) {
         status = hoist_return_value(slot);
@@ -1416,7 +1416,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       return status;
     }
     status = coerce(&node->data.return_statement.value, type,
-                    function->return_type.type, SEMANTIC_TYPE_ERROR);
+                    function->return_type, SEMANTIC_TYPE_ERROR);
     if (status != SEMANTIC_OK) {
       ERROR_TRACE("while matching the returned value with the return type of "
                   "'%s'",
@@ -1434,7 +1434,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       ERROR_TRACE("while checking an if statement");
     }
     if (status == SEMANTIC_OK) {
-      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      node->inferred_type = type_scalar(TYPE_UNIT);
     }
     return status;
 
@@ -1459,7 +1459,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     if (status == SEMANTIC_OK) {
       /// A loop yields ().
-      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      node->inferred_type = type_scalar(TYPE_UNIT);
     }
     return status;
 
@@ -1485,7 +1485,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
           TYPE_ARGS(type));
       return SEMANTIC_TYPE_ERROR;
     }
-    variable->type.type = element;
+    variable->type = element;
 
     if (node->data.for_loop.guard != NULL) {
       status =
@@ -1507,7 +1507,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       ERROR_TRACE("while checking the body of a for loop");
     }
     if (status == SEMANTIC_OK) {
-      node->inferred_type.type = type_scalar(TYPE_UNIT);
+      node->inferred_type = type_scalar(TYPE_UNIT);
     }
     return status;
   }
@@ -1550,12 +1550,12 @@ static SemanticStatus statement_result(ASTNode *node, BodyResult *out_result) {
         out_result);
   case AST_IF:
     if (node->data.if_statement.used_as_an_expression) {
-      out_result->type = node->inferred_type.type; /// Already unified.
+      out_result->type = node->inferred_type; /// Already unified.
       return SEMANTIC_OK;
     }
     return if_result(node, out_result);
   default:
-    out_result->type = node->inferred_type.type;
+    out_result->type = node->inferred_type;
     return SEMANTIC_OK;
   }
 }
@@ -1577,7 +1577,7 @@ static ASTNode *create_unit_return(const ASTNode *at) {
     ast_node_destroy(unit);
     return NULL;
   }
-  ret->inferred_type.type = type_scalar(TYPE_UNIT);
+  ret->inferred_type = type_scalar(TYPE_UNIT);
   return ret;
 }
 
@@ -1633,7 +1633,7 @@ static SemanticStatus append_unit_return(ASTNode **slot,
     ERROR_INTERNAL("cannot allocate a block for an implicit 'return ()'");
     return SEMANTIC_INTERNAL_ERROR;
   }
-  block->inferred_type.type = type_scalar(TYPE_UNIT);
+  block->inferred_type = type_scalar(TYPE_UNIT);
   if (ast_node_block_append_statement(block, statement) != AST_OK) {
     ast_node_destroy(block);
     ast_node_destroy(ret);
@@ -1730,7 +1730,7 @@ static SemanticStatus add_implicit_return(ASTNode **slot, ASTNode *parent_block,
     ERROR_INTERNAL("cannot allocate an implicit 'return'");
     return SEMANTIC_INTERNAL_ERROR;
   }
-  ret->inferred_type.type = node->inferred_type.type;
+  ret->inferred_type = node->inferred_type;
   *slot = ret;
   return SEMANTIC_OK;
 }
@@ -1779,7 +1779,7 @@ static SemanticStatus check_function(SemanticContext *ctx,
     return status;
   }
   if (function->has_explicit_return_type) {
-    DataType declared = function->return_type.type;
+    DataType declared = function->return_type;
 
     /// With a declared Unit type the final value is discarded.
     if (!type_is_scalar(declared, TYPE_UNIT) && result.kind != RESULT_RETURNS) {
@@ -1806,13 +1806,13 @@ static SemanticStatus check_function(SemanticContext *ctx,
                             function->name);
       return SEMANTIC_TYPE_ERROR;
     }
-    function->return_type.type = result.type;
+    function->return_type = result.type;
   }
 
   /// Make the implicit return at the end of the body explicit.
   status = add_implicit_return(
       &function->ast_root, NULL,
-      type_is_scalar(function->return_type.type, TYPE_UNIT));
+      type_is_scalar(function->return_type, TYPE_UNIT));
   if (status != SEMANTIC_OK) {
     ERROR_TRACE("while adding the implicit return of function '%s'",
                 function->name);
@@ -1923,7 +1923,7 @@ SemanticStatus semantic_check(Program *program) {
                           main_function->name);
     return SEMANTIC_BAD_CALL;
   }
-  if (!type_is_scalar(main_function->return_type.type, TYPE_UNIT)) {
+  if (!type_is_scalar(main_function->return_type, TYPE_UNIT)) {
     ERROR_ORIGIN_FUNCTION(main_function, "main function '%s' must return Unit",
                           main_function->name);
     return SEMANTIC_TYPE_ERROR;

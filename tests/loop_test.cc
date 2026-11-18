@@ -260,8 +260,7 @@ TEST_F(LoopTest, ForOverListVariable) {
   ASSERT_EQ(loop->kind, AST_FOR);
   EXPECT_EQ(loop->data.for_loop.iterable->kind, AST_VARIABLE_REF);
   /// The control variable takes the element type.
-  EXPECT_TRUE(
-      type_is_scalar(loop->data.for_loop.variable->type.type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(loop->data.for_loop.variable->type, TYPE_STRING));
 }
 
 TEST_F(LoopTest, ForSingleLineGuards) {
@@ -445,7 +444,7 @@ TEST_F(LoopTest, FunctionEndingWithLoopInfersUnit) {
                     "    val a = 1\n"),
             0);
   FunctionSymbol *function = function_table_lookup(&program.functions, "foo");
-  EXPECT_TRUE(type_is_scalar(function->return_type.type, TYPE_UNIT));
+  EXPECT_TRUE(type_is_scalar(function->return_type, TYPE_UNIT));
 }
 
 TEST_F(LoopTest, FunctionEndingWithLoopCannotReturnInt) {
@@ -542,7 +541,7 @@ TEST_F(LoopTest, FunctionEndingWithIfWithoutElseInfersUnit) {
             0);
   FunctionSymbol *function = function_table_lookup(&program.functions, "foo");
   ASSERT_NE(function, nullptr);
-  EXPECT_TRUE(type_is_scalar(function->return_type.type, TYPE_UNIT));
+  EXPECT_TRUE(type_is_scalar(function->return_type, TYPE_UNIT));
 }
 
 TEST_F(LoopTest, IntFunctionEndingWithIfWithoutElseIsError6) {

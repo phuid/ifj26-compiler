@@ -304,8 +304,8 @@ TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
   Symbol *matrix = symbol_table_lookup_local(function->local_scope, "matrix");
   ASSERT_NE(matrix, nullptr);
   DataType expected = type_list(type_list(type_list(type_scalar(TYPE_INT))));
-  EXPECT_TRUE(type_equal(matrix->type.type, expected));
-  EXPECT_EQ(matrix->type.type.list_depth, 3U);
+  EXPECT_TRUE(type_equal(matrix->type, expected));
+  EXPECT_EQ(matrix->type.list_depth, 3U);
 
   program_destroy(&program);
   lexer_destroy(&lexer);

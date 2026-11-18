@@ -279,7 +279,7 @@ TEST(ParserGapStructureTest, FunctionsKeepOrderAndOnlyMainIsMarked) {
   }
   EXPECT_EQ(p.function("main")->argument_count, 0U);
   EXPECT_TRUE(
-      type_equal(p.function("main")->return_type.type, type_scalar(TYPE_UNIT)));
+      type_equal(p.function("main")->return_type, type_scalar(TYPE_UNIT)));
   ASSERT_NE(p.at(0)->ast_root, nullptr);
   ASTNode *bare_return = p.at(0)->ast_root->data.block.statements[0];
   EXPECT_EQ(bare_return->kind, AST_RETURN);
@@ -304,7 +304,7 @@ TEST(ParserGapStructureTest, ReturnTypeAnnotationIsResolved) {
     ParsedProgram p(c.source);
     ASSERT_EQ(p.status, PARSER_OK);
     EXPECT_TRUE(
-        type_equal(p.function("f")->return_type.type, type_scalar(c.type)));
+        type_equal(p.function("f")->return_type, type_scalar(c.type)));
     EXPECT_EQ(p.function("f")->has_explicit_return_type,
               c.type != TYPE_UNKNOWN);
   }
@@ -319,14 +319,14 @@ TEST(ParserGapStructureTest, ParametersAreTypedConstantLocals) {
   const BaseType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_BOOL,
                                TYPE_UNIT};
   for (size_t i = 0; i < 5U; ++i) {
-    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type.type, expected[i]))
+    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type, expected[i]))
         << "parameter " << i;
   }
   Symbol *a = symbol_table_lookup_local(f->local_scope, "a");
   ASSERT_NE(a, nullptr);
   EXPECT_TRUE(a->constant);
   EXPECT_TRUE(a->initialized);
-  EXPECT_TRUE(type_equal(a->type.type, type_scalar(TYPE_INT)));
+  EXPECT_TRUE(type_equal(a->type, type_scalar(TYPE_INT)));
 }
 
 /*

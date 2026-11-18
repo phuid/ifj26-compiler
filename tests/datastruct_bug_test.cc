@@ -1,15 +1,9 @@
-#include <chrono>
-#include <vector>
-
 #include "gtest/gtest.h"
 
 #include "bst_test_util.h"
 
 extern "C" {
-#include "../src/ast.h"
 #include "../src/bst.h"
-#include "../src/symtable.h"
-#include "../src/type.h"
 }
 
 /*
@@ -25,6 +19,8 @@ extern "C" {
  *   a BST node with two children frees the stored value of a different key,
  *   invalidating pointers returned by bst_search. Do not dereference freed
  *   memory in the assertions. These tests are expected to fail until fixed.
+ * Note: the two TypeEntity tests from this block were removed together with
+ * TypeEntity itself.
  */
 namespace {
 
@@ -45,56 +41,6 @@ void *copy_int(const void *value) {
 void destroy_int(void *value) { free(value); }
 
 } // namespace
-
-TEST(DataStructBugTest, DiamondChainResolvesInLinearTime) {
-  // top -> {a, b} -> bottom, where every bottom is the next diamond's top.
-  constexpr int kDiamonds = 28;
-  std::vector<TypeEntity> entities(3 * kDiamonds + 1);
-  for (TypeEntity &entity : entities) {
-    type_entity_init(&entity);
-  }
-  for (int i = 0; i < kDiamonds; i++) {
-    TypeEntity *top = &entities[3 * i];
-    TypeEntity *a = &entities[3 * i + 1];
-    TypeEntity *b = &entities[3 * i + 2];
-    TypeEntity *bottom = &entities[3 * i + 3];
-    ASSERT_EQ(type_entity_depend(top, a), TYPE_RESOLVE_OK);
-    ASSERT_EQ(type_entity_depend(top, b), TYPE_RESOLVE_OK);
-    ASSERT_EQ(type_entity_depend(a, bottom), TYPE_RESOLVE_OK);
-    ASSERT_EQ(type_entity_depend(b, bottom), TYPE_RESOLVE_OK);
-  }
-
-  auto start = std::chrono::steady_clock::now();
-  EXPECT_EQ(type_entity_resolve(&entities[0], type_scalar(TYPE_INT)),
-            TYPE_RESOLVE_OK);
-  auto elapsed = std::chrono::steady_clock::now() - start;
-
-  EXPECT_LT(elapsed, std::chrono::milliseconds(500));
-  EXPECT_TRUE(type_is_scalar(entities.back().type, TYPE_INT));
-  for (TypeEntity &entity : entities) {
-    type_entity_destroy(&entity);
-  }
-}
-
-TEST(DataStructBugTest, DestroyedAstNodeIsNoLongerADependent) {
-  SymbolTable *root = symbol_table_create_root();
-  ASSERT_NE(root, nullptr);
-  Symbol *symbol = nullptr;
-  ASSERT_EQ(
-      symbol_table_define(root, "x", type_unknown(), false, false, &symbol),
-      SYMTABLE_OK);
-  ASTNode *reference = ast_node_create_variable_ref(symbol, 1, 1);
-  ASSERT_NE(reference, nullptr);
-  ASSERT_EQ(type_entity_depend(&symbol->type, &reference->inferred_type),
-            TYPE_RESOLVE_OK);
-
-  ast_node_destroy(reference);
-
-  // A remaining edge points into freed memory; resolving the symbol now
-  // would write there, so only the edge count is checked.
-  EXPECT_EQ(symbol->type.dependent_count, 0U);
-  symbol_table_destroy(root);
-}
 
 TEST(DataStructBugTest, TwoChildRemovalKeepsOtherValuePointersStable) {
   BST *tree = make_tree(compare_int, copy_int, destroy_int);

@@ -327,7 +327,7 @@ static void resolve_binary_operands(const ASTNode *node) {
 static void handle_add(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
 
-  if (node->inferred_type.type.base == TYPE_STRING) {
+  if (node->inferred_type.base == TYPE_STRING) {
     print_POPS(TRASH_GLOBAL);
     print_POPS(TMP_GLOBAL);
     print_CONCAT(TMP_GLOBAL, TMP_GLOBAL, TRASH_GLOBAL);
@@ -368,7 +368,7 @@ static void handle_multiply(const ASTNode *node, bool discard_return_value) {
 static void handle_divide(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
 
-  switch (node->inferred_type.type.base) {
+  switch (node->inferred_type.base) {
   case TYPE_REAL:
     print_DIVS();
     break;
