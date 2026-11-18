@@ -72,3 +72,27 @@ TEST(SymbolTableTest, RejectsDuplicateInSameScope) {
 
   symbol_table_destroy(root);
 }
+
+TEST(SymbolTableTest, ScopeSymbolListReturnsSymbolArray) {
+  SymbolTable *root = symbol_table_create_root();
+  ASSERT_NE(root, nullptr);
+  SymbolTable *child = symbol_table_create_child(root);
+  ASSERT_NE(child, nullptr);
+
+  ASSERT_EQ(symbol_table_define(root, "root_value", type_scalar(TYPE_INT), true,
+                                false, nullptr),
+            SYMTABLE_OK);
+  ASSERT_EQ(symbol_table_define(child, "child_value", type_scalar(TYPE_REAL),
+                                true, false, nullptr),
+            SYMTABLE_OK);
+
+  SymbolArray symbols = {.data = nullptr, .capacity = 0};
+  ASSERT_EQ(symbol_table_get_scope_symbol_list(root, &symbols), SYMTABLE_OK);
+  ASSERT_EQ(symbols.capacity, 2);
+  ASSERT_NE(symbols.data, nullptr);
+  EXPECT_EQ(std::string(symbols.data[0]->name), "root_value");
+  EXPECT_EQ(std::string(symbols.data[1]->name), "child_value");
+
+  free(symbols.data);
+  symbol_table_destroy(root);
+}

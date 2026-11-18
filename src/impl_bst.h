@@ -8,21 +8,19 @@
 #define IMPL_BST_H
 
 #include "bst.h"
-#include <stdlib.h>
 
 typedef struct Node {
   void *value;
   int height;
-  int balance;
   struct Node *left;
   struct Node *right;
 } Node;
 
 struct BST {
   Node *root;
-  BSTCompareFn compareData;
-  BSTCopyValueFn copyData;
-  BSTDestroyValueFn destroyData;
+  BSTCompareFn compare_data;
+  BSTCopyValueFn copy_data;
+  BSTDestroyValueFn destroy_data;
 };
 
 #endif

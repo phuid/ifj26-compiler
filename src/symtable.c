@@ -5,12 +5,14 @@
  * @author Simon Hrouda
  * @note Code in this file was mostly generated using an LLM agent based on
  *       specifikace.txt.
+ * @todo Propagate status codes higher
  */
 
 #include "symtable.h"
 
 #include "dynamic_array.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -86,8 +88,10 @@ SymbolTable *symbol_table_create_root(void) {
   if (table == NULL) {
     return NULL;
   }
-  table->bindings = bstCreate(symbol_compare, symbol_copy, symbol_destroy);
-  if (table->bindings == NULL) {
+
+  BST_STATUS status =
+      bst_create(symbol_compare, symbol_copy, symbol_destroy, &table->bindings);
+  if (table->bindings == NULL || status != BST_OK) {
     free(table);
     return NULL;
   }
@@ -120,7 +124,7 @@ void symbol_table_destroy(SymbolTable *table) {
     symbol_table_destroy(table->children[index]);
   }
   free(table->children);
-  bstDestroy(&table->bindings);
+  bst_destroy(&table->bindings);
   free(table);
 }
 
@@ -131,7 +135,14 @@ Symbol *symbol_table_lookup_local(const SymbolTable *table, const char *name) {
     return NULL;
   }
   key.name = (char *)name;
-  return bstSearch(table->bindings, &key);
+
+  Symbol *result;
+  BST_STATUS status = bst_search(table->bindings, &key, (const void **)&result);
+  if (status == BST_INVALID_PARAMS) {
+    return NULL;
+  }
+
+  return result;
 }
 
 Symbol *symbol_table_resolve(const SymbolTable *start, const char *name) {
@@ -175,7 +186,14 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
   candidate.owner = table;
 
   /// Insert the candidate symbol into the symbol table.
-  bstInsert(table->bindings, &candidate);
+  BST_STATUS status = bst_insert(table->bindings, &candidate);
+  if (status == BST_ALLOCATION_FAIL) {
+    return SYMTABLE_OUT_OF_MEMORY;
+  }
+  if (status == BST_INVALID_PARAMS) {
+    return SYMTABLE_INVALID_ARGUMENT;
+  }
+
   stored = symbol_table_lookup_local(table, name);
   if (stored == NULL) {
     return SYMTABLE_OUT_OF_MEMORY;
@@ -184,5 +202,94 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
   if (symbol != NULL) {
     *symbol = stored;
   }
+  return SYMTABLE_OK;
+}
+
+static SymbolTableStatus dyn_array_concat(SymbolArray *base,
+                                          const SymbolArray *apendee) {
+  if (base == NULL || apendee == NULL) {
+    return SYMTABLE_INVALID_ARGUMENT;
+  }
+
+  if (apendee->capacity == 0U) {
+    return SYMTABLE_OK;
+  }
+  /// Check sum overflow
+  if (SIZE_MAX - base->capacity < apendee->capacity) {
+    return SYMTABLE_OUT_OF_MEMORY;
+  }
+  size_t new_capacity = base->capacity + apendee->capacity;
+  /// Check multiplication overflow
+  if (new_capacity > SIZE_MAX / sizeof(*base->data)) {
+    return SYMTABLE_OUT_OF_MEMORY;
+  }
+  Symbol **new_data = realloc(base->data, new_capacity * sizeof(*base->data));
+  if (new_data == NULL) {
+    return SYMTABLE_OUT_OF_MEMORY;
+  } else {
+    base->data = new_data;
+    base->capacity = new_capacity;
+  }
+
+  memcpy(base->data + base->capacity - apendee->capacity, apendee->data,
+         apendee->capacity * sizeof(*apendee->data));
+
+  return SYMTABLE_OK;
+}
+
+static SymbolTableStatus
+symbol_table_fill_symbol_list_recursive(SymbolTable *table,
+                                        SymbolArray *result) {
+  if (table == NULL || result == NULL) {
+    return SYMTABLE_INVALID_ARGUMENT;
+  }
+
+  NodeArray local_symbols = {.data = NULL, .capacity = 0};
+
+  BST_STATUS status = bst_list(table->bindings, &local_symbols);
+  if (status != BST_OK) {
+    free(local_symbols.data);
+    return SYMTABLE_OUT_OF_MEMORY;
+  }
+
+  SymbolArray local_result = {
+      .data = (Symbol **)local_symbols.data,
+      .capacity = local_symbols.capacity,
+  };
+  SymbolTableStatus concat_status = dyn_array_concat(result, &local_result);
+  free(local_symbols.data);
+
+  if (concat_status != SYMTABLE_OK) {
+    return concat_status;
+  }
+
+  for (size_t i = 0; i < table->child_count; i++) {
+    SymbolTableStatus child_status =
+        symbol_table_fill_symbol_list_recursive(table->children[i], result);
+    if (child_status != SYMTABLE_OK) {
+      return child_status;
+    }
+  }
+
+  return SYMTABLE_OK;
+}
+
+SymbolTableStatus
+symbol_table_get_scope_symbol_list(SymbolTable *table,
+                                   SymbolArray *return_symbols) {
+  if (table == NULL || return_symbols == NULL) {
+    return SYMTABLE_INVALID_ARGUMENT;
+  }
+
+  SymbolArray result = {.data = NULL, .capacity = 0U};
+  SymbolTableStatus status =
+      symbol_table_fill_symbol_list_recursive(table, &result);
+  if (status != SYMTABLE_OK) {
+    free(result.data);
+    return status;
+  }
+
+  *return_symbols = result;
+
   return SYMTABLE_OK;
 }
