@@ -14,7 +14,7 @@ typedef enum {
   BOOL_TYPE,
   NIL_TYPE,
   REAL_VARIABLE_TYPE,
-  COMPILER_VAR_TYPE
+  COMPILER_VAR_TYPE,
 } OperandType;
 
 typedef struct {
@@ -25,6 +25,7 @@ typedef struct {
 typedef struct {
   VariableFrame frame;
   const char *name;
+  const int suffix;
 } CompilerVariable;
 
 typedef struct {
@@ -71,6 +72,8 @@ void handle_implicit_int_to_real(const ASTNode *node,
 void handle_call(const ASTNode *node, bool discard_return_value);
 void handle_return(const ASTNode *node, bool discard_return_value);
 void handle_if(const ASTNode *node, bool discard_return_value);
+
+void handle_while(const ASTNode *node, bool discard_return_value);
 
 void handle_function_definition(const FunctionSymbol *function);
 

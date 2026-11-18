@@ -2,6 +2,7 @@
 
 // TODO mark assembler code as AI written
 
+// TODO add support for arrays in type dependant functions
 static const BuiltinSignature print = {
     .name = "print",
     .return_type = TYPE_UNIT,

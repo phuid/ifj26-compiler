@@ -38,4 +38,35 @@ void print_JUMP(const char *label, const int suffix);
 void print_JUMPIFEQS(const char *label, const int suffix);
 void print_JUMPIFNEQS(const char *label, const int suffix);
 void print_JUMPIFEQS_bool(const char *label, const int suffix, bool value);
+
+void print_NEWARRAY(const InstructionOperand array,
+                    const InstructionOperand size);
+void print_ARRAYGET(const InstructionOperand target_var,
+                    const InstructionOperand array,
+                    const InstructionOperand index);
+void print_ARRAYSET(const InstructionOperand array,
+                    const InstructionOperand index,
+                    const InstructionOperand value);
+
+void print_ADD(const InstructionOperand target, const InstructionOperand left,
+               const InstructionOperand right);
+void print_SUB(const InstructionOperand target, const InstructionOperand left,
+               const InstructionOperand right);
+void print_MOVE(const InstructionOperand target,
+                const InstructionOperand source);
+void print_JUMPIFEQ(const char *label, const int suffix,
+                    const InstructionOperand left,
+                    const InstructionOperand right);
+void print_JUMPIFNEQ(const char *label, const int suffix,
+                     const InstructionOperand left,
+                     const InstructionOperand right);
+void print_ISINTS(void);
+
+void print_LT(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right);
+void print_GT(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right);
+void print_EQ(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right);
+
 #endif // INSTRUCTIONS_H

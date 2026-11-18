@@ -18,6 +18,8 @@ int main() {
   //   return 1;
   // }
 
+  // TODO add preprocessor
+
   Lexer lexer;
   if (lexer_init(&lexer, stdin) != LEXER_OK) {
     fprintf(stderr, "lexer init error\n");

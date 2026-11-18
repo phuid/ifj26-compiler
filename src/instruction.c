@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+// TODO make print_operand variadic
+
 void print_operand(const InstructionOperand operand) {
   switch (operand.type) {
   case INT_TYPE:
@@ -41,7 +43,8 @@ void print_operand(const InstructionOperand operand) {
     const VariableFrame frame = operand.value.compiler_variable.frame;
     const char *frameStr = frame == TF ? "TF" : (frame == LF ? "LF" : "GF");
     const char *name = operand.value.compiler_variable.name;
-    printf("%s@%s", frameStr, name);
+    const int suffix = operand.value.compiler_variable.suffix;
+    printf("%s@%s$$%i", frameStr, name, suffix);
   } break;
   default:
     fprintf(stderr, "Invalid InstructionOperand type in print_operand - stupid "
@@ -123,11 +126,189 @@ void print_JUMPIFNEQS(const char *label, const int suffix) {
   printf("JUMPIFNEQS %s$%i\n", label, suffix);
 }
 
-void print_JUMPIFEQS_bool(const char *label, const int suffix, bool value) {
+void print_JUMPIFEQS_bool(const char *label, const int suffix,
+                          const bool value) {
   InstructionOperand valueOp = {
       .type = BOOL_TYPE,
       .value.boolean = value,
   };
   print_PUSHS(valueOp);
   print_JUMPIFEQS(label, suffix);
+}
+
+// TODO this array stuff is kinda scuffed
+void print_NEWARRAY(const InstructionOperand array,
+                    const InstructionOperand size) {
+  printf("NEWARRAY ");
+
+  print_operand(array);
+
+  printf(" ");
+
+  print_operand(size);
+
+  printf("\n");
+}
+
+void print_ARRAYGET(const InstructionOperand target_var,
+                    const InstructionOperand array,
+                    const InstructionOperand index) {
+  printf("ARRAYGET ");
+
+  print_operand(target_var);
+
+  printf(" ");
+
+  print_operand(array);
+
+  printf(" ");
+
+  print_operand(index);
+
+  printf("\n");
+}
+
+void print_ARRAYSET(const InstructionOperand array,
+                    const InstructionOperand index,
+                    const InstructionOperand value) {
+  printf("ARRAYSET ");
+
+  print_operand(array);
+
+  printf(" ");
+
+  print_operand(index);
+
+  printf(" ");
+
+  print_operand(value);
+
+  printf("\n");
+}
+
+void print_ADD(const InstructionOperand target, const InstructionOperand left,
+               const InstructionOperand right) {
+  printf("ADD ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_SUB(const InstructionOperand target, const InstructionOperand left,
+               const InstructionOperand right) {
+  printf("SUB ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_MOVE(const InstructionOperand target,
+                const InstructionOperand source) {
+  printf("MOVE ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(source);
+
+  printf("\n");
+}
+
+void print_JUMPIFEQ(const char *label, const int suffix,
+                    const InstructionOperand left,
+                    const InstructionOperand right) {
+  printf("JUMPIFEQ %S$%i ", label, suffix);
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+void print_JUMPIFNEQ(const char *label, const int suffix,
+                     const InstructionOperand left,
+                     const InstructionOperand right) {
+  printf("JUMPIFNEQ %S$%i ", label, suffix);
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_ISINTS(void) { printf("ISINTS\n"); }
+
+void print_LT(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right) {
+  printf("LT ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_GT(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right) {
+  printf("GT ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_EQ(const InstructionOperand target, const InstructionOperand left,
+              const InstructionOperand right) {
+  printf("EQ ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
 }
