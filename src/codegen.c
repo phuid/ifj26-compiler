@@ -195,7 +195,14 @@ void resolve_binary_operands(const ASTNode *node) {
 
 void handle_add(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
-  print_ADDS();
+
+  if (node->inferred_type.type.base == TYPE_STRING) {
+    print_POPS(TRASH_GLOBAL);
+    print_POPS(TMP_GLOBAL);
+    print_CONCAT(TMP_GLOBAL, TMP_GLOBAL, TRASH_GLOBAL);
+  } else {
+    print_ADDS();
+  }
 
   if (discard_return_value) {
     trash_return_value();
@@ -776,7 +783,7 @@ void handle_if(const ASTNode *node, bool discard_return_value) {
 }
 
 void handle_while(const ASTNode *node, bool discard_return_value) {
-  (void)discard_return_value; // TODO is this correct?
+  (void)discard_return_value;
   int id = reserve_label_id();
 
   const ASTNode *condition = node->data.while_loop.condition;

@@ -1,5 +1,4 @@
 #include "codegen.h"
-#include "instructions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -137,7 +136,6 @@ void print_JUMPIFEQS_bool(const char *label, const int suffix,
   print_JUMPIFEQS(label, suffix);
 }
 
-// TODO this array stuff is kinda scuffed
 void print_NEWARRAY(const InstructionOperand array,
                     const InstructionOperand size) {
   printf("NEWARRAY ");
@@ -313,9 +311,28 @@ void print_EQ(const InstructionOperand target, const InstructionOperand left,
 
   printf("\n");
 }
+
 void print_IDIV(const InstructionOperand target, const InstructionOperand left,
                 const InstructionOperand right) {
   printf("IDIV ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+
+void print_CONCAT(const InstructionOperand target,
+                  const InstructionOperand left,
+                  const InstructionOperand right) {
+  printf("CONCAT ");
 
   print_operand(target);
 

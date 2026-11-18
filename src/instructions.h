@@ -71,4 +71,8 @@ void print_GT(const InstructionOperand target, const InstructionOperand left,
 void print_EQ(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right);
 
+void print_CONCAT(const InstructionOperand target,
+                  const InstructionOperand left,
+                  const InstructionOperand right);
+
 #endif // INSTRUCTIONS_H
