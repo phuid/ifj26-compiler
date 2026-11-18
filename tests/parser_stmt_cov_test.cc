@@ -29,6 +29,11 @@ long fail_at = 0, count = 0, live = 0;
 bool armed = false, tracking = false;
 bool fails() { return armed && ++count == fail_at; }
 } // namespace oom
+
+/// True for the statuses of semantic errors found by the parser (codes 3-6).
+bool is_semantic_error(ParserStatus status) {
+  return status >= PARSER_UNDEFINED_ERROR && status <= PARSER_TYPE_ERROR;
+}
 } // namespace
 
 #ifndef STMT_COV_SANITIZED
@@ -190,9 +195,8 @@ TEST(ParserStmtCovTest, LexerErrorAfterValOrVarKeywordIsPropagated) {
  *   never be accepted, nor reported as a lexer, semantic or invalid-argument
  *   failure; the exact code is pinned by a DISABLED test below.
  */
-// Today every input yields PARSER_INTERNAL_ERROR (99), which is wrong (see
-// the BUG below); the exact code 2 is pinned by
-// ParserStmtCovKnownGapTest.DISABLED_MalformedInitializerIsSyntaxError. The
+// The exact code 2 is pinned by
+// ParserStmtCovKnownGapTest.MalformedInitializerIsSyntaxError. The
 // extra checks follow from the input: it is lexically valid, has nothing
 // semantic to report and p_program receives valid arguments.
 TEST(ParserStmtCovTest, MalformedInitializerIsNeverAccepted) {
@@ -207,7 +211,7 @@ TEST(ParserStmtCovTest, MalformedInitializerIsNeverAccepted) {
     const ParserStatus status = parse(source);
     EXPECT_NE(status, PARSER_OK);
     EXPECT_NE(status, PARSER_LEXER_ERROR);
-    EXPECT_NE(status, PARSER_SEMANTIC_ERROR);
+    EXPECT_FALSE(is_semantic_error(status));
     EXPECT_NE(status, PARSER_INVALID_ARGUMENT);
   }
 }
@@ -235,7 +239,7 @@ TEST_F(ParserStmtCovOomTest,
     }
     EXPECT_NE(run.status, PARSER_OK) << "k=" << k;
     EXPECT_NE(run.status, PARSER_SYNTAX_ERROR) << "k=" << k;
-    EXPECT_NE(run.status, PARSER_SEMANTIC_ERROR) << "k=" << k;
+    EXPECT_FALSE(is_semantic_error(run.status)) << "k=" << k;
     EXPECT_EQ(run.live, 0) << "k=" << k;
     saw_internal = saw_internal || run.status == PARSER_INTERNAL_ERROR;
   }
@@ -250,10 +254,7 @@ TEST_F(ParserStmtCovOomTest,
  *   Record the specified result of statements whose expression part is
  *   never parsed (stub p_expression); enable each once src/ is fixed.
  */
-// BUG: parser.c:560-574 – the p_expression stub yields a NULL initializer,
-// ast_node_create_assign rejects it, so every `val/var x = ...` returns
-// PARSER_INTERNAL_ERROR (99) instead of PARSER_SYNTAX_ERROR (2).
-TEST(ParserStmtCovKnownGapTest, DISABLED_MalformedInitializerIsSyntaxError) {
+TEST(ParserStmtCovKnownGapTest, MalformedInitializerIsSyntaxError) {
   const char *const sources[] = {
       "def f() =\n  val x =\n",
       "def f() =\n  var x: Int = )\n",
@@ -264,29 +265,25 @@ TEST(ParserStmtCovKnownGapTest, DISABLED_MalformedInitializerIsSyntaxError) {
   }
 }
 
-// BUG: parser.c:572 – the first initializer already fails with 99, so the
-// redefinition (PARSER_SEMANTIC_ERROR, code 3) is never reached.
-TEST(ParserStmtCovKnownGapTest,
-     DISABLED_DuplicateValInSameScopeIsSemanticError) {
+TEST(ParserStmtCovKnownGapTest, DuplicateValInSameScopeIsSemanticError) {
   EXPECT_EQ(parse("def f() =\n  val x = 1\n  val x = 2\n"),
-            PARSER_SEMANTIC_ERROR);
+            PARSER_REDEFINITION_ERROR);
   EXPECT_EQ(parse("def f() =\n  var x = 1\n  val x = 2\n"),
-            PARSER_SEMANTIC_ERROR);
+            PARSER_REDEFINITION_ERROR);
 }
 
-// BUG: parser.c:605 – the p_expression stub does not consume the return
-// value, so p_code_block then finds no NEWLINE (parser.c:884) and returns
-// PARSER_SYNTAX_ERROR (2) instead of PARSER_OK.
-TEST(ParserStmtCovKnownGapTest, DISABLED_ReturnWithValueIsAccepted) {
-  EXPECT_EQ(parse("def f(): Int =\n  return 1\n"), PARSER_OK);
-  EXPECT_EQ(parse("def f(a: Int): Int =\n  return a\n"), PARSER_OK);
+TEST(ParserStmtCovKnownGapTest, ReturnWithValueIsAccepted) {
+  // A valid program needs @main (otherwise code 3).
+  EXPECT_EQ(parse("def f(): Int =\n  return 1\n"
+                  "@main\ndef main(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse("def f(a: Int): Int =\n  return a\n"
+                  "@main\ndef main(): Unit =\n  return\n"),
+            PARSER_OK);
 }
 
-// BUG: parser.c:486-501 – the p_expression stub never resolves identifiers
-// in a scope, so an undefined variable is not reported as code 3 (today 2).
-TEST(ParserStmtCovKnownGapTest,
-     DISABLED_UndefinedVariableInExpressionIsSemanticError) {
-  EXPECT_EQ(parse("def f(): Int =\n  return y\n"), PARSER_SEMANTIC_ERROR);
+TEST(ParserStmtCovKnownGapTest, UndefinedVariableInExpressionIsSemanticError) {
+  EXPECT_EQ(parse("def f(): Int =\n  return y\n"), PARSER_UNDEFINED_ERROR);
   EXPECT_EQ(parse("def f() =\n  if y then\n    return\n  else\n    return\n"),
-            PARSER_SEMANTIC_ERROR);
+            PARSER_UNDEFINED_ERROR);
 }

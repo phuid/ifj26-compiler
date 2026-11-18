@@ -253,7 +253,7 @@ bool build_semantic_program(Program *program) {
   main_fn->is_defined = true;
   main_fn->is_main = true;
   main_fn->has_explicit_return_type = true;
-  main_fn->return_type.type = TYPE_UNIT;
+  main_fn->return_type.type = type_scalar(TYPE_UNIT);
   SymbolTable *scope = function_symbol_create_local_scope(main_fn);
   main_fn->ast_root = ast_node_create_block(1, 1);
   if (scope == nullptr || main_fn->ast_root == nullptr) {
@@ -269,7 +269,7 @@ bool build_semantic_program(Program *program) {
     return false;
   }
   Symbol *x = nullptr;
-  if (symbol_table_define(scope, "x", TYPE_REAL, true, true, &x) !=
+  if (symbol_table_define(scope, "x", type_scalar(TYPE_REAL), true, true, &x) !=
       SYMTABLE_OK) {
     return false;
   }
@@ -281,6 +281,11 @@ bool build_semantic_program(Program *program) {
   definition->data.assignment.is_definition = true;
   return ast_node_block_append_statement(main_fn->ast_root, definition) ==
          AST_OK;
+}
+
+/// True for the statuses of semantic errors found by the parser (codes 3-6).
+bool is_semantic_error(ParserStatus status) {
+  return status >= PARSER_UNDEFINED_ERROR && status <= PARSER_TYPE_ERROR;
 }
 
 } // namespace
@@ -334,8 +339,9 @@ TEST_F(OomFaultTest, TypeDependFailureAddsNoDependent) {
 
   EXPECT_EQ(status, TYPE_RESOLVE_OUT_OF_MEMORY);
   EXPECT_EQ(source.dependent_count, 0U);
-  EXPECT_EQ(type_entity_resolve(&source, TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(dependent.type, TYPE_UNKNOWN);
+  EXPECT_EQ(type_entity_resolve(&source, type_scalar(TYPE_INT)),
+            TYPE_RESOLVE_OK);
+  EXPECT_TRUE(type_equal(dependent.type, type_scalar(TYPE_UNKNOWN)));
   type_entity_destroy(&source);
   type_entity_destroy(&dependent);
 }
@@ -463,7 +469,8 @@ TEST_F(OomFaultTest, SymbolTableAllocationFailuresAreReported) {
     long live;
     {
       oom::Arm arm(k);
-      status = symbol_table_define(root, name, TYPE_INT, true, false, &symbol);
+      status = symbol_table_define(root, name, type_scalar(TYPE_INT), true,
+                                   false, &symbol);
       arm.off();
       injected = arm.injected();
       bound = symbol_table_lookup_local(root, name);
@@ -532,10 +539,11 @@ TEST_F(OomFaultTest, FunctionTableAllocationFailuresAreReported) {
   ASSERT_EQ(function_table_get_or_create(&table, "f", &f), FUNCTION_TABLE_OK);
   ASSERT_EQ(function_table_get_or_create(&table, "g", &g), FUNCTION_TABLE_OK);
 
+  Symbol parameter = {};
   FunctionTableStatus parameter_status;
   {
     oom::Arm arm(1);
-    parameter_status = function_symbol_add_parameter(f, TYPE_INT);
+    parameter_status = function_symbol_add_parameter(f, &parameter);
   }
   EXPECT_EQ(parameter_status, FUNCTION_TABLE_OUT_OF_MEMORY);
   EXPECT_EQ(f->argument_count, 0U);
@@ -681,7 +689,7 @@ TEST_F(OomFaultTest, ParserAllocationFailureIsNeverSyntaxOrSemanticError) {
     }
     EXPECT_NE(run.status, PARSER_OK) << "k=" << k;
     EXPECT_NE(run.status, PARSER_SYNTAX_ERROR) << "k=" << k;
-    EXPECT_NE(run.status, PARSER_SEMANTIC_ERROR) << "k=" << k;
+    EXPECT_FALSE(is_semantic_error(run.status)) << "k=" << k;
     EXPECT_EQ(run.live, 0) << "k=" << k;
   }
   EXPECT_GT(k, 1);
@@ -694,8 +702,7 @@ TEST_F(OomFaultTest, ParserAllocationFailureIsNeverSyntaxOrSemanticError) {
  *   Every allocation failure seen by p_program, also one inside the lexer,
  *   must surface as PARSER_INTERNAL_ERROR (exit code 99).
  */
-// Bug parser.c:47: LEXER_OUT_OF_MEMORY maps to PARSER_LEXER_ERROR, not 99.
-TEST_F(OomFaultTest, DISABLED_ParserMapsLexerAllocationFailureToInternalError) {
+TEST_F(OomFaultTest, ParserMapsLexerAllocationFailureToInternalError) {
   // Every other allocation failure in parser.c already returns
   // PARSER_INTERNAL_ERROR; IFJ convention (assignment not in repo) is 99.
   long k = 1;

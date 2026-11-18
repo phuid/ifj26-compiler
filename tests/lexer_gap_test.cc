@@ -33,15 +33,22 @@ bool owns_text(TokenType type) {
   return type != TOKEN_INT && type != TOKEN_DOUBLE && type != TOKEN_INDENT &&
          type != TOKEN_DEDENT && type != TOKEN_EOF && type != TOKEN_INVALID;
 }
-struct Lexed { Token token; std::string text; };  // text outlives the lexer
-struct LexResult { std::vector<Lexed> tokens; LexerStatus status; Token last; };
+struct Lexed {
+  Token token;
+  std::string text;
+}; // text outlives the lexer
+struct LexResult {
+  std::vector<Lexed> tokens;
+  LexerStatus status;
+  Token last;
+};
 
 LexResult lex_all(const char *input) {
   LexResult result{{}, LEXER_INVALID_ARGUMENT, Token{}};
   FILE *stream = stream_from(input);
   Lexer lexer;
   if (stream == nullptr || lexer_init(&lexer, stream) != LEXER_OK) {
-    ADD_FAILURE() << "cannot set up lexer";  // only on a null stream
+    ADD_FAILURE() << "cannot set up lexer"; // only on a null stream
     return result;
   }
   while ((result.status = lexer_pls(&lexer)) == LEXER_OK) {
@@ -58,7 +65,12 @@ LexResult lex_all(const char *input) {
   return result;
 }
 
-struct Expected { TokenType type; const char *text; long long i; double d; };
+struct Expected {
+  TokenType type;
+  const char *text;
+  long long i;
+  double d;
+};
 Expected T(TokenType t, const char *text = nullptr) { return {t, text, 0, 0}; }
 Expected I(long long value) { return {TOKEN_INT, nullptr, value, 0.0}; }
 Expected D(double value) { return {TOKEN_DOUBLE, nullptr, 0, value}; }
@@ -66,8 +78,7 @@ std::string shown(const char *input) {
   return testing::PrintToString(std::string(input));
 }
 
-void expect_tokens(const LexResult &result,
-                   const std::vector<Expected> &want) {
+void expect_tokens(const LexResult &result, const std::vector<Expected> &want) {
   EXPECT_EQ(result.status, LEXER_EOF);
   ASSERT_EQ(result.tokens.size(), want.size());
   for (size_t index = 0U; index < want.size(); index += 1U) {
@@ -98,14 +109,26 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
     const char *input;
     std::vector<Expected> tokens;
   } cases[] = {
-      {"", {}}, {"01", {I(0), I(1)}}, {"007", {I(0), I(0), I(7)}},
-      {"1__0", {I(10)}}, {"0.5", {D(0.5)}}, {"1.5__5", {D(1.55)}},
-      {"1.5E3", {D(1500.0)}}, {"1e-5", {D(1e-5)}}, {"1e5d", {D(1e5)}},
-      {"1e5D", {D(1e5)}}, {"1e5__5", {D(1e55)}}, {".5e3", {D(500.0)}},
-      {".5_5", {D(0.55)}}, {".5d", {D(0.5)}}, {"0_1", {I(0), id("_1")}},
+      {"", {}},
+      {"01", {I(0), I(1)}},
+      {"007", {I(0), I(0), I(7)}},
+      {"1__0", {I(10)}},
+      {"0.5", {D(0.5)}},
+      {"1.5__5", {D(1.55)}},
+      {"1.5E3", {D(1500.0)}},
+      {"1e-5", {D(1e-5)}},
+      {"1e5d", {D(1e5)}},
+      {"1e5D", {D(1e5)}},
+      {"1e5__5", {D(1e55)}},
+      {".5e3", {D(500.0)}},
+      {".5_5", {D(0.55)}},
+      {".5d", {D(0.5)}},
+      {"0_1", {I(0), id("_1")}},
       {"9223372036854775807", {I(LLONG_MAX)}},
-      {"5d", {I(5), id("d")}}, {"1.5dx", {D(1.5), id("x")}},
-      {"a \t ", {id("a")}}, {"..", {T(TOKEN_DOT, "."), T(TOKEN_DOT, ".")}},
+      {"5d", {I(5), id("d")}},
+      {"1.5dx", {D(1.5), id("x")}},
+      {"a \t ", {id("a")}},
+      {"..", {T(TOKEN_DOT, "."), T(TOKEN_DOT, ".")}},
       {"\"\"\"\"\"\"", {T(TOKEN_STRING, "\"\"\"\"\"\"")}},
       {"\"\"\"a\"\"b\"\"\"", {T(TOKEN_STRING, "\"\"\"a\"\"b\"\"\"")}},
       {"\"a\tb\" \"a\rb\" \"if\" \"\"\"while\"\"\"",
@@ -122,9 +145,11 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
        {id("a"), T(TOKEN_NEWLINE), T(TOKEN_INDENT), T(TOKEN_INDENT),
         T(TOKEN_INDENT), T(TOKEN_INDENT), id("b"), T(TOKEN_NEWLINE),
         T(TOKEN_DEDENT), T(TOKEN_DEDENT), id("c")}},
-      {"1.5.2", {D(1.5), D(0.2)}}, {"x.5", {id("x"), D(0.5)}},
+      {"1.5.2", {D(1.5), D(0.2)}},
+      {"x.5", {id("x"), D(0.5)}},
       {".e5", {T(TOKEN_DOT, "."), id("e5")}},
-      {"..5", {T(TOKEN_DOT, "."), D(0.5)}}, {"1.5dd", {D(1.5), id("d")}},
+      {"..5", {T(TOKEN_DOT, "."), D(0.5)}},
+      {"1.5dd", {D(1.5), id("d")}},
       {"\"\"\"\"a\"\"\"", {T(TOKEN_STRING, "\"\"\"\"a\"\"\"")}},
       {"->", {T(TOKEN_MINUS, "-"), T(TOKEN_GREATER, ">")}},
       {"a<-1", {id("a"), T(TOKEN_FOR_GENERATOR, "<-"), I(1)}},
@@ -145,14 +170,45 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
  */
 TEST(LexerGapTest, RejectedInputsEndInInvalidToken) {
   static const char *const inputs[] = {
-      "1.e5",  "1._5",     "0.",       "0.e1",   "\"\\0\"", "\"\\",
-      "\"a\\", "\"\\\n\"", "\"\\x\"",  "&x",     "@x",      "@maix",
-      "@Main", "#",        "$",        "%",      "{",       "}",
-      "?",     "'",        "\\",       "\r",     "\f",      "\v",
-      "~",     "^",        "\x80",     "\xFF",   " a",      "\t",
-      "a\fb",  "a\vb",     "a\r\nb",   "a\n\t",  "\"caf\xC3\xA9\"",
-      "\"\"\"\xC3\xA9\"\"\"",          "\"\"\"a\"\"\"\"",
-      "\"\"\"\"",  "&&&",
+      "1.e5",
+      "1._5",
+      "0.",
+      "0.e1",
+      "\"\\0\"",
+      "\"\\",
+      "\"a\\",
+      "\"\\\n\"",
+      "\"\\x\"",
+      "&x",
+      "@x",
+      "@maix",
+      "@Main",
+      "#",
+      "$",
+      "%",
+      "{",
+      "}",
+      "?",
+      "'",
+      "\\",
+      "\r",
+      "\f",
+      "\v",
+      "~",
+      "^",
+      "\x80",
+      "\xFF",
+      " a",
+      "\t",
+      "a\fb",
+      "a\vb",
+      "a\r\nb",
+      "a\n\t",
+      "\"caf\xC3\xA9\"",
+      "\"\"\"\xC3\xA9\"\"\"",
+      "\"\"\"a\"\"\"\"",
+      "\"\"\"\"",
+      "&&&",
   };
   for (const char *input : inputs) {
     SCOPED_TRACE(shown(input));
@@ -261,7 +317,7 @@ TEST(LexerGapTest, IndentAdjustmentRejectsOverflowAndKeepsPendingTokens) {
 TEST(KeywordGapTest, KeywordTableCoversEveryKeywordTokenOnce) {
   LexResult result = lex_all(
       "def do Double else if import Int return String then Unit val var "
-      "while Boolean case class extension for List match type");
+      "while Boolean true false case class extension for List match type");
   std::set<int> seen;
   for (const Lexed &lexed : result.tokens) {
     SCOPED_TRACE(lexed.text);

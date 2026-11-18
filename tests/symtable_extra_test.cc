@@ -15,8 +15,8 @@ TEST(SymbolTableExtraTest, LookupLocalIgnoresParentScope) {
   ASSERT_NE(loop_body, nullptr);
 
   Symbol *count = nullptr;
-  ASSERT_EQ(symbol_table_define(function_scope, "count", TYPE_INT, true, true,
-                                &count),
+  ASSERT_EQ(symbol_table_define(function_scope, "count", type_scalar(TYPE_INT),
+                                true, true, &count),
             SYMTABLE_OK);
   ASSERT_NE(count, nullptr);
 
@@ -42,8 +42,8 @@ TEST(SymbolTableExtraTest, SiblingScopesDoNotSeeEachOther) {
   EXPECT_EQ(else_branch->parent, function_scope);
 
   Symbol *message = nullptr;
-  ASSERT_EQ(symbol_table_define(then_branch, "message", TYPE_STRING, true, true,
-                                &message),
+  ASSERT_EQ(symbol_table_define(then_branch, "message",
+                                type_scalar(TYPE_STRING), true, true, &message),
             SYMTABLE_OK);
   ASSERT_NE(message, nullptr);
 
@@ -52,8 +52,8 @@ TEST(SymbolTableExtraTest, SiblingScopesDoNotSeeEachOther) {
   EXPECT_EQ(symbol_table_resolve(then_branch, "message"), message);
 
   Symbol *else_message = nullptr;
-  ASSERT_EQ(symbol_table_define(else_branch, "message", TYPE_INT, true, false,
-                                &else_message),
+  ASSERT_EQ(symbol_table_define(else_branch, "message", type_scalar(TYPE_INT),
+                                true, false, &else_message),
             SYMTABLE_OK);
   ASSERT_NE(else_message, nullptr);
   EXPECT_NE(else_message, message);
@@ -87,11 +87,12 @@ TEST(SymbolTableExtraTest, DeepScopeResolvesRootBinding) {
 
   Symbol *root_limit = nullptr;
   Symbol *inner_limit = nullptr;
-  ASSERT_EQ(symbol_table_define(scopes[0], "limit", TYPE_INT, true, false,
-                                &root_limit),
+  ASSERT_EQ(symbol_table_define(scopes[0], "limit", type_scalar(TYPE_INT), true,
+                                false, &root_limit),
             SYMTABLE_OK);
-  ASSERT_EQ(symbol_table_define(scopes[shadow_level], "limit", TYPE_REAL, true,
-                                true, &inner_limit),
+  ASSERT_EQ(symbol_table_define(scopes[shadow_level], "limit",
+                                type_scalar(TYPE_REAL), true, true,
+                                &inner_limit),
             SYMTABLE_OK);
   ASSERT_NE(root_limit, nullptr);
   ASSERT_NE(inner_limit, nullptr);
@@ -104,9 +105,9 @@ TEST(SymbolTableExtraTest, DeepScopeResolvesRootBinding) {
     ASSERT_EQ(found, expected) << index;
     EXPECT_EQ(found->owner, owner) << index;
   }
-  EXPECT_EQ(inner_limit->type.type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(inner_limit->type.type, type_scalar(TYPE_REAL)));
   EXPECT_TRUE(inner_limit->constant);
-  EXPECT_EQ(root_limit->type.type, TYPE_INT);
+  EXPECT_TRUE(type_equal(root_limit->type.type, type_scalar(TYPE_INT)));
   EXPECT_FALSE(root_limit->constant);
 
   symbol_table_destroy(scopes[0]);
@@ -121,8 +122,8 @@ TEST(SymbolTableExtraTest, ManyBindingsInOneScopeAreAllFound) {
     char name[32];
     size_t number = (index * 37U) % count;
     snprintf(name, sizeof(name), "item_%zu", number);
-    ASSERT_EQ(symbol_table_define(function_scope, name, TYPE_INT, true,
-                                  number % 2U == 0U, nullptr),
+    ASSERT_EQ(symbol_table_define(function_scope, name, type_scalar(TYPE_INT),
+                                  true, number % 2U == 0U, nullptr),
               SYMTABLE_OK)
         << index;
   }
@@ -149,8 +150,8 @@ TEST(SymbolTableExtraTest, DefineCopiesNameAndRecordsOwner) {
   memcpy(token_text, "total", sizeof("total"));
 
   Symbol *total = nullptr;
-  ASSERT_EQ(symbol_table_define(function_scope, token_text, TYPE_REAL, false,
-                                true, &total),
+  ASSERT_EQ(symbol_table_define(function_scope, token_text,
+                                type_scalar(TYPE_REAL), false, true, &total),
             SYMTABLE_OK);
   ASSERT_NE(total, nullptr);
   EXPECT_NE(total->name, token_text);
@@ -158,7 +159,7 @@ TEST(SymbolTableExtraTest, DefineCopiesNameAndRecordsOwner) {
 
   EXPECT_STREQ(total->name, "total");
   EXPECT_EQ(total->owner, function_scope);
-  EXPECT_EQ(total->type.type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(total->type.type, type_scalar(TYPE_REAL)));
   EXPECT_TRUE(total->constant);
   EXPECT_FALSE(total->initialized);
   EXPECT_EQ(symbol_table_lookup_local(function_scope, "total"), total);
@@ -170,19 +171,19 @@ TEST(SymbolTableExtraTest, RejectsNullArguments) {
   SymbolTable *program_scope = symbol_table_create_root();
   ASSERT_NE(program_scope, nullptr);
   Symbol *flag = nullptr;
-  ASSERT_EQ(
-      symbol_table_define(program_scope, "flag", TYPE_BOOL, true, false, &flag),
-      SYMTABLE_OK);
+  ASSERT_EQ(symbol_table_define(program_scope, "flag", type_scalar(TYPE_BOOL),
+                                true, false, &flag),
+            SYMTABLE_OK);
   ASSERT_NE(flag, nullptr);
 
   Symbol *result = flag;
-  EXPECT_EQ(
-      symbol_table_define(nullptr, "flag", TYPE_BOOL, true, false, &result),
-      SYMTABLE_INVALID_ARGUMENT);
+  EXPECT_EQ(symbol_table_define(nullptr, "flag", type_scalar(TYPE_BOOL), true,
+                                false, &result),
+            SYMTABLE_INVALID_ARGUMENT);
   EXPECT_EQ(result, nullptr);
   result = flag;
-  EXPECT_EQ(symbol_table_define(program_scope, nullptr, TYPE_BOOL, true, false,
-                                &result),
+  EXPECT_EQ(symbol_table_define(program_scope, nullptr, type_scalar(TYPE_BOOL),
+                                true, false, &result),
             SYMTABLE_INVALID_ARGUMENT);
   EXPECT_EQ(result, nullptr);
 

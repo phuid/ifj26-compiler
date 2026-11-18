@@ -37,8 +37,8 @@ TEST(KeywordTest, IgnoresNonKeywords) {
   EXPECT_EQ(keyword_lookup("de"), nullptr);
   EXPECT_EQ(keyword_lookup(""), nullptr);
   EXPECT_EQ(keyword_lookup(nullptr), nullptr);
-  EXPECT_EQ(keyword_lookup("true"), nullptr);
-  EXPECT_EQ(keyword_lookup("false"), nullptr);
+  EXPECT_EQ(keyword_lookup("True"), nullptr);
+  EXPECT_EQ(keyword_lookup("FALSE"), nullptr);
   EXPECT_EQ(keyword_lookup("def "), nullptr);
   EXPECT_EQ(keyword_lookup("While"), nullptr);
 }
@@ -57,13 +57,13 @@ TEST(KeywordTest, MapsTypeKeywordsToDataTypes) {
  * AI-generated test block — keyword_to_type over every token kind.
  * Model: Claude (Claude Code).
  * Prompt:
- *   Only Int/Double/String/Unit/Boolean keywords map to a DataType; every
+ *   Only Int/Double/String/Unit/Boolean keywords map to a BaseType; every
  *   other TokenType from TOKEN_INT to TOKEN_INVALID gives TYPE_UNKNOWN.
  */
 TEST(KeywordTest, OnlyTypeKeywordsMapToDataTypes) {
   for (int value = TOKEN_INT; value <= TOKEN_INVALID; value += 1) {
     const TokenType type = static_cast<TokenType>(value);
-    DataType expected = TYPE_UNKNOWN;
+    BaseType expected = TYPE_UNKNOWN;
     switch (type) {
     case TOKEN_KW_INT:
       expected = TYPE_INT;

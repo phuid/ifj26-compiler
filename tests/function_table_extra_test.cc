@@ -50,7 +50,8 @@ TEST(FunctionTableExtraTest, LocalScopeIsCreatedOnlyOnce) {
   SymbolTable *first = function_symbol_create_local_scope(average);
   ASSERT_NE(first, nullptr);
   Symbol *sum = nullptr;
-  ASSERT_EQ(symbol_table_define(first, "sum", TYPE_REAL, true, false, &sum),
+  ASSERT_EQ(symbol_table_define(first, "sum", type_scalar(TYPE_REAL), true,
+                                false, &sum),
             SYMTABLE_OK);
   ASSERT_NE(sum, nullptr);
 

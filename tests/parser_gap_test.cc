@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <string>
 
 #include "gtest/gtest.h"
 
@@ -14,6 +16,9 @@ extern "C" {
  * Prompt:
  *   Run the lexer and p_program over in-memory IFJ26 text; own the Program
  *   for one test and offer parse(source) -> status for table-driven cases.
+ *   A source without `@main` gets a valid main function appended, so that the
+ *   missing-main error (code 3) stays out of tests aimed at other constructs;
+ *   every error in the source itself is found before the appended main.
  */
 namespace {
 
@@ -41,18 +46,31 @@ ParserStatus parse_into(const char *source, Program *program) {
   return status;
 }
 
+/** Valid main function appended to test sources that have none. */
+const char *const kMainFunction = "@main def added_main(): Unit =\n"
+                                  "  return\n";
+
 struct ParsedProgram {
   Program program;
   ParserStatus status;
-  explicit ParsedProgram(const char *source) {
-    status = program_init(&program) == PARSER_OK ? parse_into(source, &program)
-                                                  : PARSER_INTERNAL_ERROR;
+  /// True when kMainFunction was appended to the source.
+  bool added_main;
+  explicit ParsedProgram(const char *source, bool add_main = true)
+      : added_main(add_main && std::strstr(source, "@main") == nullptr) {
+    const std::string text =
+        added_main ? std::string(source) + "\n" + kMainFunction : source;
+    status = program_init(&program) == PARSER_OK
+                 ? parse_into(text.c_str(), &program)
+                 : PARSER_INTERNAL_ERROR;
   }
   ~ParsedProgram() { program_destroy(&program); }
   ParsedProgram(const ParsedProgram &) = delete;
   ParsedProgram &operator=(const ParsedProgram &) = delete;
 
-  size_t count() const { return program.functions.function_count; }
+  /// Number of functions from the source (without the appended main).
+  size_t count() const {
+    return program.functions.function_count - (added_main ? 1U : 0U);
+  }
   FunctionSymbol *at(size_t i) const { return program.functions.functions[i]; }
   FunctionSymbol *function(const char *name) const {
     return function_table_lookup(&program.functions, name);
@@ -100,25 +118,31 @@ TEST(ParserGapApiTest, NullArgumentsAndDoubleDestroy) {
  * AI-generated test block — sources the parser must accept.
  * Model: claude-opus-5-5 (Claude Code).
  * Prompt:
- *   Valid layouts (blank lines, multiline parameters, `;` separators, end of
- *   input instead of DEDENT) parse OK with the expected body statement count.
+ *   Valid layouts (blank lines, multiline parameters, end of input instead
+ *   of DEDENT) parse OK with the expected body statement count.
  */
 TEST(ParserGapStatusTest, ValidSourcesAreAccepted) {
-  struct Case { const char *source; size_t statements; };
+  struct Case {
+    const char *source;
+    size_t statements;
+  };
   const Case cases[] = {
-      {"def f() =\n  return\n", 1}, {"def f() =\n  return", 1},
-      {"def f() =\n\n  return\n", 1}, {"def f() = \n  return\n", 1},
+      {"def f() =\n  return\n", 1},
+      {"def f() =\n  return", 1},
+      {"def f() =\n\n  return\n", 1},
+      {"def f() = \n  return\n", 1},
       {"def f() =\n  return\n  return\n  return\n", 3},
       {"def f() =\n  return\n\n\n  return\n", 2},
-      {"def f() =\n  return\n  return", 2}, {"def f() =\n  ;\n", 0},
-      {"def f() =\n  ;return\n", 1}, {"def f() =\n  ;;return\n", 1},
-      {"def f() =\n  ;\n  return\n", 1},
+      {"def f() =\n  return\n  return", 2},
       {"def f(\n  a: Int,\n  b: String,\n  ) =\n  return\n", 1},
       {"def f(\n  a: Int,\n  b: String\n  ) =\n  return\n", 1},
       {"def f(a:\n  Int) =\n  return\n", 1},
       {"def f(a\n  : Int) =\n  return\n", 1},
       {"@main\n\ndef main() =\n  return\n", 1},
       {"def f(\n    a: Int,\n  b: Int) =\n  return\n", 1},
+      // BOOLTHEN: else is optional; a one-line then branch may precede it.
+      {"def f(a: Boolean) =\n  if a then\n    return\n", 1},
+      {"def f(a: Boolean) =\n  if a then return\n  else\n    return\n", 1},
   };
   for (const Case &c : cases) {
     SCOPED_TRACE(c.source);
@@ -140,57 +164,105 @@ TEST(ParserGapStatusTest, ValidSourcesAreAccepted) {
  */
 TEST(ParserGapStatusTest, MalformedSourcesAreSyntaxErrors) {
   const char *const sources[] = {
-      "5\n", "val x = 1\n", "return\n", "if\n",                // top level
-      "def () =\n  return\n", "def while() =\n  return\n", "def\n",
-      "def f()\n  return\n", "def f(): Int\n  return\n", "def f() return\n",
-      "def f", "def f() = return\n", "def f() =\nreturn\n", "def f() =\n",
-      "@main x\n", "@main\n", "@main", "@main @main\n",
-      "def f(\n  a: Int,\n  b: String,\n) =\n  return\n",     // `)` at header
-      "def f(a) =\n  return\n", "def f(a Int) =\n  return\n",
-      "def f(a: Int b: Int) =\n  return\n", "def f(a: Int =\n  return\n",
-      "def f( =\n  return\n", "def f(a: Int,) =\n  return\n",
-      "def f(,) =\n  return\n", "def f(1) =\n  return\n",
-      "def f(): =\n  return\n", "def f(): Foo =\n  return\n",
-      "def f(a: Foo) =\n  return\n", "def f(a: val) =\n  return\n",
-      "def f(a: ) =\n  return\n", "def f():\n Int =\n  return\n",
-      "def f() =\n  val = 1\n", "def f() =\n  var = 1\n",
-      "def f() =\n  val if = 1\n", "def f() =\n  val x 1\n",
-      "def f() =\n  var x\n", "def f() =\n  val x: = 1\n",
+      "5\n",
+      "val x = 1\n",
+      "return\n",
+      "if\n", // top level
+      "def () =\n  return\n",
+      "def while() =\n  return\n",
+      "def\n",
+      "def f()\n  return\n",
+      "def f(): Int\n  return\n",
+      "def f() return\n",
+      "def f",
+      "def f() = return\n",
+      "def f() =\nreturn\n",
+      "def f() =\n",
+      "@main x\n",
+      "@main\n",
+      "@main",
+      "@main @main\n",
+      "def f(\n  a: Int,\n  b: String,\n) =\n  return\n", // `)` at header
+      "def f(a) =\n  return\n",
+      "def f(a Int) =\n  return\n",
+      "def f(a: Int b: Int) =\n  return\n",
+      "def f(a: Int =\n  return\n",
+      "def f( =\n  return\n",
+      "def f(a: Int,) =\n  return\n",
+      "def f(,) =\n  return\n",
+      "def f(1) =\n  return\n",
+      "def f(): =\n  return\n",
+      "def f(): Foo =\n  return\n",
+      "def f(a: Foo) =\n  return\n",
+      "def f(a: val) =\n  return\n",
+      "def f(a: ) =\n  return\n",
+      "def f():\n Int =\n  return\n",
+      "def f() =\n  val = 1\n",
+      "def f() =\n  var = 1\n",
+      "def f() =\n  val if = 1\n",
+      "def f() =\n  val x 1\n",
+      "def f() =\n  var x\n",
+      "def f() =\n  val x: = 1\n",
       "def f() =\n  val x: Foo = 1\n",
       "def f(a: Boolean) =\n  if a\n    return\n  else\n    return\n",
-      "def f(a: Boolean) =\n  if a then\n    return\n",
-      "def f(a: Boolean) =\n  if a then return\n  else\n    return\n",
+      // Blocks cannot be empty and `;` only separates two statements.
+      "def f() =\n  ;\n",
+      "def f() =\n  ;return\n",
+      "def f() =\n  ;;return\n",
+      "def f() =\n  ;\n  return\n",
       "def f() =\n  if then\n    return\n  else\n    return\n",
       "def f() =\n  def g() =\n    return\n",
       "def f() =\n  return\n    return\n",
-      "def f() =\n    return\n  return\n", "def f() =\n  return\n  else\n",
-      "def f() =\n  then\n", "def f() =\n  import\n",
+      "def f() =\n    return\n  return\n",
+      "def f() =\n  return\n  else\n",
+      "def f() =\n  then\n",
+      "def f() =\n  import\n",
       "def f() =\n  return return\n",
-      "def f(): List =\n  return\n",                          // not a type
-      "def f(\n  a: Int,\nb: Int) =\n  return\n",           // `(` line indent
+      "def f(): List =\n  return\n",              // not a type
+      "def f(\n  a: Int,\nb: Int) =\n  return\n", // `(` line indent
   };
   expect_status(sources, PARSER_SYNTAX_ERROR);
 }
 
 TEST(ParserGapStatusTest, SemanticAndLexerErrorsArePropagated) {
-  const char *const semantic[] = {
+  const char *const redefinition[] = {
       "@main def main() =\n  return\n@main def other() =\n  return\n",
       "def f() =\n  return\ndef f() =\n  return\n",
       "@main def main() =\n  return\ndef main() =\n  return\n",
-      "@main def main(a: Int) =\n  return\n",
       "def f(a: Int, a: String) =\n  return\n",
-      "def f(a: Int) =\n  val a = 1\n", "def f(a: Int) =\n  var a = 1\n",
+      "def f(a: Int) =\n  val a = 1\n",
+      "def f(a: Int) =\n  var a = 1\n",
   };
-  expect_status(semantic, PARSER_SEMANTIC_ERROR);
+  expect_status(redefinition, PARSER_REDEFINITION_ERROR);
+  const char *const bad_main[] = {"@main def main(a: Int) =\n  return\n"};
+  expect_status(bad_main, PARSER_BAD_CALL_ERROR);
   const char *const lexical[] = {
-      "  def f() =\n  return\n", "def f() =\n  return\n  $\n",
+      "  def f() =\n  return\n",
+      "def f() =\n  return\n  $\n",
       "def f() =\n  return\ndef g() =\n  return\n\"abc",
-      "def $", "def f$", "def f($", "def f(a$", "def f(a:$", "def f(a:\n  $",
-      "def f(a: Int$", "def f(a: Int,\n$", "def f()$", "def f():$",
-      "def f(): Int$", "def f() =$", "def f() =\n  $", "def f() =\n  return$",
-      "def f() =\n  val x$", "def f() =\n  val x:$",
-      "def f() =\n  val x: Int$", "def f() =\n  if$", "def f() =\n  ;$",
-      "@main$", "@main\n$", "@main def$", "def f() =\n  return\n$",
+      "def $",
+      "def f$",
+      "def f($",
+      "def f(a$",
+      "def f(a:$",
+      "def f(a:\n  $",
+      "def f(a: Int$",
+      "def f(a: Int,\n$",
+      "def f()$",
+      "def f():$",
+      "def f(): Int$",
+      "def f() =$",
+      "def f() =\n  $",
+      "def f() =\n  return$",
+      "def f() =\n  val x$",
+      "def f() =\n  val x:$",
+      "def f() =\n  val x: Int$",
+      "def f() =\n  if$",
+      "def f() =\n  return;$",
+      "@main$",
+      "@main\n$",
+      "@main def$",
+      "def f() =\n  return\n$",
   };
   expect_status(lexical, PARSER_LEXER_ERROR);
 }
@@ -215,7 +287,8 @@ TEST(ParserGapStructureTest, FunctionsKeepOrderAndOnlyMainIsMarked) {
     EXPECT_EQ(p.at(i)->is_main, i == 1U);
   }
   EXPECT_EQ(p.function("main")->argument_count, 0U);
-  EXPECT_EQ(p.function("main")->return_type.type, TYPE_UNIT);
+  EXPECT_TRUE(
+      type_equal(p.function("main")->return_type.type, type_scalar(TYPE_UNIT)));
   ASSERT_NE(p.at(0)->ast_root, nullptr);
   ASTNode *bare_return = p.at(0)->ast_root->data.block.statements[0];
   EXPECT_EQ(bare_return->kind, AST_RETURN);
@@ -223,7 +296,10 @@ TEST(ParserGapStructureTest, FunctionsKeepOrderAndOnlyMainIsMarked) {
 }
 
 TEST(ParserGapStructureTest, ReturnTypeAnnotationIsResolved) {
-  struct Case { const char *source; DataType type; };
+  struct Case {
+    const char *source;
+    BaseType type;
+  };
   const Case cases[] = {
       {"def f() =\n  return\n", TYPE_UNKNOWN},
       {"def f(): Int =\n  return\n", TYPE_INT},
@@ -236,7 +312,8 @@ TEST(ParserGapStructureTest, ReturnTypeAnnotationIsResolved) {
     SCOPED_TRACE(c.source);
     ParsedProgram p(c.source);
     ASSERT_EQ(p.status, PARSER_OK);
-    EXPECT_EQ(p.function("f")->return_type.type, c.type);
+    EXPECT_TRUE(
+        type_equal(p.function("f")->return_type.type, type_scalar(c.type)));
     EXPECT_EQ(p.function("f")->has_explicit_return_type,
               c.type != TYPE_UNKNOWN);
   }
@@ -248,16 +325,17 @@ TEST(ParserGapStructureTest, ParametersAreTypedConstantLocals) {
   ASSERT_EQ(p.status, PARSER_OK);
   FunctionSymbol *f = p.function("f");
   ASSERT_EQ(f->argument_count, 5U);
-  const DataType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_BOOL,
+  const BaseType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_BOOL,
                                TYPE_UNIT};
   for (size_t i = 0; i < 5U; ++i) {
-    EXPECT_EQ(f->parameter_types[i], expected[i]) << "parameter " << i;
+    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type.type, expected[i]))
+        << "parameter " << i;
   }
   Symbol *a = symbol_table_lookup_local(f->local_scope, "a");
   ASSERT_NE(a, nullptr);
   EXPECT_TRUE(a->constant);
   EXPECT_TRUE(a->initialized);
-  EXPECT_EQ(a->type.type, TYPE_INT);
+  EXPECT_TRUE(type_equal(a->type.type, type_scalar(TYPE_INT)));
 }
 
 /*
@@ -267,19 +345,17 @@ TEST(ParserGapStructureTest, ParametersAreTypedConstantLocals) {
  *   Record correct results for features waiting on p_expression or a
  *   parser fix; enable each test once its cause is resolved.
  */
-// Needs p_expression (initializer is never parsed).
-TEST(ParserGapKnownGapTest, DISABLED_ValWithInitializerIsAccepted) {
+TEST(ParserGapKnownGapTest, ValWithInitializerIsAccepted) {
   EXPECT_EQ(parse("def f() =\n  val x = 1\n"), PARSER_OK);
 }
 
-// Needs p_expression (if condition is never parsed).
-TEST(ParserGapKnownGapTest, DISABLED_IfElseIsAccepted) {
+TEST(ParserGapKnownGapTest, IfElseIsAccepted) {
   EXPECT_EQ(parse("def f(a: Boolean) =\n  if a then\n    return\n"
-                  "  else\n    return\n"), PARSER_OK);
+                  "  else\n    return\n"),
+            PARSER_OK);
 }
 
-// Needs p_expression (p_call_args / p_operand are never reached).
-TEST(ParserGapKnownGapTest, DISABLED_CallArgumentsAreAccepted) {
+TEST(ParserGapKnownGapTest, CallArgumentsAreAccepted) {
   EXPECT_EXIT(
       {
         std::exit(parse("def g(a: Int) =\n  h(1, 2.5, \"s\", a, h())\n") ==
@@ -290,30 +366,25 @@ TEST(ParserGapKnownGapTest, DISABLED_CallArgumentsAreAccepted) {
       ::testing::ExitedWithCode(0), "");
 }
 
-// Bug: null statement dereferenced at parser.c:870 (crashes if enabled).
-TEST(ParserGapKnownGapTest, DISABLED_ExpressionStatementIsAccepted) {
+TEST(ParserGapKnownGapTest, ExpressionStatementIsAccepted) {
   EXPECT_EXIT(
       { std::exit(parse("def f() =\n  5\n") == PARSER_OK ? 0 : 1); },
       ::testing::ExitedWithCode(0), "");
 }
 
-// Bug: statement must be followed by NEWLINE, `;` rejected (parser.c:884).
-TEST(ParserGapKnownGapTest, DISABLED_SemicolonAfterStatementIsAccepted) {
+TEST(ParserGapKnownGapTest, SemicolonAfterStatementIsAccepted) {
   EXPECT_EQ(parse("def f() =\n  return; return\n"), PARSER_OK);
 }
 
-// Bug: top-level NEWLINE tokens are not skipped (parser.c:1276).
-TEST(ParserGapKnownGapTest, DISABLED_LeadingBlankLineIsAccepted) {
+TEST(ParserGapKnownGapTest, LeadingBlankLineIsAccepted) {
   EXPECT_EQ(parse("\ndef f() =\n  return\n"), PARSER_OK);
 }
 
-// Bug: symbol defined before its initializer is parsed (parser.c:530).
-TEST(ParserGapKnownGapTest, DISABLED_InitializerReferencingItselfIsError) {
-  EXPECT_EQ(parse("def f() =\n  val x = x\n"), PARSER_SEMANTIC_ERROR);
+TEST(ParserGapKnownGapTest, InitializerReferencingItselfIsError) {
+  EXPECT_EQ(parse("def f() =\n  val x = x\n"), PARSER_UNDEFINED_ERROR);
 }
 
-// Needs a while production in p_statement and p_expression.
-TEST(ParserGapKnownGapTest, DISABLED_WhileLoopIsAccepted) {
+TEST(ParserGapKnownGapTest, WhileLoopIsAccepted) {
   EXPECT_EQ(parse("def f(a: Boolean) =\n  while a do\n    return\n"),
             PARSER_OK);
 }
@@ -325,10 +396,11 @@ TEST(ParserGapKnownGapTest, DISABLED_WhileLoopIsAccepted) {
  *   A function whose `=` is followed by end of input has no body; the
  *   unexpected TOKEN_EOF must be a syntax error, not PARSER_OK.
  */
-// Bug parser.c:1161-1176: '=' then EOF returns PARSER_OK with ast_root NULL.
-TEST(ParserGapKnownGapTest, DISABLED_MissingFunctionBodyIsSyntaxError) {
+TEST(ParserGapKnownGapTest, MissingFunctionBodyIsSyntaxError) {
   const char *const sources[] = {
-      "@main\ndef main(): Unit =", "@main\ndef main(): Unit = ", "def f() =",
+      "@main\ndef main(): Unit =",
+      "@main\ndef main(): Unit = ",
+      "def f() =",
   };
   expect_status(sources, PARSER_SYNTAX_ERROR);
 }
@@ -340,11 +412,10 @@ TEST(ParserGapKnownGapTest, DISABLED_MissingFunctionBodyIsSyntaxError) {
  *   Lines inside parentheses must be indented more than the line with `(`
  *   (parser.c design rule); a line at the same indentation is a syntax error.
  */
-// Bug parser.c:187: indent checked only on INDENT/DEDENT; same-indent passes.
-TEST(ParserGapKnownGapTest,
-     DISABLED_ParameterLineAtOpeningIndentIsSyntaxError) {
+TEST(ParserGapKnownGapTest, ParameterLineAtOpeningIndentIsSyntaxError) {
   const char *const sources[] = {
-      "def f(\nx: Int) =\n  return\n", "def f(a:\nInt) =\n  return\n",
+      "def f(\nx: Int) =\n  return\n",
+      "def f(a:\nInt) =\n  return\n",
   };
   expect_status(sources, PARSER_SYNTAX_ERROR);
 }
@@ -356,8 +427,7 @@ TEST(ParserGapKnownGapTest,
  *   The AST_RETURN node carries the line and column of the `return`
  *   keyword, as ast.h documents for ast_node_create_return.
  */
-// Bug parser.c:616-617: uses the token after `return` (ast.h:238-239 differs).
-TEST(ParserGapKnownGapTest, DISABLED_ReturnNodeHasPositionOfReturnKeyword) {
+TEST(ParserGapKnownGapTest, ReturnNodeHasPositionOfReturnKeyword) {
   ParsedProgram p("def f() =\n  return\n");
   ASSERT_EQ(p.status, PARSER_OK);
   ASSERT_NE(p.at(0)->ast_root, nullptr);
@@ -375,21 +445,24 @@ TEST(ParserGapKnownGapTest, DISABLED_ReturnNodeHasPositionOfReturnKeyword) {
  *   exit codes for programs the current parser accepts.
  */
 TEST(ParserGapPipelineTest, ParsedProgramsGetDocumentedSemanticCodes) {
-  struct Case { const char *source; SemanticStatus expected; };
+  struct Case {
+    const char *source;
+    SemanticStatus expected;
+  };
   const Case cases[] = {
       {"@main\ndef main(): Unit =\n  return\n", SEMANTIC_OK},
       {"def f(a: Int, b: Double): Unit =\n  return\n"
-       "@main\ndef main(): Unit =\n  return\n", SEMANTIC_OK},
-      {"", SEMANTIC_UNDEFINED},                          // @main is missing
+       "@main\ndef main(): Unit =\n  return\n",
+       SEMANTIC_OK},
       {"@main\ndef main() =\n  return\n",
-       SEMANTIC_TYPE_ERROR},                     // `return` needs annotation
+       SEMANTIC_TYPE_ERROR}, // `return` needs annotation
       {"def print(x: Int): Unit =\n  return\n"
        "@main\ndef main(): Unit =\n  return\n",
-       SEMANTIC_REDEFINITION},                      // builtin name redefined
+       SEMANTIC_REDEFINITION}, // builtin name redefined
       {"@main\ndef main(): Int =\n  return\n",
-       SEMANTIC_TYPE_ERROR},     // bare return in non-Unit; also @main != Unit
+       SEMANTIC_TYPE_ERROR}, // bare return in non-Unit; also @main != Unit
       {"def f(): Int =\n  return\n@main\ndef main(): Unit =\n  return\n",
-       SEMANTIC_TYPE_ERROR},                     // bare return in non-Unit
+       SEMANTIC_TYPE_ERROR}, // bare return in non-Unit
   };
   for (const Case &c : cases) {
     SCOPED_TRACE(c.source);
@@ -397,4 +470,8 @@ TEST(ParserGapPipelineTest, ParsedProgramsGetDocumentedSemanticCodes) {
     ASSERT_EQ(p.status, PARSER_OK);
     EXPECT_EQ(semantic_check(&p.program), c.expected);
   }
+  // A missing @main is already reported by the parser (code 3).
+  EXPECT_EQ(ParsedProgram("", false).status, PARSER_UNDEFINED_ERROR);
+  EXPECT_EQ(ParsedProgram("def f() =\n  return\n", false).status,
+            PARSER_UNDEFINED_ERROR);
 }

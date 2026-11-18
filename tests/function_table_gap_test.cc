@@ -36,7 +36,10 @@ TEST_F(FunctionTableGapTest, RejectsNullArguments) {
             FUNCTION_TABLE_INVALID_ARGUMENT);
   EXPECT_EQ(function_table_lookup(nullptr, "f"), nullptr);
   EXPECT_EQ(function_table_lookup(&table, nullptr), nullptr);
-  EXPECT_EQ(function_symbol_add_parameter(nullptr, TYPE_INT),
+  Symbol parameter = {};
+  EXPECT_EQ(function_symbol_add_parameter(nullptr, &parameter),
+            FUNCTION_TABLE_INVALID_ARGUMENT);
+  EXPECT_EQ(function_symbol_add_parameter(f, nullptr),
             FUNCTION_TABLE_INVALID_ARGUMENT);
   EXPECT_EQ(function_symbol_add_callee(nullptr, f),
             FUNCTION_TABLE_INVALID_ARGUMENT);
@@ -47,14 +50,22 @@ TEST_F(FunctionTableGapTest, RejectsNullArguments) {
 }
 
 TEST_F(FunctionTableGapTest, AddParameterKeepsOrderWhileGrowing) {
-  const DataType cycle[] = {TYPE_STRING, TYPE_INT, TYPE_REAL, TYPE_BOOL};
+  const BaseType cycle[] = {TYPE_STRING, TYPE_INT, TYPE_REAL, TYPE_BOOL};
+  SymbolTable *scope = function_symbol_create_local_scope(f);
+  ASSERT_NE(scope, nullptr);
+  Symbol *symbols[20] = {nullptr};
   for (size_t i = 0U; i < 20U; i += 1U) {
-    ASSERT_EQ(function_symbol_add_parameter(f, cycle[i % 4U]),
-              FUNCTION_TABLE_OK);
+    const char name[] = {'p', static_cast<char>('A' + i), '\0'};
+    ASSERT_EQ(symbol_table_define(scope, name, type_scalar(cycle[i % 4U]), true,
+                                  true, &symbols[i]),
+              SYMTABLE_OK);
+    ASSERT_EQ(function_symbol_add_parameter(f, symbols[i]), FUNCTION_TABLE_OK);
   }
   ASSERT_EQ(f->argument_count, 20U);
   for (size_t i = 0U; i < 20U; i += 1U) {
-    EXPECT_EQ(f->parameter_types[i], cycle[i % 4U]) << i;
+    EXPECT_EQ(f->parameters[i], symbols[i]) << i;
+    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type.type, cycle[i % 4U]))
+        << i;
   }
 }
 
@@ -91,7 +102,7 @@ TEST_F(FunctionTableGapTest, NameIsCopiedAndRepeatedGetOrCreateReuses) {
 }
 
 TEST_F(FunctionTableGapTest, NewSymbolHasDefaultFields) {
-  EXPECT_EQ(f->return_type.type, TYPE_UNKNOWN);
+  EXPECT_TRUE(type_equal(f->return_type.type, type_scalar(TYPE_UNKNOWN)));
   EXPECT_FALSE(f->has_explicit_return_type || f->is_defined || f->is_main ||
                f->is_builtin || f->contains_return);
   EXPECT_EQ(f->argument_count + f->callee_count, 0U);
