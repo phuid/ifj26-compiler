@@ -2621,8 +2621,13 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
 
-    /// The one-line body must end the logical line (or the file).
-    return parser_consume_newlines(lexer, true, false, NULL);
+    /// The one-line body must end the logical line (or the file). A body
+    /// ending with an if has already consumed that NEWLINE while looking for
+    /// `else` (or the DEDENT closing its final block branch), so the newline
+    /// is only optional then, as in p_code_block.
+    bool newline_required =
+        parser_trailing_compound(implicit_return_node) == NULL;
+    return parser_consume_newlines(lexer, newline_required, false, NULL);
   }
 
   /// Consume the NEWLINE
