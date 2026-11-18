@@ -365,6 +365,8 @@ BST_STATUS bst_destroy(BST **tree) {
   return BST_OK;
 }
 
+// TODO: bst_insert should return the newly inserted node, so that the caller
+// can use it for further operations without having to search for it again.
 BST_STATUS bst_insert(BST *tree, const void *value) {
   if (tree == NULL || value == NULL) {
     return BST_INVALID_PARAMS;
