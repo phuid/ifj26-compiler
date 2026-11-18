@@ -19,6 +19,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * @brief Reads the next character from the input string.
+ * @param lexer The lexer instance.
+ * @return The next character, or EOF if at the end of the string.
+ */
+static int lexer_getchar(Lexer *lexer) {
+  if (lexer == NULL || lexer->input_str == NULL) {
+    return EOF;
+  }
+  int c = (unsigned char)lexer->input_str[lexer->input_str_pos];
+  if (c == '\0') {
+    return EOF;
+  }
+  lexer->input_str_pos += 1U;
+  return c;
+}
+
 /*
  * AI-generated code block — generic table-driven lexer runner.
  * Model: gpt-5.6-terra (OpenAI Codex via Hermes Agent).
@@ -124,7 +141,7 @@ static LexerStatus consume(TokenBuilder *builder) {
   }
 
   /// Read new lookahead
-  lexer->lookahead = fgetc(lexer->input);
+  lexer->lookahead = lexer_getchar(lexer);
   return LEXER_OK;
 }
 
@@ -141,7 +158,7 @@ static void discard_lookahead(Lexer *lexer) {
   } else {
     lexer->column += 1U;
   }
-  lexer->lookahead = fgetc(lexer->input);
+  lexer->lookahead = lexer_getchar(lexer);
 }
 
 /**
@@ -237,13 +254,14 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
  * @param input Open stream borrowed for the lexer lifetime.
  * @return LEXER_OK, or LEXER_INVALID_ARGUMENT for a null argument.
  */
-LexerStatus lexer_init(Lexer *lexer, FILE *input) {
-  if (lexer == NULL || input == NULL) {
+LexerStatus lexer_init(Lexer *lexer, char *input_str) {
+  if (lexer == NULL || input_str == NULL) {
     return LEXER_INVALID_ARGUMENT;
   }
 
-  lexer->input = input;
-  lexer->lookahead = fgetc(input);
+  lexer->input_str = input_str;
+  lexer->input_str_pos = 0U;
+  lexer->lookahead = lexer_getchar(lexer);
   lexer->line = 1U;
   lexer->column = 1U;
   lexer->current_indent = 0U;
@@ -356,7 +374,7 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
   TokenType token_type;
   LexerStatus status;
 
-  if (lexer == NULL || token == NULL || lexer->input == NULL) {
+  if (lexer == NULL || token == NULL || lexer->input_str == NULL) {
     return LEXER_INVALID_ARGUMENT;
   }
   if (lexer->lookahead == EOF) {
@@ -398,7 +416,7 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
 LexerStatus lexer_pls(Lexer *lexer) {
   LexerStatus status;
 
-  if (lexer == NULL || lexer->input == NULL) {
+  if (lexer == NULL || lexer->input_str == NULL) {
     return LEXER_INVALID_ARGUMENT;
   }
 
@@ -456,7 +474,7 @@ void lexer_destroy(Lexer *lexer) {
     return;
   }
   token_destroy(&lexer->token);
-  lexer->input = NULL;
+  lexer->input_str = NULL;
   lexer->lookahead = EOF;
   lexer->line = 0U;
   lexer->column = 0U;
