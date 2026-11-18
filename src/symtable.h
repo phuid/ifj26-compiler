@@ -54,43 +54,94 @@ struct SymbolTable {
   BST *bindings; /// BVS of Symbol bindings in this scope; owned by the table
 };
 
-/** Creates an owned root scope with an empty BVS for its bindings. */
+/**
+ * @brief Creates an empty root scope.
+ * @details The returned table owns its BVS and any child scopes later attached
+ * to it. The caller must release the complete scope tree with
+ * @ref symbol_table_destroy.
+ * @return An owned root scope with no parent, or null on allocation failure.
+ */
 SymbolTable *symbol_table_create_root(void);
 
-/** Creates and attaches an owned child scope, or returns null on failure. */
+/**
+ * @brief Creates and attaches a child scope.
+ * @details The new scope has an empty BVS and is owned by @p parent. The
+ * returned pointer is borrowed and must not be destroyed separately.
+ * @param parent Non-null parent scope.
+ * @return A borrowed pointer to the attached child, or null for an invalid
+ * argument or allocation failure.
+ */
 SymbolTable *symbol_table_create_child(SymbolTable *parent);
 
-/** Recursively destroys a root scope, its child scopes, and their BVS bindings.
+/**
+ * @brief Recursively destroys a scope tree.
+ * @details Releases all descendants, their BVS instances, and all BVS-owned
+ * symbols. Every pointer to a scope or symbol in the tree becomes invalid.
+ * Passing null has no effect.
+ * @param table Owned root of the scope tree to destroy, or null.
  */
 void symbol_table_destroy(SymbolTable *table);
 
-/** Looks up a name only in the BVS of one exact scope. */
+/**
+ * @brief Looks up a name only in one exact scope.
+ * @details Parent and child scopes are not searched. The returned symbol
+ * remains owned by the scope's BVS and must not be freed by the caller.
+ * @param table Non-null scope to search.
+ * @param name Non-null null-terminated identifier to find.
+ * @return A borrowed pointer to the local binding, or null if @p name is absent
+ * or an argument is invalid. The pointer is valid until the owning scope tree
+ * is destroyed.
+ */
 Symbol *symbol_table_lookup_local(const SymbolTable *table, const char *name);
 
-/** Looks up a name in a scope and then every parent scope. */
+/**
+ * @brief Resolves a name in a scope and its ancestors.
+ * @details The nearest binding is returned, so local definitions shadow
+ * bindings with the same name in parent scopes. The returned symbol remains
+ * owned by the defining scope's BVS and must not be freed by the caller.
+ * @param start Non-null scope at which to begin the search.
+ * @param name Non-null null-terminated identifier to resolve.
+ * @return A borrowed pointer to the nearest binding, or null if @p name is not
+ * found or an argument is invalid. The pointer is valid until the owning scope
+ * tree is destroyed.
+ */
 Symbol *symbol_table_resolve(const SymbolTable *start, const char *name);
 
 /**
  * @brief Defines a symbol in one exact scope.
  * @details Duplicate names in the same scope are rejected; child scopes may
- * shadow parent names. On success @p symbol receives the BVS-owned binding if
- * it is non-null. A binding's identity is its @c Symbol pointer, not a numeric
- * ID.
+ * shadow parent names. The table stores a BVS-owned symbol with its own copy of
+ * @p name. The caller retains ownership of @p name and may free it after the
+ * call. A binding's identity is its @c Symbol pointer, not a numeric ID.
+ * @param table Non-null exact scope in which to define the binding.
+ * @param name Non-null null-terminated identifier to copy.
+ * @param type Declared data type of the symbol.
+ * @param initialized Whether the symbol starts initialized.
+ * @param constant Whether the symbol is immutable.
+ * @param symbol Optional output parameter. If non-null, it receives a borrowed
+ * pointer to the BVS-owned binding on success and is set to null on failure.
+ * The caller must not free the returned binding.
+ * @return @ref SYMTABLE_OK on success, @ref SYMTABLE_DUPLICATE if @p name
+ * already exists in @p table, @ref SYMTABLE_INVALID_ARGUMENT for invalid
+ * arguments, or @ref SYMTABLE_OUT_OF_MEMORY on allocation failure.
  */
 SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
                                       DataType type, bool initialized,
                                       bool constant, Symbol **symbol);
 
 /**
- * @brief Fills a symbol array with all symbols in a scope and its children.
- * @details This function recursively traverses the symbol table and collects
- * pointers to all symbols into the provided array. The caller is responsible
- * for freeing the memory allocated for the array.
- * @param table The root symbol table to start the traversal.
- * @param return_symbols Output parameter. Must not contain any data on entry.
- * On success, it will contain an array of pointers to all symbols in the scope
- * and its children.
- * @return SYMTABLE_OK on success, or an error code on failure.
+ * @brief Collects all symbols in a scope and its descendants.
+ * @details Traversal is recursive. On success the caller owns only the
+ * allocated pointer array in @c return_symbols->data and must release it with
+ * @c free(). Every pointed-to symbol remains owned by its defining scope's BVS;
+ * the caller must not free those symbols, and their pointers are valid only
+ * while the owning scope tree exists.
+ * @param table Non-null root of the scope subtree to traverse.
+ * @param return_symbols Output parameter. Must not own an existing allocation
+ * on entry. On success it receives the allocated array and its element count in
+ * @c capacity; on failure it is unchanged.
+ * @return @ref SYMTABLE_OK on success, @ref SYMTABLE_INVALID_ARGUMENT for
+ * invalid arguments, or @ref SYMTABLE_OUT_OF_MEMORY on allocation failure.
  */
 SymbolTableStatus
 symbol_table_get_scope_symbol_list(SymbolTable *table,
