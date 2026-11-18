@@ -21,12 +21,12 @@ TEST(TypeEntityExtraTest, DependOnResolvedSourcePropagatesImmediately) {
   type_entity_init(&y);
   type_entity_init(&z);
 
-  ASSERT_EQ(type_entity_resolve(&x, TYPE_REAL), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&x, type_scalar(TYPE_REAL)), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(&x, &y), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(&y, &z), TYPE_RESOLVE_OK);
 
-  EXPECT_EQ(y.type, TYPE_REAL);
-  EXPECT_EQ(z.type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(y.type, type_scalar(TYPE_REAL)));
+  EXPECT_TRUE(type_equal(z.type, type_scalar(TYPE_REAL)));
   EXPECT_EQ(x.dependent_count, 0U);
   EXPECT_EQ(y.dependent_count, 0U);
 
@@ -58,10 +58,12 @@ TEST(TypeEntityExtraTest, ResolveReachesEveryDirectDependent) {
   ASSERT_EQ(source.dependent_count, count);
   EXPECT_GE(source.dependent_capacity, count);
 
-  ASSERT_EQ(type_entity_resolve(&source, TYPE_STRING), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&source, type_scalar(TYPE_STRING)),
+            TYPE_RESOLVE_OK);
 
   for (size_t i = 0U; i < count; i++) {
-    EXPECT_EQ(dependents[i].type, TYPE_STRING) << "dependent " << i;
+    EXPECT_TRUE(type_equal(dependents[i].type, type_scalar(TYPE_STRING)))
+        << "dependent " << i;
   }
 
   for (size_t i = 0U; i < count; i++) {
@@ -84,11 +86,11 @@ TEST(TypeEntityExtraTest, ResolveRejectsInvalidArguments) {
   TypeEntity entity;
   type_entity_init(&entity);
 
-  EXPECT_EQ(type_entity_resolve(nullptr, TYPE_INT),
+  EXPECT_EQ(type_entity_resolve(nullptr, type_scalar(TYPE_INT)),
             TYPE_RESOLVE_INVALID_ARGUMENT);
-  EXPECT_EQ(type_entity_resolve(&entity, TYPE_UNKNOWN),
+  EXPECT_EQ(type_entity_resolve(&entity, type_scalar(TYPE_UNKNOWN)),
             TYPE_RESOLVE_INVALID_ARGUMENT);
-  EXPECT_EQ(entity.type, TYPE_UNKNOWN);
+  EXPECT_TRUE(type_equal(entity.type, type_scalar(TYPE_UNKNOWN)));
 
   type_entity_init(nullptr);
   type_entity_destroy(nullptr);
@@ -104,7 +106,7 @@ TEST(TypeEntityExtraTest, DependRejectsNullEndpoints) {
   EXPECT_EQ(type_entity_depend(&entity, nullptr),
             TYPE_RESOLVE_INVALID_ARGUMENT);
   EXPECT_EQ(entity.dependent_count, 0U);
-  EXPECT_EQ(entity.type, TYPE_UNKNOWN);
+  EXPECT_TRUE(type_equal(entity.type, type_scalar(TYPE_UNKNOWN)));
 
   type_entity_destroy(&entity);
 }
@@ -125,11 +127,13 @@ TEST(TypeEntityExtraTest, ResolvingSameTypeTwiceIsAllowed) {
 
   ASSERT_EQ(type_entity_depend(&function_return, &call_result),
             TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(&function_return, TYPE_BOOL), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(&function_return, TYPE_BOOL), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&function_return, type_scalar(TYPE_BOOL)),
+            TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(&function_return, type_scalar(TYPE_BOOL)),
+            TYPE_RESOLVE_OK);
 
-  EXPECT_EQ(function_return.type, TYPE_BOOL);
-  EXPECT_EQ(call_result.type, TYPE_BOOL);
+  EXPECT_TRUE(type_equal(function_return.type, type_scalar(TYPE_BOOL)));
+  EXPECT_TRUE(type_equal(call_result.type, type_scalar(TYPE_BOOL)));
 
   type_entity_destroy(&call_result);
   type_entity_destroy(&function_return);
@@ -150,12 +154,13 @@ TEST(TypeEntityExtraTest, DependOnResolvedSourceDetectsConflict) {
   type_entity_init(&f_return);
   type_entity_init(&s);
 
-  ASSERT_EQ(type_entity_resolve(&f_return, TYPE_REAL), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(&s, TYPE_STRING), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&f_return, type_scalar(TYPE_REAL)),
+            TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&s, type_scalar(TYPE_STRING)), TYPE_RESOLVE_OK);
 
   EXPECT_EQ(type_entity_depend(&f_return, &s), TYPE_RESOLVE_CONFLICT);
-  EXPECT_EQ(s.type, TYPE_STRING);
-  EXPECT_EQ(f_return.type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(s.type, type_scalar(TYPE_STRING)));
+  EXPECT_TRUE(type_equal(f_return.type, type_scalar(TYPE_REAL)));
 
   type_entity_destroy(&s);
   type_entity_destroy(&f_return);

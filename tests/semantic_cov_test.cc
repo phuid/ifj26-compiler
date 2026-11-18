@@ -59,10 +59,11 @@ ASTNode *call(FunctionSymbol *f, Nodes args = {}) {
   }
   return c;
 }
-Symbol *var(FunctionSymbol *f, const char *name, DataType type,
+Symbol *var(FunctionSymbol *f, const char *name, BaseType type,
             bool constant = true) {
   Symbol *s = nullptr;
-  symbol_table_define(f->local_scope, name, type, true, constant, &s);
+  symbol_table_define(f->local_scope, name, type_scalar(type), true, constant,
+                      &s);
   return s;
 }
 void add(FunctionSymbol *f, ASTNode *s) {
@@ -72,14 +73,14 @@ void add(FunctionSymbol *f, ASTNode *s) {
 /// `def name(): ret_type =` with an empty body in @p table; the function is
 /// annotated iff @p ret_type is not TYPE_UNKNOWN.
 FunctionSymbol *def_in(FunctionTable *table, const char *name,
-                       DataType ret_type, bool is_main = false) {
+                       BaseType ret_type, bool is_main = false) {
   FunctionSymbol *f = nullptr;
   function_table_get_or_create(table, name, &f);
   f->is_defined = true;
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
   f->has_explicit_return_type = ret_type != TYPE_UNKNOWN;
-  f->return_type.type = ret_type;
+  f->return_type.type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -100,7 +101,7 @@ protected:
     function_table_destroy(&foreign);
   }
   SemanticStatus check() { return semantic_check(&program); }
-  FunctionSymbol *def(const char *name, DataType ret_type = TYPE_UNKNOWN) {
+  FunctionSymbol *def(const char *name, BaseType ret_type = TYPE_UNKNOWN) {
     return def_in(&program.functions, name, ret_type);
   }
   FunctionSymbol *def_main() {
@@ -174,7 +175,8 @@ TEST_P(SemanticCovStatementAsExpressionTest, IsInternalError) {
     statement = ret(nullptr); // return
     break;
   default:
-    statement = if_(truthy(), block({unit()})); // if (1 < 2) then { () }
+    // while (1 < 2) do { () }
+    statement = ast_node_create_while(truthy(), block({unit()}), 1, 1);
     break;
   }
   add(m, define(x, statement));
@@ -182,7 +184,15 @@ TEST_P(SemanticCovStatementAsExpressionTest, IsInternalError) {
 }
 INSTANTIATE_TEST_SUITE_P(SemanticCov, SemanticCovStatementAsExpressionTest,
                          ::testing::Values(AST_BLOCK, AST_ASSIGN, AST_RETURN,
-                                           AST_IF));
+                                           AST_WHILE));
+
+TEST_F(SemanticCovTest, IfWithoutElseAsValueIsError6) {
+  // val x = if (1 < 2) then { () } -- an if expression needs an else (CONTROL)
+  FunctionSymbol *m = def_main();
+  Symbol *x = var(m, "x", TYPE_UNKNOWN);
+  add(m, define(x, if_(truthy(), block({unit()}))));
+  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+}
 
 TEST_F(SemanticCovTest, NullOperandIsInternalError) {
   FunctionSymbol *m = def_main();

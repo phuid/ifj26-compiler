@@ -80,16 +80,16 @@ TEST(ParserCovApiTest, DestroyedLexerIsInvalidArgument) {
  * Model: Claude (Claude Code).
  * Prompt:
  *   A lexical error in the token that follows a NEWLINE inside a parameter
- *   list, after a function header `=` or after a `;` in a block must be
- *   reported as PARSER_LEXER_ERROR (exit code 1), never as OK or syntax.
+ *   list or after a function header `=`, or right after a `;` in a block must
+ *   be reported as PARSER_LEXER_ERROR (exit code 1), never as OK or syntax.
  */
 TEST(ParserCovStatusTest, LexerErrorAfterNewlineIsPropagated) {
   const char *const sources[] = {
-      "def f(\n$",           // newline after `(`         (parser.c:942)
-      "def f(a\n$",          // newline after a parameter (parser.c:976)
-      "def f(a: Int\n$",     // newline after its type    (parser.c:995)
-      "def f() =\n$",        // newline after `=`         (parser.c:1180)
-      "def f() =\n  ;\n  $", // newline after `;`         (parser.c:840)
+      "def f(\n$",             // newline after `(`         (parser.c:942)
+      "def f(a\n$",            // newline after a parameter (parser.c:976)
+      "def f(a: Int\n$",       // newline after its type    (parser.c:995)
+      "def f() =\n$",          // newline after `=`         (parser.c:1180)
+      "def f() =\n  return;$", // token after `;`
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
@@ -98,33 +98,23 @@ TEST(ParserCovStatusTest, LexerErrorAfterNewlineIsPropagated) {
 }
 
 /*
- * AI-generated test block — block of separators ended by end of input.
+ * AI-generated test block — lines made only of separators.
  * Model: Claude (Claude Code).
  * Prompt:
- *   A block is read until a DEDENT or EOF (p_code_block, parser.c:828), as
- *   the accepted "def f() =\n  return" shows; a block whose last tokens are
- *   `;` separators may therefore end with end of input, and its AST_BLOCK
- *   holds only the real statements.
+ *   A logical line holds one statement, or several separated by `;` (spec
+ *   1.2), so a line of separators without a statement is a syntax error.
+ *   A `;` after the last statement of a line is not decided by the spec
+ *   ("není další oddělovač nutný") and is deliberately not tested.
  */
-TEST(ParserCovStatusTest, SeparatorsBeforeEndOfInputCloseTheBlock) {
-  struct Case {
-    const char *source;
-    size_t statements;
+TEST(ParserCovStatusTest, SeparatorOnlyLinesAreSyntaxErrors) {
+  const char *const sources[] = {
+      "def f() =\n  ;",
+      "def f() =\n  return\n  ;",
+      "def f() =\n  return\n  ;;",
   };
-  const Case cases[] = {
-      {"def f() =\n  ;", 0U},
-      {"def f() =\n  return\n  ;", 1U},
-      {"def f() =\n  return\n  ;;", 1U},
-  };
-  for (const Case &c : cases) {
-    SCOPED_TRACE(c.source);
-    Parsed p(c.source);
-    ASSERT_EQ(p.status, PARSER_OK);
-    ASSERT_EQ(p.program.functions.function_count, 1U);
-    ASTNode *root = p.program.functions.functions[0]->ast_root;
-    ASSERT_NE(root, nullptr);
-    ASSERT_EQ(root->kind, AST_BLOCK);
-    EXPECT_EQ(root->data.block.statement_count, c.statements);
+  for (const char *source : sources) {
+    SCOPED_TRACE(source);
+    EXPECT_EQ(Parsed(source).status, PARSER_SYNTAX_ERROR);
   }
 }
 
@@ -153,11 +143,7 @@ TEST(ParserCovStatusTest, IndentedNonDefAfterMainIsSyntaxError) {
  *   @main; both forms must give the same status, and that status must be
  *   PARSER_OK or PARSER_SYNTAX_ERROR. Disabled: the parser differs today.
  */
-// BUG: parser.c:1226 – INDENTs after @main are skipped untracked (NULL delta);
-// the matching DEDENTs reach p_program (parser.c:1291) only when a final
-// newline makes the lexer emit them, without it EOF hides them.
-TEST(ParserCovKnownGapTest,
-     DISABLED_FinalNewlineDoesNotChangeIndentedMainVerdict) {
+TEST(ParserCovKnownGapTest, FinalNewlineDoesNotChangeIndentedMainVerdict) {
   const ParserStatus with_newline =
       Parsed("@main\n  def main() =\n    return\n").status;
   const ParserStatus without_newline =
@@ -173,29 +159,21 @@ TEST(ParserCovKnownGapTest,
  * Model: Claude (Claude Code).
  * Prompt:
  *   `def f(a: Int): Int = a` is a valid function (specifikace.txt, doc of
- *   p_function), with or without a final newline. Two causes keep it red:
- *   p_expression is not called in p_function, and p_program does not skip
- *   the top-level NEWLINE left after the implicit return.
+ *   p_function), with or without a final newline. A valid @main goes first
+ *   so that the source keeps its exact ending.
  */
-// BUG: parser.c:1163 – p_expression call is commented out, ast_root stays
-// NULL and `a` is left for p_program; same cause as
-// ParserGapKnownGapTest.DISABLED_MissingFunctionBodyIsSyntaxError.
-// BUG: parser.c:1276 – p_program does not skip top-level NEWLINE (nor does
-// p_function consume the one after the implicit return), so the variant with
-// `\n` stays red even after the first fix; same cause as
-// ParserGapKnownGapTest.DISABLED_LeadingBlankLineIsAccepted.
-TEST(ParserCovKnownGapTest, DISABLED_ExpressionBodyIsAccepted) {
+TEST(ParserCovKnownGapTest, ExpressionBodyIsAccepted) {
   const char *const sources[] = {
-      "def f(a: Int): Int = a",   // needs only the parser.c:1163 fix
-      "def f(a: Int): Int = a\n", // needs the parser.c:1276 fix as well
+      "@main def main(): Unit =\n  return\ndef f(a: Int): Int = a",
+      "@main def main(): Unit =\n  return\ndef f(a: Int): Int = a\n",
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
     Parsed p(source);
     EXPECT_EQ(p.status, PARSER_OK);
-    EXPECT_EQ(p.program.functions.function_count, 1U);
-    if (p.status == PARSER_OK && p.program.functions.function_count == 1U) {
-      EXPECT_NE(p.program.functions.functions[0]->ast_root, nullptr);
+    EXPECT_EQ(p.program.functions.function_count, 2U);
+    if (p.status == PARSER_OK && p.program.functions.function_count == 2U) {
+      EXPECT_NE(p.program.functions.functions[1]->ast_root, nullptr);
     }
   }
 }

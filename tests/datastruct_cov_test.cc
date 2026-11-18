@@ -80,8 +80,9 @@ TEST(SymbolTableCovTest, LookupInScopeWithoutBindingsFindsNothing) {
   SymbolTable *root = symbol_table_create_root();
   ASSERT_NE(root, nullptr);
   Symbol *x = nullptr;
-  ASSERT_EQ(symbol_table_define(root, "x", TYPE_INT, true, false, &x),
-            SYMTABLE_OK);
+  ASSERT_EQ(
+      symbol_table_define(root, "x", type_scalar(TYPE_INT), true, false, &x),
+      SYMTABLE_OK);
 
   // Dropping the `bindings == NULL` check is an equivalent mutant
   // (bstSearch(NULL, ...) also yields null), so this test mainly guards

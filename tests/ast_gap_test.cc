@@ -19,8 +19,9 @@ class AstGapTest : public ::testing::Test {
 protected:
   void SetUp() override {
     scope = symbol_table_create_root();
-    ASSERT_EQ(symbol_table_define(scope, "x", TYPE_INT, true, false, &x),
-              SYMTABLE_OK);
+    ASSERT_EQ(
+        symbol_table_define(scope, "x", type_scalar(TYPE_INT), true, false, &x),
+        SYMTABLE_OK);
     ASSERT_EQ(function_table_init(&table), FUNCTION_TABLE_OK);
     ASSERT_EQ(function_table_get_or_create(&table, "f", &f), FUNCTION_TABLE_OK);
   }

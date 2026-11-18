@@ -156,7 +156,7 @@ ASTNode *if_(ASTNode *c, ASTNode *t) {
 }
 
 /// Annotated `def name(): ret =` with an empty body.
-FunctionSymbol *def(Program *p, const char *name, DataType ret,
+FunctionSymbol *def(Program *p, const char *name, BaseType ret,
                     bool is_main = false) {
   FunctionSymbol *f = nullptr;
   function_table_get_or_create(&p->functions, name, &f);
@@ -164,7 +164,7 @@ FunctionSymbol *def(Program *p, const char *name, DataType ret,
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
   f->has_explicit_return_type = true;
-  f->return_type.type = ret;
+  f->return_type.type = type_scalar(ret);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -190,8 +190,12 @@ void build(Program *p) {
   FunctionSymbol *h1 = def(p, "h1", TYPE_UNIT);
   FunctionSymbol *h2 = def(p, "h2", TYPE_UNIT);
   add(g, integer(1));
-  function_symbol_add_parameter(q, TYPE_INT);
-  function_symbol_add_parameter(q, TYPE_INT);
+  for (const char *name : {"a", "b"}) {
+    Symbol *parameter = nullptr;
+    symbol_table_define(q->local_scope, name, type_scalar(TYPE_INT), true, true,
+                        &parameter);
+    function_symbol_add_parameter(q, parameter);
+  }
   add(def(p, "f1", TYPE_UNIT), if_(less(call(g), integer(1)), block({})));
   add(def(p, "f2", TYPE_UNIT),
       if_(less(integer(1), integer(2)), block({call(u)})));
