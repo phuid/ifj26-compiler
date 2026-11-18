@@ -1966,6 +1966,70 @@ static ParserStatus p_for(Lexer *lexer, Program *program,
   return PARSER_OK;
 }
 
+/**
+ * @brief Parses a statement starting with an identifier: either an expression
+ * statement or an assignment `id = výraz-nebo-volání`.
+ * @details The lexer has only one token of lookahead, so the statement is first
+ * parsed as an expression. If `=` follows, that expression must be a bare
+ * variable reference, which becomes the assignment target. Whether the
+ * variable is modifiable and the value's type are checked by the semantic pass.
+ * Entry: @c lexer->token is the identifier. Exit: the token after the
+ * statement.
+ */
+static ParserStatus p_identifier_statement(Lexer *lexer, Program *program,
+                                           FunctionSymbol *function,
+                                           SymbolTable *scope,
+                                           ASTNode **return_node) {
+  size_t line = lexer->token.line;
+  size_t column = lexer->token.column;
+
+  ASTNode *target_node = NULL;
+  ParserStatus status =
+      p_expression(lexer, program, function, scope, &target_node, false, NULL);
+  /// Parse expression until token assign or until the end of the expression.
+  /// If assign is next then the expression must be a variable reference
+  /// and the statement is an assignment. Otherwise, the statement is a plain
+  /// expression.
+  if (status != PARSER_OK || lexer->token.type != TOKEN_ASSIGN) {
+    /// A plain expression statement (or an error).
+    *return_node = target_node;
+    return status;
+  }
+
+  /// Only a variable can be assigned to (not `a + 1 = 2` or `list(0) = 2`).
+  if (target_node->kind != AST_VARIABLE_REF) {
+    ast_node_destroy(target_node);
+    return PARSER_SYNTAX_ERROR;
+  }
+  Symbol *target = target_node->data.variable.symbol;
+  ast_node_destroy(target_node);
+
+  /// Consume the assignment operator
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Parse the assigned value
+  ASTNode *value_node = NULL;
+  status =
+      p_expression(lexer, program, function, scope, &value_node, false, NULL);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ASTNode *assignment_node =
+      ast_node_create_assign(target, value_node, line, column);
+  if (assignment_node == NULL) {
+    ast_node_destroy(value_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+  assignment_node->data.assignment.is_definition = false;
+
+  *return_node = assignment_node;
+  return PARSER_OK;
+}
+
 static ParserStatus p_statement(Lexer *lexer, Program *program,
                                 FunctionSymbol *function, SymbolTable *scope,
                                 ASTNode **return_node) {
@@ -1990,8 +2054,11 @@ static ParserStatus p_statement(Lexer *lexer, Program *program,
   case TOKEN_KW_RETURN:
     return p_return_statement(lexer, program, function, scope, return_node);
 
-  /// Expression
+  /// Assignment or expression
   case TOKEN_IDENTIFIER:
+    return p_identifier_statement(lexer, program, function, scope, return_node);
+
+  /// Expression
   case TOKEN_LEFT_PAREN:
   case TOKEN_INT:
   case TOKEN_DOUBLE:

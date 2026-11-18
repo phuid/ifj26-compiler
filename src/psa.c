@@ -51,6 +51,10 @@ TerminalType token_to_terminal(Token token) {
   case TOKEN_COMMA:
   case TOKEN_COLON:
   case TOKEN_DEDENT:
+  /// `=` ends the target of an assignment (`x = ...`). Only p_statement
+  /// accepts it after an expression; everywhere else the caller expects a
+  /// different delimiter and reports a syntax error.
+  case TOKEN_ASSIGN:
   case TOKEN_KW_THEN:
   case TOKEN_KW_DO:
   case TOKEN_KW_ELSE:
