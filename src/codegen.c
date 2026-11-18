@@ -4,6 +4,8 @@
 #include "codegen_globals.h"
 #include "instructions.h"
 #include "parser.h"
+#include "symtable.h"
+#include <stdlib.h>
 #include <string.h>
 
 // This is such a disqusting solution, i dont like this
@@ -20,17 +22,17 @@ static const ASTNodeHandler ast_handlers[] = {
     [AST_CONSTANT_UNIT] = handle_unit,
     [AST_VARIABLE_REF] = handle_variable_ref,
     [AST_FUNCTION_CALL] = handle_call,
-    [AST_LIST_CONSTRUCTOR] = NULL,
-    [AST_LIST_INDEXING] = NULL,
-    [AST_LIST_CONCAT] = NULL,
-    [AST_TO] = NULL,
-    [AST_UNTIL] = NULL,
-    [AST_BY] = NULL,
+    [AST_LIST_CONSTRUCTOR] = handle_list_constructor,
+    [AST_LIST_INDEXING] = handle_list_indexing,
+    [AST_LIST_CONCAT] = handle_list_concat,
+    [AST_TO] = handle_to,
+    [AST_UNTIL] = handle_until,
+    [AST_BY] = handle_by,
     [AST_ASSIGN] = handle_asign,
     [AST_RETURN] = handle_return,
     [AST_IF] = handle_if,
     [AST_WHILE] = handle_while,
-    [AST_FOR] = NULL,
+    [AST_FOR] = handle_for,
     [AST_ADD] = handle_add,
     [AST_SUBTRACT] = handle_subtract,
     [AST_MULTIPLY] = handle_multiply,
@@ -53,19 +55,23 @@ static const InstructionOperand INT_ZERO_OPERAND = {.type = INT_TYPE,
 static const InstructionOperand INT_ONE_OPERAND = {.type = INT_TYPE,
                                                    .value = {.integer = 1}};
 
-void pair_real_var(InstructionOperand operand, Symbol *symbol) {
-  if (operand.type != REAL_VARIABLE_TYPE) {
-    fprintf(stderr, "pair_real_var - invalid operand type\n");
-    exit(1);
+static const InstructionOperand BOOL_TRUE_OPERAND = {
+    .type = BOOL_TYPE, .value = {.boolean = true}};
+
+void pair_real_var(Symbol *symbol) {
+  if (symbol->assembler_suffix != -1) {
+    fprintf(stderr,
+            "pair_real_var error: symbol already has a real variable\n");
+    exit(99);
   }
 
-  if (symbol->assembler_suffix == -1) {
-    symbol->assembler_suffix = variable_suffix_counter;
-    variable_suffix_counter++;
+  symbol->assembler_suffix = variable_suffix_counter;
+  variable_suffix_counter++;
 
-    // TODO this will likely change
-    print_DEFVAR(operand);
-  }
+  InstructionOperand operand = {
+      .type = REAL_VARIABLE_TYPE,
+      .value = {.real_variable = {.frame = LF, .symbol = symbol}}};
+  print_DEFVAR(operand);
 }
 
 InstructionOperand create_local_variable(const char *name) {
@@ -104,8 +110,6 @@ void handle_asign(const ASTNode *node, bool discard_return_value) {
   InstructionOperand variable = {
       .type = REAL_VARIABLE_TYPE,
       .value = {.real_variable = {.frame = LF, .symbol = target}}};
-
-  pair_real_var(variable, target);
 
   ASTNodeHandler handler = ast_handlers[value->kind];
   handler(value, false);
@@ -229,7 +233,7 @@ void handle_divide(const ASTNode *node, bool discard_return_value) {
   default:
     fprintf(stderr, "handle_divide - division of invalid types - parser error, "
                     "shouldn happen\n");
-    exit(1);
+    exit(99);
     break;
   }
 
@@ -346,7 +350,6 @@ void handle_not(const ASTNode *node, bool discard_return_value) {
 
 void handle_implicit_int_to_real(const ASTNode *node,
                                  bool discard_return_value) {
-  // node->data.conversion.operand
   ASTNode *operand = node->data.conversion.operand;
 
   ASTNodeHandler handler = ast_handlers[operand->kind];
@@ -389,33 +392,27 @@ void handle_function_definition(const FunctionSymbol *function) {
   print_CREATEFRAME();
   print_PUSHFRAME();
 
-  // TODO traverse the entire symtable tree and defvar all variables at the
-  // start
+  // Hoist local variables definitions to the start of the function to avoid
+  // issues with redeclaration
+  SymbolArray hoisted_symbols;
+  symbol_table_get_scope_symbol_list(function->local_scope, &hoisted_symbols);
+  for (size_t i = 0; i < hoisted_symbols.capacity; i++) {
+    pair_real_var(hoisted_symbols.data[i]);
+  }
 
-  // TODO dont create the variables, only asign into them
   for (size_t i = 0; i < function->argument_count; i++) {
     Symbol *parameter = function->parameters[function->argument_count - 1 - i];
     InstructionOperand operand = {
         .type = REAL_VARIABLE_TYPE,
         .value = {.real_variable = {.frame = LF, .symbol = parameter}}};
 
-    pair_real_var(operand, parameter);
     print_POPS(operand);
   }
 
   handle_block(function->ast_root, false);
 }
 
-// [AST_LIST_CONSTRUCTOR] = NULL,
-// [AST_LIST_INDEXING] = NULL,
-// [AST_LIST_CONCAT] = NULL,
-// [AST_TO] = NULL,
-// [AST_UNTIL] = NULL,
-// [AST_BY] = NULL,
-
 void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
-  // TODO this will propably need to be unified with the other ways to make a
-  // list; the zeroth element will be array will be its size
   const size_t data_size = node->data.call.argument_count;
   const size_t real_size = data_size + 1;
 
@@ -458,18 +455,25 @@ void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
 }
 
 void handle_list_indexing(const ASTNode *node, bool discard_return_value) {
+  int id = reserve_label_id();
   resolve_binary_operands(node);
 
-  // Shift index by one, the zeroth element is the size of the array
   print_POPS(LIST_INDEX_GLOBAL_A);
-  // TODO add bounds checking - the upper bound is checked by interpret, but
-  // index -1 would pass because of the zeroth element
+  print_POPS(LIST_GLOBAL_A);
+  print_ARRAYGET(LIST_SIZE_GLOBAL_A, LIST_GLOBAL_A, INT_ZERO_OPERAND);
+
+  // Shift index by one, the zeroth element is the size of the array
   print_ADD(LIST_INDEX_GLOBAL_A, LIST_INDEX_GLOBAL_A, INT_ONE_OPERAND);
 
-  print_POPS(LIST_GLOBAL_A);
+  // Check if index is above lower bound. The upper bound is checked by the
+  // interpret.
+  print_GT(COND_GLOBAL, LIST_INDEX_GLOBAL_A, INT_ZERO_OPERAND);
+  print_JUMPIFEQ("INDEX_OK", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
+  print_EXIT(58);
+
+  print_LABEL("INDEX_OK", id);
 
   print_ARRAYGET(LIST_ELEMENT_GLOBAL_A, LIST_GLOBAL_A, LIST_INDEX_GLOBAL_A);
-
   if (!discard_return_value) {
     print_PUSHS(LIST_ELEMENT_GLOBAL_A);
   }
@@ -542,55 +546,197 @@ void handle_list_concat(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_to(const ASTNode *node, bool discard_return_value) {
-  // resolve the bounds
-  resolve_binary_operands(node);
-  // add implicit step of 1
-  print_PUSHS(INT_ONE_OPERAND);
+static void check_zero_step(void) {
+  const int id = reserve_label_id();
+  print_JUMPIFNEQ("STEP_OK", id, BY_GLOBAL, INT_ZERO_OPERAND);
+  print_EXIT(40);
+  print_LABEL("STEP_OK", id);
+}
 
-  if (discard_return_value) {
-    trash_return_value();
-    trash_return_value();
-    trash_return_value();
+static void create_array_from_range(bool inclusive) {
+  const int id = reserve_label_id();
+
+  // Check if the step is positive or negative
+  print_LT(COND_GLOBAL, BY_GLOBAL, INT_ZERO_OPERAND);
+  print_JUMPIFEQ("RANGE_NEG", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
+
+  // POSITIVE STEP
+  // Handle until having the upper bound exclusive
+  if (!inclusive) {
+    // Skip the last iteration
+    print_SUB(TO_GLOBAL, TO_GLOBAL, INT_ONE_OPERAND);
+  }
+
+  // Calculate DISTANCE = TO - FROM
+  print_SUB(TO_GLOBAL, TO_GLOBAL, FROM_GLOBAL);
+  // Save the step in temp variable
+  print_MOVE(TMP_GLOBAL, BY_GLOBAL);
+  print_JUMP("RANGE_DIST", id);
+
+  // NEGATIVE STEP
+  // Handle until having the upper bound exclusive
+  print_LABEL("RANGE_NEG", id);
+  if (!inclusive) {
+    // Skip the last iteration
+    print_ADD(TO_GLOBAL, TO_GLOBAL, INT_ONE_OPERAND);
+  }
+  // Calculate DISTANCE = FROM - TO
+  print_SUB(TO_GLOBAL, FROM_GLOBAL, TO_GLOBAL);
+  // Invert the step to positive, save in temp var
+  print_SUB(TMP_GLOBAL, INT_ZERO_OPERAND, BY_GLOBAL);
+
+  print_LABEL("RANGE_DIST", id);
+  // TO holds the distance. If it is negative, the list is empty.
+  print_LT(COND_GLOBAL, TO_GLOBAL, INT_ZERO_OPERAND);
+  // Set the size to zero, in case the list is empty.
+  print_MOVE(LIST_SIZE_GLOBAL_RES, INT_ZERO_OPERAND);
+  print_JUMPIFEQ("RANGE_ALLOC", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
+
+  // TO holds distance, TMP holds the absolute value of step
+  // Calculate the number of elements in the range
+  print_IDIV(LIST_SIZE_GLOBAL_RES, TO_GLOBAL, TMP_GLOBAL);
+  // Add one to the size, because the range is inclusive
+  print_ADD(LIST_SIZE_GLOBAL_RES, LIST_SIZE_GLOBAL_RES, INT_ONE_OPERAND);
+
+  print_LABEL("RANGE_ALLOC", id);
+  // Add one for zeroth element to hold array size
+  // TMP holds the real size
+  print_ADD(TMP_GLOBAL, LIST_SIZE_GLOBAL_RES, INT_ONE_OPERAND);
+  // Create new array
+  print_NEWARRAY(LIST_GLOBAL_RES, TMP_GLOBAL);
+  // Save the data size
+  print_ARRAYSET(LIST_GLOBAL_RES, INT_ZERO_OPERAND, LIST_SIZE_GLOBAL_RES);
+
+  // Start iteration at index 1
+  print_MOVE(LIST_INDEX_GLOBAL_RES, INT_ONE_OPERAND);
+  // Load start value
+  print_MOVE(LIST_ELEMENT_GLOBAL_RES, FROM_GLOBAL);
+
+  print_LABEL("RANGE_FILL", id);
+  // End if beyond bounds
+  print_JUMPIFEQ("RANGE_END", id, LIST_INDEX_GLOBAL_RES, TMP_GLOBAL);
+  // Set the value
+  print_ARRAYSET(LIST_GLOBAL_RES, LIST_INDEX_GLOBAL_RES,
+                 LIST_ELEMENT_GLOBAL_RES);
+
+  // Calculate next value
+  print_ADD(LIST_ELEMENT_GLOBAL_RES, LIST_ELEMENT_GLOBAL_RES, BY_GLOBAL);
+  // Increment counter
+  print_ADD(LIST_INDEX_GLOBAL_RES, LIST_INDEX_GLOBAL_RES, INT_ONE_OPERAND);
+  print_JUMP("RANGE_FILL", id);
+  print_LABEL("RANGE_END", id);
+}
+
+// this processes the range and pushes the data into the globals
+static void load_range_data(const ASTNode *range, const ASTNode *step) {
+  resolve_binary_operands(range);
+
+  if (step != NULL) {
+    ast_handlers[step->kind](step, false);
+    print_POPS(BY_GLOBAL);
+  } else {
+    print_MOVE(BY_GLOBAL, INT_ONE_OPERAND);
+  }
+  print_POPS(TO_GLOBAL);
+  print_POPS(FROM_GLOBAL);
+}
+
+void handle_to(const ASTNode *node, bool discard_return_value) {
+  load_range_data(node, NULL);
+  create_array_from_range(true);
+
+  if (!discard_return_value) {
+    print_PUSHS(LIST_GLOBAL_RES);
   }
 }
 
 void handle_until(const ASTNode *node, bool discard_return_value) {
-  // resolve bounds
-  resolve_binary_operands(node);
-  // subtract 1 from upper bound to make it exclusive
-  print_PUSHS(INT_ONE_OPERAND);
-  print_SUBS();
-  // add implicit step of
-  print_PUSHS(INT_ONE_OPERAND);
+  load_range_data(node, NULL);
+  create_array_from_range(false);
 
-  if (discard_return_value) {
-    trash_return_value();
-    trash_return_value();
-    trash_return_value();
+  if (!discard_return_value) {
+    print_PUSHS(LIST_GLOBAL_RES);
   }
 }
 
 void handle_by(const ASTNode *node, bool discard_return_value) {
-  // resolve bounds
-  const ASTNode *range = node->data.binary_op.left;
-  const ASTNode *by = node->data.binary_op.right;
+  const ASTNode *left = node->data.binary_op.left;
+  const ASTNode *right = node->data.binary_op.right;
 
-  const ASTNodeHandler range_handler = ast_handlers[range->kind];
-  range_handler(range, false);
+  if (left->kind == AST_TO || left->kind == AST_UNTIL) {
+    // Left child is TO or UNTIL, right child is the step
+    load_range_data(left, right);
+    check_zero_step();
+    const bool inclusive = left->kind == AST_TO;
+    create_array_from_range(inclusive);
+  } else {
+    // Left child is already a list. Right child is the step
+    // The output here is a new list, containg every n-th element
+    const int id = reserve_label_id();
 
-  // discard the implicit step of 1
-  trash_return_value();
+    // Load operands, check for zero step
+    resolve_binary_operands(node);
+    print_POPS(BY_GLOBAL);
+    print_POPS(LIST_GLOBAL_A);
+    check_zero_step();
 
-  // resolve the new step
-  const ASTNodeHandler by_handler = ast_handlers[by->kind];
-  by_handler(by, false);
-  // TODO step of 0 should produce runtime error
+    // Load the size of the list
+    print_ARRAYGET(LIST_SIZE_GLOBAL_A, LIST_GLOBAL_A, INT_ZERO_OPERAND);
 
-  if (discard_return_value) {
-    trash_return_value();
-    trash_return_value();
-    trash_return_value();
+    // Load step into TMP
+    print_MOVE(TMP_GLOBAL, BY_GLOBAL);
+    // Set the index to the first element
+    print_MOVE(LIST_INDEX_GLOBAL_A, INT_ONE_OPERAND);
+
+    // If the step is negative, do:
+    print_LT(COND_GLOBAL, TMP_GLOBAL, INT_ZERO_OPERAND);
+    print_JUMPIFNEQ("BY_POS", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
+    // Invert the step to positive
+    print_SUB(TMP_GLOBAL, INT_ZERO_OPERAND, TMP_GLOBAL);
+    // Switch the starting index to the last element
+    print_MOVE(LIST_INDEX_GLOBAL_A, LIST_SIZE_GLOBAL_A);
+
+    print_LABEL("BY_POS", id);
+    // Load 0 the new list size
+    print_MOVE(LIST_SIZE_GLOBAL_RES, INT_ZERO_OPERAND);
+
+    // If the original list is empty, the result is an empty list, so skip
+    // calculating new size.
+    print_JUMPIFEQ("BY_ALLOC", id, LIST_SIZE_GLOBAL_A, INT_ZERO_OPERAND);
+
+    // Calculate the size of the new array. It does this
+    // new_size=(size_A-1)/step + 1
+    print_SUB(LIST_SIZE_GLOBAL_RES, LIST_SIZE_GLOBAL_A, INT_ONE_OPERAND);
+    print_IDIV(LIST_SIZE_GLOBAL_RES, LIST_SIZE_GLOBAL_RES, TMP_GLOBAL);
+    print_ADD(LIST_SIZE_GLOBAL_RES, LIST_SIZE_GLOBAL_RES, INT_ONE_OPERAND);
+    print_LABEL("BY_ALLOC", id);
+
+    // Create the new array and set its data_size
+    print_ADD(TMP_GLOBAL, LIST_SIZE_GLOBAL_RES, INT_ONE_OPERAND);
+    print_NEWARRAY(LIST_GLOBAL_RES, TMP_GLOBAL);
+    print_ARRAYSET(LIST_GLOBAL_RES, INT_ZERO_OPERAND, LIST_SIZE_GLOBAL_RES);
+
+    // Copy every nth element from the old array to the new array
+    // Start indexing at 1
+    print_MOVE(LIST_INDEX_GLOBAL_RES, INT_ONE_OPERAND);
+    print_LABEL("BY_FILL", id);
+    // End if out of bounds
+    print_JUMPIFEQ("BY_END", id, LIST_INDEX_GLOBAL_RES, TMP_GLOBAL);
+
+    // Copy the element
+    print_ARRAYGET(LIST_ELEMENT_GLOBAL_RES, LIST_GLOBAL_A, LIST_INDEX_GLOBAL_A);
+    print_ARRAYSET(LIST_GLOBAL_RES, LIST_INDEX_GLOBAL_RES,
+                   LIST_ELEMENT_GLOBAL_RES);
+
+    // Increment indicies
+    print_ADD(LIST_INDEX_GLOBAL_A, LIST_INDEX_GLOBAL_A, BY_GLOBAL);
+    print_ADD(LIST_INDEX_GLOBAL_RES, LIST_INDEX_GLOBAL_RES, INT_ONE_OPERAND);
+    print_JUMP("BY_FILL", id);
+    print_LABEL("BY_END", id);
+  }
+
+  if (!discard_return_value) {
+    print_PUSHS(LIST_GLOBAL_RES);
   }
 }
 
@@ -652,57 +798,54 @@ void handle_while(const ASTNode *node, bool discard_return_value) {
 void handle_for(const ASTNode *node, bool discard_return_value) {
   const int id = reserve_label_id();
 
-  // resolve iterable
-  const ASTNode *iterable = node->data.for_loop.iterable;
-  const ASTNodeHandler handler = ast_handlers[iterable->kind];
-  handler(iterable, false);
+  Symbol *symbol = node->data.for_loop.variable;
+  const InstructionOperand variable = {
+      .type = REAL_VARIABLE_TYPE,
+      .value = {.real_variable = {.frame = LF, .symbol = symbol}}};
 
-  bool is_range = false;
-  // this is the only way it could be a range
-  if (iterable->kind == AST_BY || iterable->kind == AST_UNTIL ||
-      iterable->kind == AST_TO) {
-    is_range = true;
-  }
-
-  // if its a list, push the index
-  if (!is_range) {
-    print_PUTS(INT_ONE_OPERAND);
-  }
+  // Load the list
+  const ASTNode *list = node->data.for_loop.iterable;
+  ast_handlers[list->kind](list, false);
+  // Push starting index
+  print_PUSHS(INT_ONE_OPERAND);
 
   print_LABEL("FOR_START", id);
-  // Load the list iterable
-  if (is_range) {
-    print_POPS(BY_GLOBAL);
-    print_POPS(TO_GLOBAL);
-    print_POPS(FROM_GLOBAL);
-  } else {
-    print_POPS(LIST_INDEX_GLOBAL_RES);
-    print_POPS(LIST_GLOBAL_RES);
-  }
+  // Restore loop state
+  print_POPS(LIST_INDEX_GLOBAL_RES);
+  print_POPS(LIST_GLOBAL_RES);
 
-  // Check bounds
-  if (is_range) {
-    // TODO CONTINUE HERE
-  }
+  // Check if out of bounds
+  print_ARRAYGET(LIST_SIZE_GLOBAL_RES, LIST_GLOBAL_RES, INT_ZERO_OPERAND);
+  print_GT(COND_GLOBAL, LIST_INDEX_GLOBAL_RES, LIST_SIZE_GLOBAL_RES);
+  print_JUMPIFEQ("FOR_END", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
 
-  // TODO check if in array bounds
+  // Load the current list element to the control variable
+  print_ARRAYGET(variable, LIST_GLOBAL_RES, LIST_INDEX_GLOBAL_RES);
 
-  // TODO load the element from arrary at index to the variable,
-  const ASTNode *variable = node->data.for_loop.variable;
+  // Increment index
+  print_ADD(LIST_INDEX_GLOBAL_RES, LIST_INDEX_GLOBAL_RES, INT_ONE_OPERAND);
+  // Save loop state
+  print_PUSHS(LIST_GLOBAL_RES);
+  print_PUSHS(LIST_INDEX_GLOBAL_RES);
 
-  // TODO evaluate guards
-
+  // If a guard exists, evaluate it
   const ASTNode *guard = node->data.for_loop.guard;
+  if (guard != NULL) {
+    ast_handlers[guard->kind](guard, false);
+    print_JUMPIFEQS_bool("FOR_START", id, false);
+  }
 
-  // TODO the iterated list and index needs to be pushed to the data stack befor
-  // the body runs and retrieved after it runs.
-
-  // TODO handle the body
+  // Evaluate the body
   const ASTNode *body = node->data.for_loop.body;
+  ast_handlers[body->kind](body, true);
 
-  // TODO pop the array and index
-  // TODO jump to start
-  // TODO end label
+  print_JUMP("FOR_START", id);
+  print_LABEL("FOR_END", id);
+
+  if (!discard_return_value) {
+    InstructionOperand nil = {.type = NIL_TYPE};
+    print_PUSHS(nil);
+  }
 }
 
 void convert_AST_to_assembler(Program *program) {
@@ -721,7 +864,7 @@ void convert_AST_to_assembler(Program *program) {
   }
   if (main == NULL) {
     fprintf(stderr, "no main function presesnt\n");
-    exit(1);
+    exit(99);
   }
 
   print_CALL(main->name);

@@ -23,6 +23,9 @@ extern const InstructionOperand FROM_GLOBAL;
 extern const InstructionOperand TO_GLOBAL;
 extern const InstructionOperand BY_GLOBAL;
 
+extern const InstructionOperand COND_GLOBAL;
+extern const InstructionOperand TMP_GLOBAL;
+
 extern const InstructionOperand GLOBAL_VARS[];
 extern const size_t GLOBAL_VAR_COUNT;
 #endif // CODEGEN_GLOBALS_H

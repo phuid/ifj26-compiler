@@ -74,6 +74,14 @@ void handle_return(const ASTNode *node, bool discard_return_value);
 void handle_if(const ASTNode *node, bool discard_return_value);
 
 void handle_while(const ASTNode *node, bool discard_return_value);
+void handle_for(const ASTNode *node, bool discard_return_value);
+
+void handle_list_constructor(const ASTNode *node, bool discard_return_value);
+void handle_list_indexing(const ASTNode *node, bool discard_return_value);
+void handle_list_concat(const ASTNode *node, bool discard_return_value);
+void handle_to(const ASTNode *node, bool discard_return_value);
+void handle_until(const ASTNode *node, bool discard_return_value);
+void handle_by(const ASTNode *node, bool discard_return_value);
 
 void handle_function_definition(const FunctionSymbol *function);
 

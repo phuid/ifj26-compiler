@@ -64,6 +64,14 @@ const InstructionOperand BY_GLOBAL = {
     .type = COMPILER_VAR_TYPE,
     .value = {.compiler_variable = {.frame = GF, .name = "by"}}};
 
+const InstructionOperand COND_GLOBAL = {
+    .type = COMPILER_VAR_TYPE,
+    .value = {.compiler_variable = {.frame = GF, .name = "cond"}}};
+
+const InstructionOperand TMP_GLOBAL = {
+    .type = COMPILER_VAR_TYPE,
+    .value = {.compiler_variable = {.frame = GF, .name = "tmp"}}};
+
 const InstructionOperand GLOBAL_VARS[] = {
     TRASH_GLOBAL,
     LIST_GLOBAL_A,
@@ -81,6 +89,8 @@ const InstructionOperand GLOBAL_VARS[] = {
     FROM_GLOBAL,
     TO_GLOBAL,
     BY_GLOBAL,
+    COND_GLOBAL,
+    TMP_GLOBAL,
 };
 
 const size_t GLOBAL_VAR_COUNT = sizeof(GLOBAL_VARS) / sizeof(GLOBAL_VARS[0]);

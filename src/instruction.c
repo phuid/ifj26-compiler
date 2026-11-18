@@ -1,6 +1,7 @@
 #include "codegen.h"
 #include "instructions.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // TODO make print_operand variadic
@@ -49,7 +50,7 @@ void print_operand(const InstructionOperand operand) {
   default:
     fprintf(stderr, "Invalid InstructionOperand type in print_operand - stupid "
                     "programer\n");
-    exit(1);
+    exit(99);
     break;
   }
 }
@@ -236,7 +237,7 @@ void print_MOVE(const InstructionOperand target,
 void print_JUMPIFEQ(const char *label, const int suffix,
                     const InstructionOperand left,
                     const InstructionOperand right) {
-  printf("JUMPIFEQ %S$%i ", label, suffix);
+  printf("JUMPIFEQ %s$%i ", label, suffix);
 
   print_operand(left);
 
@@ -249,7 +250,7 @@ void print_JUMPIFEQ(const char *label, const int suffix,
 void print_JUMPIFNEQ(const char *label, const int suffix,
                      const InstructionOperand left,
                      const InstructionOperand right) {
-  printf("JUMPIFNEQ %S$%i ", label, suffix);
+  printf("JUMPIFNEQ %s$%i ", label, suffix);
 
   print_operand(left);
 
@@ -299,6 +300,22 @@ void print_GT(const InstructionOperand target, const InstructionOperand left,
 void print_EQ(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
   printf("EQ ");
+
+  print_operand(target);
+
+  printf(" ");
+
+  print_operand(left);
+
+  printf(" ");
+
+  print_operand(right);
+
+  printf("\n");
+}
+void print_IDIV(const InstructionOperand target, const InstructionOperand left,
+                const InstructionOperand right) {
+  printf("IDIV ");
 
   print_operand(target);
 

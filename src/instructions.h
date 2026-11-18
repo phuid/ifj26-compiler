@@ -52,6 +52,8 @@ void print_ADD(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right);
 void print_SUB(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right);
+void print_IDIV(const InstructionOperand target, const InstructionOperand left,
+                const InstructionOperand right);
 void print_MOVE(const InstructionOperand target,
                 const InstructionOperand source);
 void print_JUMPIFEQ(const char *label, const int suffix,
