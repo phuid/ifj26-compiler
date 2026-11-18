@@ -658,6 +658,47 @@ TEST(ParserDirectLexerTest, ReturnedIfOperandFollowedByNewline) {
             PARSER_OK);
 }
 
+TEST(ParserDirectLexerTest, OneLineIfBodyFollowedByDefinition) {
+  /// The trailing if has already consumed the NEWLINE ending the body while
+  /// looking for `else`, so the next definition must still be accepted.
+  EXPECT_EQ(parse_status("def f(): Unit = if true then ()\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def f(): Int = if true then 1 else 2\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def f(): Int = 1 + if true then 1 else 2\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def f(): Unit = if true then ()\n\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, IfBodyWithBlockBranchFollowedByDefinition) {
+  /// The DEDENT closing the final block branch ends the body's line as well.
+  EXPECT_EQ(parse_status("def f(): Int = if true then 1 else\n"
+                         "  2\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def f(): Unit = if true then\n"
+                         "  ()\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+  EXPECT_EQ(parse_status("def f(): Int = if true then 1 else if false then\n"
+                         "  2\n"
+                         "def g(): Unit =\n  return\n"),
+            PARSER_OK);
+}
+
+TEST(ParserDirectLexerTest, RejectsDefinitionAfterIfBodyOnTheSameLine) {
+  EXPECT_EQ(parse_status("def f(): Unit = if true then () def g(): Unit =\n"
+                         "  return\n"),
+            PARSER_SYNTAX_ERROR);
+  EXPECT_EQ(parse_status("def f(): Int = 1 def g(): Unit =\n  return\n"),
+            PARSER_SYNTAX_ERROR);
+}
+
 TEST(ParserDirectLexerTest, ParenthesizedIfOperandFollowedByNewline) {
   EXPECT_EQ(parse_status("def foo() =\n"
                          "  val value = (if true then 1 else 2)\n"
