@@ -1,0 +1,9 @@
+// AI-generated test - several statements on one line separated by ;.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  print("a"); print("b"); print("c")
+  val x = 1; val y = 2
+  print(y)
