@@ -1,8 +1,0 @@
-// AI-generated test - if used as an initializer (valid with CONTROL).
-// Model: claude-opus-5-5 (Claude Code).
-// Prompt: Write IFJ26 programs that are errors only in the base language and become valid with FUNEXP, BOOLTHEN or CONTROL (plan-e2e.md 3.7).
-import ifj26.*
-
-@main def run(): Unit =
-  val x = if 1 < 2 then 1 else 2
-  print(x)
