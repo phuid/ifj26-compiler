@@ -160,7 +160,7 @@ TEST(LexerTest, IdentifiersWildcardAndStringsFollowKa) {
       {TOKEN_WILDCARD, "_"},
       {TOKEN_IDENTIFIER, "alpha_2"},
       {TOKEN_STRING, "\"\""},
-      {TOKEN_STRING, "\"a\\n\\\"\""},
+      {TOKEN_STRING, "\"a\n\"\""},
       {TOKEN_STRING, "\"\"\"first\nsecond\"\"\""},
   };
 
@@ -341,7 +341,7 @@ TEST(LexerTest, NormalStringAcceptsEverySpecifiedEscape) {
   ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_STRING);
-  EXPECT_STREQ(lexer.token.value.string_value, "\"\\\\\\\"\\n\\r\\t\"");
+  EXPECT_STREQ(lexer.token.value.string_value, "\"\\\"\n\r\t\"");
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
 }
