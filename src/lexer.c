@@ -13,6 +13,8 @@
 #include "keyword.h"
 #include "lexer_dfa.h"
 
+#include <errno.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -292,7 +294,17 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
     if (type == TOKEN_INT) {
       token->value.int_value = strtoll(builder->text, &end, 10);
     } else {
+      errno = 0;
       token->value.double_value = strtod(builder->text, &end);
+
+      /// SA literal outside the binary64 range is a lexical error.
+      /// Only overflow is rejected; glibc also reports ERANGE for subnormal
+      /// results (e.g. 4.9e-324), which are representable and stay valid.
+      if (errno == ERANGE && isinf(token->value.double_value)) {
+        ERROR_ORIGIN_AT(token->line, token->column, builder->text,
+                        "double literal out of range");
+        return LEXER_INVALID_TOKEN;
+      }
     }
 
     /// Verify the whole text was converted
