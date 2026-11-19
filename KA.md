@@ -13,6 +13,8 @@ Q_lex = {
 
   //Numbers (Int, Double)
   Int0,
+  DoubleStartsZero,
+  U_DoubleStartsZero,
   Int,
   U_Int,
   NumDot,
@@ -87,6 +89,16 @@ S -> Period [.]
 
 Int0 -> NumDot [.]
 Int0 -> Exp [e,E]
+
+// Leading zero: only a Double may follow (Int must not start with 0)
+Int0 -> DoubleStartsZero [0-9]
+Int0 -> U_DoubleStartsZero [_]
+DoubleStartsZero -> DoubleStartsZero [0-9]
+DoubleStartsZero -> U_DoubleStartsZero [_]
+U_DoubleStartsZero -> U_DoubleStartsZero [_]
+U_DoubleStartsZero -> DoubleStartsZero [0-9]
+DoubleStartsZero -> NumDot [.]
+DoubleStartsZero -> Exp [e,E]
 
 Int -> Int [0-9]
 Int -> U_Int [_]

@@ -66,6 +66,14 @@ std::vector<KaEdge> ka_edges() {
       {STATE_S, ch('.'), STATE_PERIOD},
       {STATE_INT0, ch('.'), STATE_NUM_DOT},
       {STATE_INT0, any({'e', 'E'}), STATE_EXP},
+      {STATE_INT0, digit, STATE_DOUBLE_STARTS_ZERO},
+      {STATE_INT0, ch('_'), STATE_U_DOUBLE_STARTS_ZERO},
+      {STATE_DOUBLE_STARTS_ZERO, digit, STATE_DOUBLE_STARTS_ZERO},
+      {STATE_DOUBLE_STARTS_ZERO, ch('_'), STATE_U_DOUBLE_STARTS_ZERO},
+      {STATE_U_DOUBLE_STARTS_ZERO, ch('_'), STATE_U_DOUBLE_STARTS_ZERO},
+      {STATE_U_DOUBLE_STARTS_ZERO, digit, STATE_DOUBLE_STARTS_ZERO},
+      {STATE_DOUBLE_STARTS_ZERO, ch('.'), STATE_NUM_DOT},
+      {STATE_DOUBLE_STARTS_ZERO, any({'e', 'E'}), STATE_EXP},
       {STATE_INT, digit, STATE_INT},
       {STATE_INT, ch('_'), STATE_U_INT},
       {STATE_U_INT, ch('_'), STATE_U_INT},
@@ -161,6 +169,8 @@ struct StateName {
 const StateName kStateNames[] = {
     {STATE_S, "S"},
     {STATE_INT0, "INT0"},
+    {STATE_DOUBLE_STARTS_ZERO, "DOUBLE_STARTS_ZERO"},
+    {STATE_U_DOUBLE_STARTS_ZERO, "U_DOUBLE_STARTS_ZERO"},
     {STATE_INT, "INT"},
     {STATE_U_INT, "U_INT"},
     {STATE_NUM_DOT, "NUM_DOT"},
@@ -349,14 +359,30 @@ TEST(LexerDfaTest, FinalStatesAndTokenTypesMatchKa) {
       {STATE_OR, TOKEN_OR},
   };
   const std::vector<LexerState> non_finals = {
-      STATE_S,        STATE_U_INT,      STATE_NUM_DOT,      STATE_U_DOUBLE,
-      STATE_EXP,      STATE_S_EXP,      STATE_E_U_DOUBLE,   STATE_Q1,
-      STATE_IN,       STATE_ESC,        STATE_IN_MULTILINE, STATE_Q1_MULTI,
-      STATE_Q2_MULTI, STATE_AND_PREFIX, STATE_AT,           STATE_AT_M,
-      STATE_AT_MA,    STATE_AT_MAI,     STATE_NEWLINE_TABS,
+      STATE_S,
+      STATE_U_INT,
+      STATE_NUM_DOT,
+      STATE_U_DOUBLE,
+      STATE_EXP,
+      STATE_S_EXP,
+      STATE_E_U_DOUBLE,
+      STATE_Q1,
+      STATE_IN,
+      STATE_ESC,
+      STATE_IN_MULTILINE,
+      STATE_Q1_MULTI,
+      STATE_Q2_MULTI,
+      STATE_AND_PREFIX,
+      STATE_AT,
+      STATE_AT_M,
+      STATE_AT_MA,
+      STATE_AT_MAI,
+      STATE_NEWLINE_TABS,
+      STATE_DOUBLE_STARTS_ZERO,
+      STATE_U_DOUBLE_STARTS_ZERO,
   };
   ASSERT_EQ(finals.size(), 39U);
-  ASSERT_EQ(non_finals.size(), 19U);
+  ASSERT_EQ(non_finals.size(), 21U);
   // The two lists must partition the whole state set.
   ASSERT_EQ(finals.size() + non_finals.size(),
             static_cast<size_t>(STATE_COUNT));
