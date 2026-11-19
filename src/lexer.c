@@ -218,7 +218,7 @@ static bool decode_string_literal(TokenBuilder *builder) {
 
     /// If a backslash is found, check the next character for a valid escape
     /// sequence
-    if (c == '\\' && read_index + 1U < builder->length) {
+    if (!multiline && c == '\\' && read_index + 1U < builder->length) {
 
       /// move read_index so that the final string will be shorter by one
       /// character

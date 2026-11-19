@@ -202,7 +202,6 @@ TEST(LexerGapTest, RejectedInputsEndInInvalidToken) {
       "a\n\t",
       "\"caf\xC3\xA9\"",
       "\"\"\"\xC3\xA9\"\"\"",
-      "\"\"\"a\"\"\"\"",
       "\"\"\"\"",
       "&&&",
   };

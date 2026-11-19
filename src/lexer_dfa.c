@@ -172,6 +172,10 @@ static const StateTransitions transitions_by_state[STATE_COUNT] = {
     [STATE_Q2_MULTI] =
         TRANSITION_ROW(TRANSITION(MATCH_CHAR, '"', STATE_STR_MULTILINE),
                        TRANSITION(MATCH_M, 0, STATE_IN_MULTILINE)),
+    /* Quotes after the closing """ extend the literal (Scala: """a"""" is a").
+     */
+    [STATE_STR_MULTILINE] =
+        TRANSITION_ROW(TRANSITION(MATCH_CHAR, '"', STATE_STR_MULTILINE)),
     [STATE_UNDERSCORE] =
         TRANSITION_ROW(TRANSITION(MATCH_LETTER, 0, STATE_IDENTIFIER),
                        TRANSITION(MATCH_DIGIT, 0, STATE_IDENTIFIER),
