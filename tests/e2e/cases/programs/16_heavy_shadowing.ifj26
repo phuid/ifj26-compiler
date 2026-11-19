@@ -1,0 +1,27 @@
+// AI-generated test - one name shadowed on four nested levels.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val v = "L1"
+  var i = 0
+  while i < 1 do
+    val v = 2
+    if v == 2 then
+      val v = 3.5
+      var j = 0
+      while j < 1 do
+        val v = "L4"
+        print(v)
+        j = j + 1
+      print(" ")
+      print(v)
+    else
+      ()
+    print(" ")
+    print(v)
+    i = i + 1
+  print(" ")
+  print(v)
+  print("\n")

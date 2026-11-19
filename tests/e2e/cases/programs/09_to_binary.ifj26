@@ -1,0 +1,29 @@
+// AI-generated test - number converted to a binary String by concatenation.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def toBinary(x: Int): String =
+  if x == 0 then
+    return "0"
+  else
+    ()
+  var n = x
+  var s = ""
+  while n > 0 do
+    val q = n / 2
+    if n - q * 2 == 1 then
+      s = "1" + s
+    else
+      s = "0" + s
+    n = q
+  s
+
+@main def run(): Unit =
+  val n = readInt()
+  val b = toBinary(n)
+  val z = toBinary(0)
+  print(b)
+  print(" ")
+  print(z)
+  print("\n")

@@ -1,0 +1,29 @@
+// AI-generated test - palindrome check of two input lines.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def isPalindrome(s: String): String =
+  var i = 0
+  val n = strLength(s)
+  var j = n - 2
+  while i < j do
+    val a = ord(s, i)
+    val b = ord(s, j)
+    if a != b then
+      return "no"
+    else
+      ()
+    i = i + 1
+    j = j - 1
+  "yes"
+
+@main def run(): Unit =
+  val first = readLine()
+  val second = readLine()
+  val r1 = isPalindrome(first)
+  val r2 = isPalindrome(second)
+  print(r1)
+  print(" ")
+  print(r2)
+  print("\n")

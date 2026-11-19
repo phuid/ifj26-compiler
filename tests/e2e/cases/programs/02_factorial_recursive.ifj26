@@ -1,0 +1,19 @@
+// AI-generated test - recursive factorial of a value read from input.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def fact(n: Int): Int =
+  if n < 2 then
+    return 1
+  else
+    ()
+  val m = n - 1
+  val sub = fact(m)
+  n * sub
+
+@main def run(): Unit =
+  val n = readInt()
+  val r = fact(n)
+  print(r)
+  print("\n")
