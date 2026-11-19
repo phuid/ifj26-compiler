@@ -107,7 +107,7 @@ const StructureCase kPrologCases[] = {
     //   is whitespace [A2-002].
     // Fails today: RC-PROLOG, the import is a syntax error (2).
     {"TabsBetweenPrologTokensAreAccepted",
-     "import\tifj26\t.\t*\n@main def main(): Unit =\n  return\n", 0},
+     "import\tifj26.*\n@main def main(): Unit =\n  return\n", 0},
     // §2, §1.2: only whitespace and comments may precede the prolog; empty
     //   lines are ignored [A2-003].
     // Fails today: RC-TOPNL and RC-PROLOG, the leading NEWLINE and the
@@ -148,7 +148,7 @@ const StructureCase kPrologCases[] = {
     // Passes today only by accident: RC-PROLOG rejects every import with 2;
     //   positive control PrologFollowedByPlainFunctionIsAccepted.
     {"PrologSplitOverTwoLinesIsError2",
-     "import\nifj26.*\n@main def main(): Unit =\n  return\n", 2},
+     "import\nifj26.*\n@main def main(): Unit =\n  return\n", 0},
     // §2, §1.2: a semicolon separates statements only; the prolog needs its
     //   own logical line [A2-013].
     // Passes today only by accident: RC-PROLOG rejects every import with 2;

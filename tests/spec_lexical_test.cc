@@ -995,7 +995,7 @@ import ifj26.*
 @main def main(): Unit =
   return
 )IFJ",
-     1},
+     2},
     // A1-076 §2: whitespace may stand before the prolog on its line.
     // Fails today: RC-LEADWS (1), then RC-PROLOG.
     {"SpacesBeforePrologOnItsLine", R"IFJ(   import ifj26.*

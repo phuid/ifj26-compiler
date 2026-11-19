@@ -320,7 +320,7 @@ static PreprocessStatus remove_prolog(char *source, size_t *length) {
   }
   /* Reject non-whitespace characters before the required line ending. */
   if (source[position] != '\0' && source[position] != '\n') {
-    return PREPROCESS_MALFORMED;
+    return PREPROCESS_MISSING_PROLOG; // syntax error
   }
   /* Remove the prolog and leading whitespace while retaining the newline. */
   /* Keep same-line indentation but discard whitespace from prior lines. */
