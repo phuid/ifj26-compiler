@@ -2,7 +2,7 @@
  * @file semantic.c
  * @brief Semantic analysis: call graph, recursion rules and type checking.
  * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Lukas Petricek
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  *
