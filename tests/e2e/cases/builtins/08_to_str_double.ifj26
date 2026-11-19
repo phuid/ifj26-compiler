@@ -1,0 +1,12 @@
+// AI-generated test - toStr of Double uses %.2f.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = toStr(1.234)
+  val b = toStr(2.0)
+  val c = toStr(0.1)
+  val d = toStr(1000.5)
+  val all = a + " " + b + " " + c + " " + d
+  print(all)

@@ -1,0 +1,10 @@
+// AI-generated test - readLine keeps the line feed.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val s = readLine()
+  val n = strLength(s)
+  print(s)
+  print(n)

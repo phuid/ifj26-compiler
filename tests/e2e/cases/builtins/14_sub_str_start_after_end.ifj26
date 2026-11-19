@@ -1,0 +1,8 @@
+// AI-generated test - subStr with start > end ends with 40.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val r = subStr("abc", 2, 1)
+  print(r)
