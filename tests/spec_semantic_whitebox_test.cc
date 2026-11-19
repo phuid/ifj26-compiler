@@ -30,9 +30,9 @@ extern "C" {
 namespace {
 
 using Nodes = std::vector<ASTNode *>;
-using Types = std::vector<DataType>;
+using Types = std::vector<BaseType>;
 
-constexpr DataType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL,
+constexpr BaseType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL,
                    S = TYPE_STRING, U = TYPE_UNIT, B = TYPE_BOOL;
 constexpr SemanticStatus OK = SEMANTIC_OK, E3 = SEMANTIC_UNDEFINED,
                          E5 = SEMANTIC_BAD_CALL, E6 = SEMANTIC_TYPE_ERROR,
@@ -75,7 +75,7 @@ ASTNode *call(FunctionSymbol *f, const Nodes &args = {}) {
   return c;
 }
 /// A literal of type @p t (Bool is `1 < 2`).
-ASTNode *value(DataType t) {
+ASTNode *value(BaseType t) {
   switch (t) {
   case TYPE_INT:
     return integer(1);
@@ -90,16 +90,24 @@ ASTNode *value(DataType t) {
   }
 }
 bool widened(const ASTNode *n) { return n->kind == AST_IMPLICIT_INT_TO_REAL; }
+/// True when @p t is the scalar type @p b (the unresolved type for
+/// TYPE_UNKNOWN).
+bool has_type(DataType t, BaseType b) { return type_equal(t, type_scalar(b)); }
+/// The value of @p n, seen through the implicit `return` that semantic_check
+/// wraps around the last value of a non-Unit body.
+ASTNode *tail_value(ASTNode *n) {
+  return n->kind == AST_RETURN ? n->data.return_statement.value : n;
+}
 
 /// Defines @p name in @p scope the way the parser does: before its
 /// initialization, with the annotated type or TYPE_UNKNOWN.
-Symbol *var_in(SymbolTable *scope, const char *name, DataType type,
+Symbol *var_in(SymbolTable *scope, const char *name, BaseType type,
                bool constant = true) {
   Symbol *s = nullptr;
-  symbol_table_define(scope, name, type, true, constant, &s);
+  symbol_table_define(scope, name, type_scalar(type), true, constant, &s);
   return s;
 }
-Symbol *var(FunctionSymbol *f, const char *name, DataType type,
+Symbol *var(FunctionSymbol *f, const char *name, BaseType type,
             bool constant = true) {
   return var_in(f->local_scope, name, type, constant);
 }
@@ -127,22 +135,23 @@ FunctionSymbol *ref(Program *program, const char *name) {
   return f;
 }
 /// `def name(params...)[: ret] =` with an empty body; `@main` if @p is_main.
-FunctionSymbol *def(Program *program, const char *name, DataType ret_type = N,
+FunctionSymbol *def(Program *program, const char *name, BaseType ret_type = N,
                     const Types &params = {}, bool is_main = false) {
   FunctionSymbol *f = ref(program, name);
   f->is_defined = true;
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
-  for (DataType p : params) {
-    function_symbol_add_parameter(f, p);
+  for (size_t i = 0; i < params.size(); ++i) {
+    function_symbol_add_parameter(
+        f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
   }
   f->has_explicit_return_type = ret_type != N;
-  f->return_type.type = ret_type;
+  f->return_type.type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
 
-const char *type_name(DataType t) {
+const char *type_name(BaseType t) {
   switch (t) {
   case TYPE_INT:
     return "Int";
@@ -174,7 +183,7 @@ protected:
   void TearDown() override { program_destroy(&program); }
   SemanticStatus check() { return semantic_check(&program); }
   FunctionSymbol *ref(const char *name) { return ::ref(&program, name); }
-  FunctionSymbol *def(const char *name, DataType ret_type = N,
+  FunctionSymbol *def(const char *name, BaseType ret_type = N,
                       const Types &params = {}, bool is_main = false) {
     return ::def(&program, name, ret_type, params, is_main);
   }
@@ -208,8 +217,8 @@ std::string row_name(const ::testing::TestParamInfo<Row> &info) {
 namespace {
 
 struct StoreRow {
-  DataType target; ///< Annotated (definition) or current (assignment) type.
-  DataType value;  ///< Type of the stored literal.
+  BaseType target; ///< Annotated (definition) or current (assignment) type.
+  BaseType value;  ///< Type of the stored literal.
   SemanticStatus status;
 };
 
@@ -230,7 +239,7 @@ const StoreRow kDefinitions[] = {
     {I, I, OK},
     // §1.3: Unit is not convertible to Int [A2-092].
     {I, U, E6},
-    // §3: a Boolean value cannot be stored [A2-092].
+    // §1.3, §5.2: Boolean is not convertible to Int [A2-092].
     {I, B, E6},
     // §2.2: a Double variable accepts a Double initializer [A2-092].
     {R, R, OK},
@@ -238,7 +247,7 @@ const StoreRow kDefinitions[] = {
     {R, S, E6},
     // §1.3: Unit is not convertible to Double [A2-092].
     {R, U, E6},
-    // §3: a Boolean value cannot be stored [A2-092].
+    // §1.3, §5.2: Boolean is not convertible to Double [A2-092].
     {R, B, E6},
     // §1.3: Int is not convertible to String [A2-092].
     {S, I, E6},
@@ -248,7 +257,7 @@ const StoreRow kDefinitions[] = {
     {S, S, OK},
     // §1.3: Unit is not convertible to String [A2-092].
     {S, U, E6},
-    // §3: a Boolean value cannot be stored [A2-092].
+    // §1.3, §5.2: Boolean is not convertible to String [A2-092].
     {S, B, E6},
     // §1.3: Double is not convertible to Unit [A2-092].
     {U, R, E6},
@@ -256,7 +265,7 @@ const StoreRow kDefinitions[] = {
     {U, S, E6},
     // §2.2: a Unit variable accepts () [A2-092].
     {U, U, OK},
-    // §3: a Boolean value cannot be stored [A2-092].
+    // §1.3, §5.2: Boolean is not convertible to Unit [A2-092].
     {U, B, E6},
 };
 
@@ -273,7 +282,7 @@ const StoreRow kAssignments[] = {
     {R, S, E6},
     // §2.2: Unit is not assignable to Double [A2-093].
     {R, U, E6},
-    // §3: a Boolean value cannot be stored [A2-093].
+    // §1.3, §5.2: Boolean is not convertible to Double [A2-093].
     {R, B, E6},
     // §2.2: Int is not assignable to String [A2-093].
     {S, I, E6},
@@ -283,7 +292,7 @@ const StoreRow kAssignments[] = {
     {S, S, OK},
     // §2.2: Unit is not assignable to String [A2-093].
     {S, U, E6},
-    // §3: a Boolean value cannot be stored [A2-093].
+    // §1.3, §5.2: Boolean is not convertible to String [A2-093].
     {S, B, E6},
     // §2.2: Int is not assignable to Unit [A2-093].
     {U, I, E6},
@@ -293,7 +302,7 @@ const StoreRow kAssignments[] = {
     {U, S, E6},
     // §2.2: a Unit variable accepts () [A2-093].
     {U, U, OK},
-    // §3: a Boolean value cannot be stored [A2-093].
+    // §1.3, §5.2: Boolean is not convertible to Unit [A2-093].
     {U, B, E6},
 };
 
@@ -371,9 +380,9 @@ TEST_F(SpecSemanticWhiteboxTest,
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(y->type.type, R);
-  EXPECT_EQ(z->type.type, R);
-  EXPECT_EQ(i->type.type, I);
+  EXPECT_TRUE(has_type(y->type.type, R));
+  EXPECT_TRUE(has_type(z->type.type, R));
+  EXPECT_TRUE(has_type(i->type.type, I));
   EXPECT_TRUE(widened(stmt(m, 0)->data.assignment.value));
   EXPECT_FALSE(widened(stmt(m, 1)->data.assignment.value));
   ASTNode *last = stmt(m, 4)->data.assignment.value;
@@ -413,7 +422,7 @@ TEST_F(SpecSemanticWhiteboxTest,
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_EQ(u->type.type, U);
+  EXPECT_TRUE(has_type(u->type.type, U));
 }
 
 /*
@@ -432,10 +441,10 @@ namespace {
 
 struct BodyRow {
   const char *name;
-  DataType annotation; ///< Return type of f (N = not annotated).
+  BaseType annotation; ///< Return type of f (N = not annotated).
   void (*body)(Program *, FunctionSymbol *);
   SemanticStatus status;
-  DataType result; ///< Return type of f after the check (N = not checked).
+  BaseType result; ///< Return type of f after the check (N = not checked).
 };
 
 void PrintTo(const BodyRow &row, std::ostream *out) { *out << row.name; }
@@ -479,16 +488,16 @@ const BodyRow kBodies[] = {
     // §2.3: a parameter is read-only, also inside a branch (7) [A3-111].
     {"ParameterAssignmentInBranchIsError7", U,
      [](Program *, FunctionSymbol *f) {
-       function_symbol_add_parameter(f, I);
        Symbol *n = var(f, "n", I);
+       function_symbol_add_parameter(f, n);
        add(f, if_(truthy(), block({assign(n, integer(0))}), block({unit()})));
      },
      E7, N},
     // §2.3: a parameter is read-only, also in unreachable code (7) [A3-112].
     {"ParameterAssignmentAfterReturnIsError7", U,
      [](Program *, FunctionSymbol *f) {
-       function_symbol_add_parameter(f, I);
        Symbol *n = var(f, "n", I);
+       function_symbol_add_parameter(f, n);
        add(f, ret(nullptr));
        add(f, assign(n, integer(0)));
      },
@@ -507,8 +516,9 @@ const BodyRow kBodies[] = {
      [](Program *p, FunctionSymbol *f) {
        FunctionSymbol *g = def(p, "g", U, {I});
        add(g, unit());
-       function_symbol_add_parameter(f, S);
-       add(f, call(g, {ref_var(var(f, "s", S))}));
+       Symbol *s = var(f, "s", S);
+       function_symbol_add_parameter(f, s);
+       add(f, call(g, {ref_var(s)}));
      },
      E5, N},
     // §2.3: a bare return is allowed only in a Unit function (6) [A3-119].
@@ -726,7 +736,7 @@ TEST_P(SpecSemanticWhiteboxBodyTest, InfersOrRejectsResult) {
   // Assert
   ASSERT_EQ(status, row.status);
   if (status == OK && row.result != N) {
-    EXPECT_EQ(f->return_type.type, row.result);
+    EXPECT_TRUE(has_type(f->return_type.type, row.result));
   }
 }
 INSTANTIATE_TEST_SUITE_P(SpecSemanticWhitebox, SpecSemanticWhiteboxBodyTest,
@@ -747,7 +757,7 @@ namespace {
 
 struct MainRow {
   const char *name;
-  DataType annotation; ///< Return type of @main (N = not annotated).
+  BaseType annotation; ///< Return type of @main (N = not annotated).
   void (*body)(Program *, FunctionSymbol *);
   SemanticStatus status;
 };
@@ -969,8 +979,8 @@ TEST_F(SpecSemanticWhiteboxTest, ReturnOfForwardCallInfersCallee) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(g->return_type.type, I);
-  EXPECT_EQ(stmt(f, 0)->data.return_statement.value->inferred_type.type, I);
+  EXPECT_TRUE(has_type(g->return_type.type, I));
+  EXPECT_TRUE(has_type(stmt(f, 0)->data.return_statement.value->inferred_type.type, I));
 }
 
 // §1.3, §2.3: an inferred Int result passed to a Double parameter is widened
@@ -990,7 +1000,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredIntResultWidensForDoubleParameter) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(d->type.type, I);
+  EXPECT_TRUE(has_type(d->type.type, I));
   EXPECT_TRUE(widened(stmt(m, 1)->data.call.arguments[0]));
 }
 
@@ -1001,13 +1011,13 @@ TEST_F(SpecSemanticWhiteboxTest, InferenceThroughDoubleParameter) {
   //   (body of g is a single-expression block)
   FunctionSymbol *m = def_main();
   FunctionSymbol *g = def("g", N, {R});
-  add(g, ref_var(var(g, "x", R)));
+  add(g, ref_var(g->parameters[0]));
   add(m, define(var(m, "i", I), call(g, {integer(1)})));
   // Act
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_EQ(g->return_type.type, R);
+  EXPECT_TRUE(has_type(g->return_type.type, R));
 }
 
 /*
@@ -1032,9 +1042,9 @@ TEST_F(SpecSemanticWhiteboxTest, IfIsUnitAndConditionIsBoolean) {
   // Assert
   ASSERT_EQ(status, OK);
   ASTNode *node = stmt(m, 0);
-  EXPECT_EQ(node->inferred_type.type, U);
-  EXPECT_EQ(node->data.if_statement.condition->inferred_type.type, B);
-  EXPECT_EQ(node->data.if_statement.then_branch->inferred_type.type, U);
+  EXPECT_TRUE(has_type(node->inferred_type.type, U));
+  EXPECT_TRUE(has_type(node->data.if_statement.condition->inferred_type.type, B));
+  EXPECT_TRUE(has_type(node->data.if_statement.then_branch->inferred_type.type, U));
 }
 
 // §1.3, §2.3 rules 3-4: every Int return of a nested final if in a Double
@@ -1082,10 +1092,10 @@ TEST_F(SpecSemanticWhiteboxTest, DoubleInitWidensWholeIntQuotient) {
   ASSERT_EQ(status, OK);
   ASTNode *v = stmt(m, 0)->data.assignment.value;
   ASSERT_TRUE(widened(v));
-  EXPECT_EQ(v->inferred_type.type, R);
+  EXPECT_TRUE(has_type(v->inferred_type.type, R));
   ASTNode *q = v->data.conversion.operand;
   EXPECT_EQ(q->kind, AST_DIVIDE);
-  EXPECT_EQ(q->inferred_type.type, I);
+  EXPECT_TRUE(has_type(q->inferred_type.type, I));
   EXPECT_FALSE(widened(q->data.binary_op.left));
   EXPECT_FALSE(widened(q->data.binary_op.right));
 }
@@ -1103,11 +1113,11 @@ TEST_F(SpecSemanticWhiteboxTest, RelationalWidensIntSumAsWhole) {
   // Assert
   ASSERT_EQ(status, OK);
   ASTNode *c = stmt(m, 0)->data.if_statement.condition;
-  EXPECT_EQ(c->inferred_type.type, B);
+  EXPECT_TRUE(has_type(c->inferred_type.type, B));
   ASSERT_TRUE(widened(c->data.binary_op.left));
   ASTNode *sum = c->data.binary_op.left->data.conversion.operand;
   EXPECT_EQ(sum->kind, AST_ADD);
-  EXPECT_EQ(sum->inferred_type.type, I);
+  EXPECT_TRUE(has_type(sum->inferred_type.type, I));
   EXPECT_FALSE(widened(c->data.binary_op.right));
 }
 
@@ -1171,7 +1181,7 @@ TEST_F(SpecSemanticWhiteboxTest, DoubleLastValueWidensIntSum) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  ASTNode *v = stmt(f, 0);
+  ASTNode *v = tail_value(stmt(f, 0));
   ASSERT_TRUE(widened(v));
   EXPECT_EQ(v->data.conversion.operand->kind, AST_ADD);
 }
@@ -1189,7 +1199,7 @@ TEST_F(SpecSemanticWhiteboxTest, LeftNestedQuotientWidensOnlyInner) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(x->type.type, R);
+  EXPECT_TRUE(has_type(x->type.type, R));
   ASTNode *v = stmt(m, 0)->data.assignment.value;
   EXPECT_EQ(v->kind, AST_DIVIDE);
   ASSERT_TRUE(widened(v->data.binary_op.left));
@@ -1215,7 +1225,7 @@ struct BuiltinRow {
   const char *name;    ///< gtest name of the row.
   const char *builtin; ///< Called builtin function.
   Types arguments;
-  DataType annotation; ///< Type of `v` in `val v: T = builtin(...)`.
+  BaseType annotation; ///< Type of `v` in `val v: T = builtin(...)`.
 };
 
 void PrintTo(const BuiltinRow &row, std::ostream *out) { *out << row.name; }
@@ -1252,7 +1262,7 @@ const BuiltinRow kBadArguments[] = {
 
 Nodes literals(const Types &types) {
   Nodes nodes;
-  for (DataType t : types) {
+  for (BaseType t : types) {
     nodes.push_back(value(t));
   }
   return nodes;
@@ -1346,7 +1356,7 @@ TEST_F(SpecSemanticWhiteboxTest, LastReadIntInDoubleFunctionIsWidened) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(widened(stmt(f, 0)));
+  EXPECT_TRUE(widened(tail_value(stmt(f, 0))));
 }
 
 // §2.3, §4: f ending with readLine() infers String, which does not fit an
@@ -1362,7 +1372,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredStringFromReadLineRejectsIntUse) {
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_EQ(f->return_type.type, S);
+  EXPECT_TRUE(has_type(f->return_type.type, S));
 }
 
 // §1.3, §2.3, §4: f ending with toInt(1.5) infers Int, which widens for a
@@ -1378,7 +1388,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredIntFromToIntWidensToDouble) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(f->return_type.type, I);
+  EXPECT_TRUE(has_type(f->return_type.type, I));
   EXPECT_TRUE(widened(stmt(m, 0)->data.assignment.value));
 }
 
@@ -1386,7 +1396,7 @@ namespace {
 
 struct Signature {
   const char *name;
-  DataType result;
+  BaseType result;
   Types parameters;
 };
 
@@ -1416,10 +1426,11 @@ TEST_F(SpecSemanticWhiteboxTest, RegisteredSignaturesMatchChapter4Exactly) {
     FunctionSymbol *f = ref(sig.name);
     EXPECT_TRUE(f->is_builtin) << sig.name;
     EXPECT_TRUE(f->has_explicit_return_type) << sig.name;
-    EXPECT_EQ(f->return_type.type, sig.result) << sig.name;
+    EXPECT_TRUE(has_type(f->return_type.type, sig.result)) << sig.name;
     ASSERT_EQ(f->argument_count, sig.parameters.size()) << sig.name;
     for (size_t i = 0; i < sig.parameters.size(); ++i) {
-      EXPECT_EQ(f->parameter_types[i], sig.parameters[i]) << sig.name << i;
+      EXPECT_TRUE(has_type(f->parameters[i]->type.type, sig.parameters[i]))
+          << sig.name << i;
     }
   }
 }
@@ -1435,5 +1446,5 @@ TEST_F(SpecSemanticWhiteboxTest, CallNodeGetsBuiltinReturnType) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_EQ(c->inferred_type.type, S);
+  EXPECT_TRUE(has_type(c->inferred_type.type, S));
 }

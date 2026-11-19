@@ -25,9 +25,9 @@ extern "C" {
 namespace {
 
 using Nodes = std::vector<ASTNode *>;
-using Types = std::vector<DataType>;
+using Types = std::vector<BaseType>;
 
-constexpr DataType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL,
+constexpr BaseType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL,
                    S = TYPE_STRING, U = TYPE_UNIT, B = TYPE_BOOL;
 constexpr SemanticStatus OK = SEMANTIC_OK, E3 = SEMANTIC_UNDEFINED,
                          E4 = SEMANTIC_REDEFINITION, E5 = SEMANTIC_BAD_CALL,
@@ -70,7 +70,7 @@ ASTNode *call(FunctionSymbol *f, const Nodes &args = {}) {
   return c;
 }
 /// A literal of type @p t (Bool is `1 < 2`).
-ASTNode *value(DataType t) {
+ASTNode *value(BaseType t) {
   switch (t) {
   case TYPE_INT:
     return integer(1);
@@ -85,14 +85,22 @@ ASTNode *value(DataType t) {
   }
 }
 bool widened(const ASTNode *n) { return n->kind == AST_IMPLICIT_INT_TO_REAL; }
+/// True when @p t is the scalar type @p b (the unresolved type for
+/// TYPE_UNKNOWN).
+bool has_type(DataType t, BaseType b) { return type_equal(t, type_scalar(b)); }
+/// The value of @p n, seen through the implicit `return` that semantic_check
+/// wraps around the last value of a non-Unit body.
+ASTNode *tail_value(ASTNode *n) {
+  return n->kind == AST_RETURN ? n->data.return_statement.value : n;
+}
 
-Symbol *var_in(SymbolTable *scope, const char *name, DataType type,
+Symbol *var_in(SymbolTable *scope, const char *name, BaseType type,
                bool constant = true) {
   Symbol *s = nullptr;
-  symbol_table_define(scope, name, type, true, constant, &s);
+  symbol_table_define(scope, name, type_scalar(type), true, constant, &s);
   return s;
 }
-Symbol *var(FunctionSymbol *f, const char *name, DataType type,
+Symbol *var(FunctionSymbol *f, const char *name, BaseType type,
             bool constant = true) {
   return var_in(f->local_scope, name, type, constant);
 }
@@ -109,17 +117,18 @@ FunctionSymbol *ref(Program *program, const char *name) {
   return f;
 }
 /// `def name(params...)[: ret] =` with an empty body; `@main` if @p is_main.
-FunctionSymbol *def(Program *program, const char *name, DataType ret_type = N,
+FunctionSymbol *def(Program *program, const char *name, BaseType ret_type = N,
                     const Types &params = {}, bool is_main = false) {
   FunctionSymbol *f = ref(program, name);
   f->is_defined = true;
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
-  for (DataType p : params) {
-    function_symbol_add_parameter(f, p);
+  for (size_t i = 0; i < params.size(); ++i) {
+    function_symbol_add_parameter(
+        f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
   }
   f->has_explicit_return_type = ret_type != N;
-  f->return_type.type = ret_type;
+  f->return_type.type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -132,7 +141,7 @@ protected:
   void TearDown() override { program_destroy(&program); }
   SemanticStatus check() { return semantic_check(&program); }
   FunctionSymbol *ref(const char *name) { return ::ref(&program, name); }
-  FunctionSymbol *def(const char *name, DataType ret_type = N,
+  FunctionSymbol *def(const char *name, BaseType ret_type = N,
                       const Types &params = {}, bool is_main = false) {
     return ::def(&program, name, ret_type, params, is_main);
   }
@@ -143,7 +152,7 @@ template <class Row>
 class SemanticEdgeTableTest : public SemanticEdgeTest,
                               public ::testing::WithParamInterface<Row> {};
 
-const char *type_name(DataType t) {
+const char *type_name(BaseType t) {
   switch (t) {
   case TYPE_INT:
     return "Int";
@@ -190,19 +199,21 @@ namespace {
 
 struct OpRow {
   ASTNodeKind op;
-  DataType left, right;
+  BaseType left, right;
 };
 
-bool is_numeric(DataType t) { return t == I || t == R; }
+bool is_numeric(BaseType t) { return t == I || t == R; }
 bool is_arithmetic(ASTNodeKind k) {
   return k == AST_ADD || k == AST_SUBTRACT || k == AST_MULTIPLY ||
          k == AST_DIVIDE;
 }
 
-/// Result type of `left op right` per spec 3, or N for error 6.
-DataType spec_result(const OpRow &r) {
+/// Result type of `left op right` per spec 3 and 5.2, or N for error 6.
+BaseType spec_result(const OpRow &r) {
+  const bool equality = r.op == AST_EQUAL || r.op == AST_NOT_EQUAL;
   if (r.left == B || r.right == B) {
-    return N; // no Bool operands without BOOLTHEN (no chaining)
+    // BOOLTHEN (spec 5.2): two Booleans compare with == and != only.
+    return equality && r.left == B && r.right == B ? B : N;
   }
   if (is_numeric(r.left) && is_numeric(r.right)) {
     if (!is_arithmetic(r.op)) {
@@ -216,7 +227,6 @@ DataType spec_result(const OpRow &r) {
     }
     return r.op == AST_ADD ? S : N; // only + concatenates
   }
-  bool equality = r.op == AST_EQUAL || r.op == AST_NOT_EQUAL;
   return equality && r.left == U && r.right == U ? B : N;
 }
 
@@ -236,11 +246,11 @@ std::vector<OpRow> uncovered_op_rows() {
   const ASTNodeKind ops[] = {
       AST_ADD,  AST_SUBTRACT,   AST_MULTIPLY, AST_DIVIDE,        AST_LESS,
       AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_EQUAL, AST_NOT_EQUAL};
-  const DataType types[] = {I, R, S, U, B};
+  const BaseType types[] = {I, R, S, U, B};
   std::vector<OpRow> rows;
   for (ASTNodeKind op : ops) {
-    for (DataType l : types) {
-      for (DataType r : types) {
+    for (BaseType l : types) {
+      for (BaseType r : types) {
         bool covered = false;
         for (const OpRow &c : kCoveredOps) {
           covered |= c.op == op && c.left == l && c.right == r;
@@ -254,12 +264,36 @@ std::vector<OpRow> uncovered_op_rows() {
   return rows;
 }
 
+const char *op_name(ASTNodeKind op) {
+  switch (op) {
+  case AST_ADD:
+    return "Add";
+  case AST_SUBTRACT:
+    return "Sub";
+  case AST_MULTIPLY:
+    return "Mul";
+  case AST_DIVIDE:
+    return "Div";
+  case AST_LESS:
+    return "Less";
+  case AST_LESS_EQUAL:
+    return "LessEqual";
+  case AST_GREATER:
+    return "Greater";
+  case AST_GREATER_EQUAL:
+    return "GreaterEqual";
+  case AST_EQUAL:
+    return "Equal";
+  case AST_NOT_EQUAL:
+    return "NotEqual";
+  default:
+    return "Other";
+  }
+}
+
 std::string op_row_name(const ::testing::TestParamInfo<OpRow> &info) {
-  const char *names[] = {"Add",     "Sub",       "Mul",  "Div",
-                         "Less",    "LessEqual", "Greater", "GreaterEqual",
-                         "Equal",   "NotEqual"};
   const OpRow &r = info.param;
-  return std::string(names[r.op - AST_ADD]) + "_" + type_name(r.left) + "_" +
+  return std::string(op_name(r.op)) + "_" + type_name(r.left) + "_" +
          type_name(r.right);
 }
 
@@ -269,10 +303,10 @@ class SemanticEdgeOperatorTest : public SemanticEdgeTableTest<OpRow> {};
 
 TEST_P(SemanticEdgeOperatorTest, FollowsSpecOperatorTable) {
   const OpRow &r = GetParam();
-  const DataType expected = spec_result(r);
+  const BaseType expected = spec_result(r);
   FunctionSymbol *m = def_main();
   ASTNode *e = bin(r.op, value(r.left), value(r.right));
-  const bool in_if = expected == B; // a Bool is only usable as a condition
+  const bool in_if = expected == B; // a Bool result is used as a condition
   add(m, in_if ? if_(e, block({unit()}), block({unit()})) : e);
 
   ASSERT_EQ(check(), expected == N ? E6 : OK);
@@ -280,7 +314,7 @@ TEST_P(SemanticEdgeOperatorTest, FollowsSpecOperatorTable) {
     return;
   }
   ASTNode *n = in_if ? stmt(m, 0)->data.if_statement.condition : stmt(m, 0);
-  EXPECT_EQ(n->inferred_type.type, expected);
+  EXPECT_TRUE(has_type(n->inferred_type.type, expected));
   EXPECT_EQ(widened(n->data.binary_op.left), r.left == I && r.right == R);
   EXPECT_EQ(widened(n->data.binary_op.right), r.right == I && r.left == R);
 }
@@ -304,12 +338,12 @@ TEST_F(SemanticEdgeTest, NestedExpressionWidensWholeSubexpression) {
                        real(2.5))));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(x->type.type, R);
+  EXPECT_TRUE(has_type(x->type.type, R));
   ASTNode *product = stmt(m, 0)->data.assignment.value;
   ASSERT_TRUE(widened(product->data.binary_op.left));
   ASTNode *sum = product->data.binary_op.left->data.conversion.operand;
   EXPECT_EQ(sum->kind, AST_ADD);
-  EXPECT_EQ(sum->inferred_type.type, I);
+  EXPECT_TRUE(has_type(sum->inferred_type.type, I));
   EXPECT_FALSE(widened(sum->data.binary_op.left));
   EXPECT_FALSE(widened(product->data.binary_op.right));
 }
@@ -341,7 +375,7 @@ TEST_F(SemanticEdgeTest, RightOperandErrorIsReported) {
  *   A condition of type Double, String or Unit is error 6 (Int is covered),
  *   and an error inside the else branch is reported unchanged.
  */
-class SemanticEdgeConditionTest : public SemanticEdgeTableTest<DataType> {};
+class SemanticEdgeConditionTest : public SemanticEdgeTableTest<BaseType> {};
 
 TEST_P(SemanticEdgeConditionTest, NonBooleanConditionIsError6) {
   FunctionSymbol *m = def_main();
@@ -350,7 +384,7 @@ TEST_P(SemanticEdgeConditionTest, NonBooleanConditionIsError6) {
 }
 INSTANTIATE_TEST_SUITE_P(
     SemanticEdge, SemanticEdgeConditionTest, ::testing::Values(R, S, U),
-    [](const ::testing::TestParamInfo<DataType> &info) {
+    [](const ::testing::TestParamInfo<BaseType> &info) {
       return std::string(type_name(info.param));
     });
 
@@ -379,7 +413,7 @@ TEST_F(SemanticEdgeTest, VarInferredIntRejectsLaterDoubleAssignment) {
   add(m, define(x, integer(1)));
   add(m, assign(x, real(2.5)));
   EXPECT_EQ(check(), E6);
-  EXPECT_EQ(x->type.type, I);
+  EXPECT_TRUE(has_type(x->type.type, I));
 }
 
 TEST_F(SemanticEdgeTest, VarInferredDoubleWidensLaterIntAssignment) {
@@ -389,7 +423,7 @@ TEST_F(SemanticEdgeTest, VarInferredDoubleWidensLaterIntAssignment) {
   add(m, define(d, real(1.5)));
   add(m, assign(d, integer(1)));
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(d->type.type, R);
+  EXPECT_TRUE(has_type(d->type.type, R));
   EXPECT_TRUE(widened(stmt(m, 1)->data.assignment.value));
 }
 
@@ -402,9 +436,9 @@ TEST_F(SemanticEdgeTest, InferenceChainThroughVariables) {
   add(m, define(c, bin(AST_MULTIPLY, ref_var(b), real(2.5))));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(a->type.type, I);
-  EXPECT_EQ(b->type.type, I);
-  EXPECT_EQ(c->type.type, R);
+  EXPECT_TRUE(has_type(a->type.type, I));
+  EXPECT_TRUE(has_type(b->type.type, I));
+  EXPECT_TRUE(has_type(c->type.type, R));
   EXPECT_FALSE(widened(stmt(m, 1)->data.assignment.value));
   EXPECT_TRUE(widened(stmt(m, 2)->data.assignment.value->data.binary_op.left));
 }
@@ -419,7 +453,7 @@ TEST_F(SemanticEdgeTest, UnitVariablesAreUsable) {
   add(m, if_(bin(AST_EQUAL, ref_var(u), ref_var(w)), block({unit()}),
              block({unit()})));
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(u->type.type, U);
+  EXPECT_TRUE(has_type(u->type.type, U));
 }
 
 TEST_F(SemanticEdgeTest, UnitAnnotationRejectsIntInitializer) {
@@ -442,7 +476,7 @@ TEST_F(SemanticEdgeTest, AssigningWrongTypeToParameterIsError7) {
   // def f(n: Int): Unit = n = "s"
   def_main();
   FunctionSymbol *f = def("f", U, {I});
-  Symbol *n = var(f, "n", I);
+  Symbol *n = f->parameters[0];
   add(f, assign(n, str("s")));
   EXPECT_EQ(check(), E7);
 }
@@ -474,9 +508,9 @@ TEST_F(SemanticEdgeTest, ShadowedVariableInBranchKeepsOwnType) {
   add(m, bin(AST_ADD, ref_var(outer), integer(1)));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(outer->type.type, I);
-  EXPECT_EQ(inner->type.type, S);
-  EXPECT_EQ(stmt(m, 2)->inferred_type.type, I);
+  EXPECT_TRUE(has_type(outer->type.type, I));
+  EXPECT_TRUE(has_type(inner->type.type, S));
+  EXPECT_TRUE(has_type(stmt(m, 2)->inferred_type.type, I));
 }
 
 /*
@@ -492,10 +526,10 @@ namespace {
 
 struct BodyRow {
   const char *name;
-  DataType annotation;
+  BaseType annotation;
   void (*body)(Program *, FunctionSymbol *);
   SemanticStatus status;
-  DataType result;
+  BaseType result;
 };
 
 const BodyRow kBodies[] = {
@@ -603,7 +637,7 @@ TEST_P(SemanticEdgeBodyTest, InfersOrRejectsResult) {
   row.body(&program, f);
   ASSERT_EQ(check(), row.status);
   if (row.status == OK) {
-    EXPECT_EQ(f->return_type.type, row.result);
+    EXPECT_TRUE(has_type(f->return_type.type, row.result));
   }
 }
 INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeBodyTest,
@@ -630,7 +664,7 @@ TEST_F(SemanticEdgeTest, DoubleFunctionWidensInnermostLastValue) {
   ASSERT_EQ(outer->kind, AST_BLOCK);
   ASTNode *inner = outer->data.block.statements[0];
   ASSERT_EQ(inner->kind, AST_BLOCK);
-  ASTNode *last = inner->data.block.statements[0];
+  ASTNode *last = tail_value(inner->data.block.statements[0]);
   ASSERT_TRUE(widened(last));
   EXPECT_EQ(last->data.conversion.operand->kind, AST_CONSTANT_INT);
 }
@@ -643,8 +677,9 @@ TEST_F(SemanticEdgeTest, DoubleFunctionWidensLastCallOfIntFunction) {
   FunctionSymbol *f = def("f", R);
   add(f, call(g));
   ASSERT_EQ(check(), OK);
-  ASSERT_TRUE(widened(stmt(f, 0)));
-  EXPECT_EQ(stmt(f, 0)->data.conversion.operand->kind, AST_FUNCTION_CALL);
+  ASTNode *last = tail_value(stmt(f, 0));
+  ASSERT_TRUE(widened(last));
+  EXPECT_EQ(last->data.conversion.operand->kind, AST_FUNCTION_CALL);
 }
 
 TEST_F(SemanticEdgeTest, DoubleFunctionWidensReturnInFinalIf) {
@@ -674,7 +709,7 @@ TEST_F(SemanticEdgeTest, NotAnnotatedCallerOfRecursiveFunctionInfersType) {
   // def f(n: Int): Int = { val r = f(n); r }     def g() = f(1)
   FunctionSymbol *m = def_main();
   FunctionSymbol *f = def("f", I, {I});
-  Symbol *n = var(f, "n", I);
+  Symbol *n = f->parameters[0];
   Symbol *r = var(f, "r", N);
   add(f, define(r, call(f, {ref_var(n)})));
   add(f, ref_var(r));
@@ -682,7 +717,7 @@ TEST_F(SemanticEdgeTest, NotAnnotatedCallerOfRecursiveFunctionInfersType) {
   add(g, call(f, {integer(1)}));
   add(m, call(g));
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(g->return_type.type, I);
+  EXPECT_TRUE(has_type(g->return_type.type, I));
 }
 
 TEST_F(SemanticEdgeTest, SelfCallInsideCallArgumentIsCycle) {
@@ -732,7 +767,7 @@ TEST_F(SemanticEdgeTest, NotAnnotatedMainEndingWithPrintIsOk) {
   FunctionSymbol *m = def("main", N, {}, true);
   add(m, call(ref("print"), {str("x")}));
   ASSERT_EQ(check(), OK);
-  EXPECT_EQ(m->return_type.type, U);
+  EXPECT_TRUE(has_type(m->return_type.type, U));
 }
 
 /*
@@ -746,13 +781,13 @@ TEST_F(SemanticEdgeTest, NotAnnotatedMainEndingWithPrintIsOk) {
 namespace {
 
 struct ArgRow {
-  DataType parameter, argument;
+  BaseType parameter, argument;
 };
 
 std::vector<ArgRow> uncovered_arg_rows() {
   std::vector<ArgRow> rows;
-  for (DataType p : {I, R, S, U}) {
-    for (DataType a : {I, R, S, U, B}) {
+  for (BaseType p : {I, R, S, U}) {
+    for (BaseType a : {I, R, S, U, B}) {
       bool covered = (p == R && a == I) || (p == I && a == B) ||
                      (p == I && a == R);
       if (!covered) {
@@ -804,7 +839,7 @@ namespace {
 struct BuiltinRow {
   const char *name;
   Types arguments;
-  DataType annotation; ///< Type of the variable the result initializes.
+  BaseType annotation; ///< Type of the variable the result initializes.
   SemanticStatus status;
 };
 
@@ -843,7 +878,7 @@ TEST_P(SemanticEdgeBuiltinTest, ChecksSpecSignature) {
   FunctionSymbol *m = def_main();
   Symbol *v = var(m, "v", row.annotation);
   Nodes args;
-  for (DataType t : row.arguments) {
+  for (BaseType t : row.arguments) {
     args.push_back(value(t));
   }
   add(m, define(v, call(ref(row.name), args)));
@@ -853,7 +888,7 @@ TEST_P(SemanticEdgeBuiltinTest, ChecksSpecSignature) {
   }
   ASTNode *init = stmt(m, 0)->data.assignment.value;
   FunctionSymbol *builtin = ref(row.name);
-  bool widen = row.annotation == R && builtin->return_type.type == I;
+  bool widen = row.annotation == R && has_type(builtin->return_type.type, I);
   EXPECT_EQ(widened(init), widen);
 }
 INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeBuiltinTest,
@@ -956,7 +991,7 @@ TEST(SemanticEdgeKnownGapTest, DISABLED_BranchVariableIsNotVisibleAfterIf) {
                   "  else\n"
                   "    ()\n"
                   "  print(y)\n");
-  EXPECT_EQ(p.status, PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(p.status, PARSER_UNDEFINED_ERROR);
 }
 
 TEST(SemanticEdgeKnownGapTest, DISABLED_UseBeforeLaterDefinitionIsRejected) {
@@ -965,7 +1000,7 @@ TEST(SemanticEdgeKnownGapTest, DISABLED_UseBeforeLaterDefinitionIsRejected) {
                   "@main def main(): Unit =\n"
                   "  print(x)\n"
                   "  val x = 1\n");
-  EXPECT_EQ(p.status, PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(p.status, PARSER_UNDEFINED_ERROR);
 }
 
 TEST(SemanticEdgeKnownGapTest, DISABLED_WritesToValAndParameterAreError7) {

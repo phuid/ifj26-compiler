@@ -31,12 +31,12 @@ protected:
   void TearDown() override { program_destroy(&program); }
 
   /// Defines `def name()[: ret] =` with an empty body block.
-  FunctionSymbol *def(const char *name, DataType explicit_ret) {
+  FunctionSymbol *def(const char *name, BaseType explicit_ret) {
     FunctionSymbol *f = nullptr;
     function_table_get_or_create(&program.functions, name, &f);
     f->is_defined = true;
     function_symbol_create_local_scope(f);
-    f->return_type.type = explicit_ret;
+    f->return_type.type = type_scalar(explicit_ret);
     f->has_explicit_return_type = true;
     f->ast_root = ast_node_create_block(1, 1);
     return f;
@@ -50,9 +50,10 @@ protected:
 
   /// Defines a local the way p_variable_init_statement does: before the
   /// initializer is parsed and already marked initialized.
-  static Symbol *var(FunctionSymbol *f, const char *name, DataType annotated) {
+  static Symbol *var(FunctionSymbol *f, const char *name, BaseType annotated) {
     Symbol *s = nullptr;
-    symbol_table_define(f->local_scope, name, annotated, true, true, &s);
+    symbol_table_define(f->local_scope, name, type_scalar(annotated), true, true,
+                        &s);
     return s;
   }
 
@@ -91,22 +92,23 @@ TEST_F(SemanticBugTest, AnnotatedSelfReferenceInInitializerIsUndefined) {
   EXPECT_EQ(check(), SEMANTIC_UNDEFINED);
 }
 
-TEST_F(SemanticBugTest, ReturningBoolFromUnitFunctionIsTypeError) {
-  // def f(): Unit = return 1 < 2      (spec 3: a Boolean cannot be returned)
+TEST_F(SemanticBugTest, ReturningBoolFromUnitFunctionIsAccepted) {
+  // def f(): Unit = return 1 < 2      (BOOLTHEN, spec 5.2: a Boolean may be
+  //                                    returned; spec 2.3 rule 4: discarded)
   def_main();
   FunctionSymbol *f = def("f", TYPE_UNIT);
   add(f, ret(less(integer(1), integer(2))));
 
-  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+  EXPECT_EQ(check(), SEMANTIC_OK);
 }
 
-TEST_F(SemanticBugTest, BoolExpressionStatementIsTypeError) {
+TEST_F(SemanticBugTest, BoolExpressionStatementIsAccepted) {
   // @main def main(): Unit =
-  //   1 < 2                           (not directly an if/while condition)
-  //   ()
+  //   1 < 2                           (BOOLTHEN, spec 5.2: Boolean is a full
+  //   ()                               type, not only an if/while condition)
   FunctionSymbol *m = def_main();
   add(m, less(integer(1), integer(2)));
   add(m, ast_node_create_unit(1, 1));
 
-  EXPECT_EQ(check(), SEMANTIC_TYPE_ERROR);
+  EXPECT_EQ(check(), SEMANTIC_OK);
 }
