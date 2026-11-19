@@ -7,21 +7,22 @@
  *   and for the missing-else semantics of spec 2.3. The language profile is
  *   the base language plus FUNEXP: FUNEXP tests run, every other extension
  *   waits as DISABLED_ in a fixture Ext<NAME>Test. Black-box cases are whole
- *   programs run through tests/spec_harness.h; white-box cases build the AST
+ *   programs run through tests/spec_harness.hpp; white-box cases build the AST
  *   by hand like tests/semantic_edge_test.cc, lex single lines or query the
  *   PSA precedence table.
  *
  * The RC-* root-cause IDs in the "Fails today:" comments (RC-EXT-* included)
- * are explained in tests/spec_harness.h.
+ * are explained in tests/spec_harness.hpp.
  */
 #include <cstdio>
+#include <cstring>
 #include <ostream>
 #include <string>
 #include <vector>
 
 #include "gtest/gtest.h"
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 extern "C" {
 #include "../src/ast.h"
@@ -122,8 +123,8 @@ Symbol *var(FunctionSymbol *f, const char *name, BaseType type,
             bool constant = true) {
   Symbol *s = nullptr;
   if (f != nullptr) {
-    symbol_table_define(f->local_scope, name, type_scalar(type), true,
-                        constant, &s);
+    symbol_table_define(f->local_scope, name, type_scalar(type), true, constant,
+                        &s);
   }
   return s;
 }
@@ -1141,9 +1142,9 @@ TEST_F(ExtBoolthenPsaTest, DISABLED_LogicalOperatorsReduceHigherLevels) {
           << "top " << top << " next " << next;
     }
   }
-  EXPECT_EQ(get_precedence(TERMINAL_DOLLAR,
-                           token_to_terminal(psa_token(TOKEN_AND))),
-            PREC_TAKE);
+  EXPECT_EQ(
+      get_precedence(TERMINAL_DOLLAR, token_to_terminal(psa_token(TOKEN_AND))),
+      PREC_TAKE);
 }
 
 } // namespace
@@ -2338,14 +2339,9 @@ bool owns_text(TokenType type) {
 
 Lexed lex_line(const std::string &input) {
   Lexed out;
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return out;
-  }
-  fputs(input.c_str(), stream);
-  rewind(stream);
+  std::vector<char> buffer(input.c_str(), input.c_str() + input.size() + 1);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     while (out.types.size() < 1000U &&
            (out.status = lexer_pls(&lexer)) == LEXER_OK) {
       out.types.push_back(lexer.token.type);
@@ -2354,7 +2350,6 @@ Lexed lex_line(const std::string &input) {
     }
     lexer_destroy(&lexer);
   }
-  fclose(stream);
   return out;
 }
 

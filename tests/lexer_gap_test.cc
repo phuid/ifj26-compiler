@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <set>
 #include <string>
 #include <vector>
@@ -21,13 +22,9 @@ namespace {
  *   One stream_from plus lex_all that copies every token until the first
  *   non-OK status, and Expected rows (T/I/D) for token tables.
  */
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 bool owns_text(TokenType type) {
   return type != TOKEN_INT && type != TOKEN_DOUBLE && type != TOKEN_INDENT &&
@@ -45,9 +42,9 @@ struct LexResult {
 
 LexResult lex_all(const char *input) {
   LexResult result{{}, LEXER_INVALID_ARGUMENT, Token{}};
-  FILE *stream = stream_from(input);
+  std::vector<char> buffer = buffer_from(input);
   Lexer lexer;
-  if (stream == nullptr || lexer_init(&lexer, stream) != LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) != LEXER_OK) {
     ADD_FAILURE() << "cannot set up lexer"; // only on a null stream
     return result;
   }
@@ -61,7 +58,6 @@ LexResult lex_all(const char *input) {
   }
   result.last = lexer.token;
   lexer_destroy(&lexer);
-  fclose(stream);
   return result;
 }
 
@@ -258,19 +254,17 @@ TEST(LexerGapTest, LongIdentifierGrowsTokenBuffer) {
 }
 
 TEST(LexerGapTest, NullArgumentsAreRejectedOrIgnored) {
-  FILE *stream = stream_from("x");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> buffer = buffer_from("x");
   Lexer lexer;
-  EXPECT_EQ(lexer_init(nullptr, stream), LEXER_INVALID_ARGUMENT);
+  EXPECT_EQ(lexer_init(nullptr, buffer.data()), LEXER_INVALID_ARGUMENT);
   EXPECT_EQ(lexer_init(&lexer, nullptr), LEXER_INVALID_ARGUMENT);
   EXPECT_EQ(lexer_pls(nullptr), LEXER_INVALID_ARGUMENT);
   EXPECT_EQ(lexer_change_current_indent(nullptr, 1), LEXER_INVALID_ARGUMENT);
   lexer_destroy(nullptr);
   token_destroy(nullptr);
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   lexer_destroy(&lexer);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_ARGUMENT);
-  fclose(stream);
 }
 
 /*
@@ -281,10 +275,9 @@ TEST(LexerGapTest, NullArgumentsAreRejectedOrIgnored) {
  *   results without changing current_indent and must keep pending tokens.
  */
 TEST(LexerGapTest, IndentAdjustmentRejectsOverflowAndKeepsPendingTokens) {
-  FILE *stream = stream_from("");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> buffer = buffer_from("");
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   EXPECT_EQ(lexer_change_current_indent(&lexer, PTRDIFF_MIN),
             LEXER_INVALID_ARGUMENT);
   EXPECT_EQ(lexer.current_indent, 0U);
@@ -311,7 +304,6 @@ TEST(LexerGapTest, IndentAdjustmentRejectsOverflowAndKeepsPendingTokens) {
   EXPECT_EQ(lexer.current_indent, 5U);
   EXPECT_EQ(lexer.pending_indent_delta, 3);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(KeywordGapTest, KeywordTableCoversEveryKeywordTokenOnce) {
@@ -345,14 +337,12 @@ TEST(LexerGapTest, DISABLED_IntegerOverflowIsLexicalError) {
 
 // Bug lexer.c:382: a char rejected in S is never consumed, so it repeats.
 TEST(LexerGapTest, DISABLED_LexerAdvancesAfterInvalidToken) {
-  FILE *stream = stream_from("#a");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> buffer = buffer_from("#a");
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_STREQ(lexer.token.value.string_value, "a");
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }

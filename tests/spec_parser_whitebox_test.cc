@@ -3,16 +3,18 @@
  * Model: claude-opus-5-5 (Claude Code).
  * Prompt:
  *   Write white-box spec conformance tests for the IFJ26 parser. Parse
- *   spec-correct programs (with the `import ifj26.*` prolog) from a tmpfile
- *   through program_init, lexer_init and p_program, optionally run
- *   semantic_check, then inspect the FunctionTable, the scope tree of each
- *   function and the AST. Run the same pipeline first in a forked child so
- *   that a crash or a hang fails one test instead of the whole binary, and
+ *   spec-correct programs (with the `import ifj26.*` prolog) from a buffer
+ *   through program_init, source_preprocess, lexer_init and p_program,
+ * optionally run semantic_check, then inspect the FunctionTable, the scope tree
+ * of each function and the AST. Run the same pipeline first in a forked child
+ * so that a crash or a hang fails one test instead of the whole binary, and
  *   report environment failures and statuses by name.
  */
 #include <cstdio>
+#include <cstring>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -28,7 +30,7 @@ extern "C" {
 #include "../src/symtable.h"
 }
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 namespace {
 
@@ -91,27 +93,33 @@ const char *SemanticStatusName(SemanticStatus status) {
 }
 
 /**
- * Parses @p source into @p program. @p io_ok becomes false when the test
- * environment (tmpfile/fputs) fails, so that is never blamed on the parser.
+ * Parses @p source into @p program the way main.c does: the source is
+ * preprocessed (comments and the prolog are removed) before the lexer reads
+ * it. A preprocessing failure is reported as the parser status of the same
+ * exit code. @p io_ok becomes false when the test environment fails, so that
+ * is never blamed on the parser; with an in-memory buffer it stays true.
  */
 ParserStatus ParseInto(const std::string &source, Program *program,
                        bool *io_ok) {
-  FILE *stream = tmpfile();
-  *io_ok = stream != nullptr && fputs(source.c_str(), stream) != EOF;
-  if (!*io_ok) {
-    if (stream != nullptr) {
-      fclose(stream);
-    }
+  *io_ok = true;
+  std::vector<char> buffer(source.c_str(), source.c_str() + source.size() + 1);
+  switch (source_preprocess(buffer.data())) {
+  case PREPROCESS_OK:
+    break;
+  case PREPROCESS_MALFORMED:
+    return PARSER_LEXER_ERROR;
+  case PREPROCESS_MISSING_PROLOG:
+    return PARSER_SYNTAX_ERROR;
+  case PREPROCESS_INTERNAL_ERROR:
+  default:
     return PARSER_INTERNAL_ERROR;
   }
-  rewind(stream);
   Lexer lexer;
   ParserStatus status = PARSER_INTERNAL_ERROR;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     status = p_program(&lexer, program);
     lexer_destroy(&lexer);
   }
-  fclose(stream);
   return status;
 }
 
@@ -222,7 +230,7 @@ Symbol *Local(const SymbolTable *scope, const char *name) {
 /** Asserts a written, non-crashing program that p_program accepts. */
 #define ASSERT_PARSED(p)                                                       \
   do {                                                                         \
-    ASSERT_TRUE((p).io_ok() || (p).died()) << "tmpfile/fputs failed";          \
+    ASSERT_TRUE((p).io_ok() || (p).died()) << "test environment failed";       \
     ASSERT_FALSE((p).died())                                                   \
         << "pipeline killed by a signal (crash or hang) in the forked "        \
            "pre-flight:\n"                                                     \
@@ -413,7 +421,7 @@ TEST(SpecParserWhiteboxDefinitionTest,
   ParsedProgram p(body, true);
 
   // Assert
-  ASSERT_TRUE(p.io_ok() || p.died()) << "tmpfile/fputs failed";
+  ASSERT_TRUE(p.io_ok() || p.died()) << "test environment failed";
   ASSERT_FALSE(p.died()) << p.source();
   bool by_parser = p.status() == PARSER_REDEFINITION_ERROR;
   bool by_semantic =

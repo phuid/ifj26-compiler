@@ -1,4 +1,6 @@
 #include "gtest/gtest.h"
+
+#include "bst_test_util.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -32,7 +34,8 @@ void destroyInt(void *value) {
 
 int valueOf(const BST_Node *node) { return *static_cast<int *>(node->value); }
 
-// Checks order, height and balance of every node; greater keys go left.
+// Checks order, stored height and balance of every node; smaller keys go
+// left. The balance factor is derived from the child heights.
 int expectValidAVL(const BST_Node *node, long long low = INT64_MIN,
                    long long high = INT64_MAX) {
   if (node == nullptr) {
@@ -40,10 +43,9 @@ int expectValidAVL(const BST_Node *node, long long low = INT64_MIN,
   }
   const int value = valueOf(node);
   EXPECT_TRUE(low < value && value < high) << "order violated at " << value;
-  const int left = expectValidAVL(node->left, value, high);
-  const int right = expectValidAVL(node->right, low, value);
+  const int left = expectValidAVL(node->left, low, value);
+  const int right = expectValidAVL(node->right, value, high);
   EXPECT_EQ(node->height, 1 + std::max(left, right)) << "at " << value;
-  EXPECT_EQ(node->balance, right - left) << "at " << value;
   EXPECT_LE(std::abs(right - left), 1) << "at " << value;
   return 1 + std::max(left, right);
 }
@@ -52,10 +54,10 @@ class BSTGapTest : public ::testing::Test {
 protected:
   void SetUp() override {
     copies = destroys = 0;
-    tree = bstCreate(compareInts, copyInt, destroyInt);
+    tree = make_tree(compareInts, copyInt, destroyInt);
     ASSERT_NE(tree, nullptr);
   }
-  void TearDown() override { bstDestroy(&tree); }
+  void TearDown() override { bst_destroy(&tree); }
   BST *tree = nullptr;
 };
 
@@ -72,14 +74,14 @@ TEST_F(BSTGapTest, InsertionRotationsProduceExpectedShape) {
     std::vector<int> order;
     int root, left, right;
   };
-  const Case cases[] = {{{10, 20, 30}, 20, 30, 10},
-                        {{30, 20, 10}, 20, 30, 10},
-                        {{10, 30, 20}, 20, 30, 10},
-                        {{30, 10, 20}, 20, 30, 10}};
+  const Case cases[] = {{{10, 20, 30}, 20, 10, 30},
+                        {{30, 20, 10}, 20, 10, 30},
+                        {{10, 30, 20}, 20, 10, 30},
+                        {{30, 10, 20}, 20, 10, 30}};
   for (const Case &c : cases) {
     SCOPED_TRACE(::testing::PrintToString(c.order));
     for (int value : c.order) {
-      bstInsert(tree, &value);
+      bst_insert(tree, &value);
     }
     expectValidAVL(tree->root);
     ASSERT_EQ(tree->root->height, 2); // both children present
@@ -104,14 +106,14 @@ TEST_F(BSTGapTest, RandomMixedOperationsMatchStdSet) {
   for (int step = 0; step < 2000 && !HasFailure(); ++step) {
     const int key = static_cast<int>(rng() % kKeyRange);
     if (rng() % 2U == 0U) {
-      bstInsert(tree, &key);
+      bst_insert(tree, &key);
       reference.insert(key);
     } else {
-      bstRemove(tree, &key);
+      bst_remove(tree, &key);
       reference.erase(key);
     }
     expectValidAVL(tree->root);
-    EXPECT_EQ(bstSearch(tree, &key) != nullptr, reference.count(key) == 1U);
+    EXPECT_EQ(find_value(tree, &key) != nullptr, reference.count(key) == 1U);
     EXPECT_EQ(static_cast<size_t>(copies - destroys), reference.size());
   }
 }
@@ -123,37 +125,47 @@ TEST_F(BSTGapTest, RandomMixedOperationsMatchStdSet) {
  *   NULL args, only-node removal, failed duplicate copy, string-key structs.
  */
 TEST_F(BSTGapTest, NullArgumentsAreRejectedOrIgnored) {
-  EXPECT_EQ(bstCreate(nullptr, copyInt, destroyInt), nullptr);
-  EXPECT_EQ(bstCreate(compareInts, nullptr, destroyInt), nullptr);
-  EXPECT_EQ(bstCreate(compareInts, copyInt, nullptr), nullptr);
+  BST *created = nullptr;
+  EXPECT_EQ(bst_create(nullptr, copyInt, destroyInt, &created),
+            BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_create(compareInts, nullptr, destroyInt, &created),
+            BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_create(compareInts, copyInt, nullptr, &created),
+            BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_create(compareInts, copyInt, destroyInt, nullptr),
+            BST_INVALID_PARAMS);
+  EXPECT_EQ(created, nullptr);
   BST *nullTree = nullptr;
-  bstDestroy(&nullTree);
-  bstDestroy(nullptr);
+  bst_destroy(&nullTree);
+  bst_destroy(nullptr);
   const int value = 5;
-  bstInsert(nullptr, &value);
-  bstRemove(nullptr, &value);
-  EXPECT_EQ(bstSearch(nullptr, &value), nullptr);
-  bstInsert(tree, nullptr);
-  bstRemove(tree, nullptr);
-  EXPECT_EQ(bstSearch(tree, nullptr), nullptr);
+  EXPECT_EQ(bst_insert(nullptr, &value), BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_remove(nullptr, &value), BST_INVALID_PARAMS);
+  const void *result = &value;
+  EXPECT_EQ(bst_search(nullptr, &value, &result), BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_search(tree, &value, nullptr), BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_insert(tree, nullptr), BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_remove(tree, nullptr), BST_INVALID_PARAMS);
+  EXPECT_EQ(bst_search(tree, nullptr, &result), BST_INVALID_PARAMS);
+  EXPECT_EQ(result, &value) << "result is not modified on invalid params";
   EXPECT_EQ(copies + destroys, 0);
 }
 
 TEST_F(BSTGapTest, RemoveOnlyNodeLeavesRootNull) {
   const int key = 42;
-  bstInsert(tree, &key);
-  bstRemove(tree, &key);
+  bst_insert(tree, &key);
+  bst_remove(tree, &key);
   EXPECT_EQ(tree->root, nullptr);
   EXPECT_EQ(destroys, 1);
 }
 
 TEST_F(BSTGapTest, FailedCopyOnDuplicateUpdateKeepsOldElement) {
   const int key = 2;
-  bstInsert(tree, &key);
-  void *before = bstSearch(tree, &key);
-  tree->copyData = [](const void *) -> void * { return nullptr; };
-  bstInsert(tree, &key);
-  EXPECT_EQ(bstSearch(tree, &key), before);
+  ASSERT_EQ(bst_insert(tree, &key), BST_OK);
+  const void *before = find_value(tree, &key);
+  tree->copy_data = [](const void *) -> void * { return nullptr; };
+  EXPECT_EQ(bst_insert(tree, &key), BST_ALLOCATION_FAIL);
+  EXPECT_EQ(find_value(tree, &key), before);
   EXPECT_EQ(destroys, 0);
 }
 
@@ -162,7 +174,7 @@ TEST(BSTGapStructTest, HeapKeyedEntriesSupportFullLifecycle) {
     char *key;
     int payload;
   };
-  BST *entries = bstCreate(
+  BST *entries = make_tree(
       [](const void *a, const void *b) {
         return std::strcmp(static_cast<const Entry *>(a)->key,
                            static_cast<const Entry *>(b)->key);
@@ -176,13 +188,14 @@ TEST(BSTGapStructTest, HeapKeyedEntriesSupportFullLifecycle) {
         delete static_cast<Entry *>(v);
       });
   Entry original{const_cast<char *>("foo"), 1}, update{original.key, 99};
-  bstInsert(entries, &original);
-  bstInsert(entries, &update);
-  const Entry *found = static_cast<Entry *>(bstSearch(entries, &original));
+  EXPECT_EQ(bst_insert(entries, &original), BST_OK);
+  EXPECT_EQ(bst_insert(entries, &update), BST_VALUE_OVERWRITTEN);
+  const Entry *found =
+      static_cast<const Entry *>(find_value(entries, &original));
   ASSERT_NE(found, nullptr);
   EXPECT_NE(found->key, original.key) << "tree must own its key copy";
   EXPECT_EQ(found->payload, 99);
-  bstRemove(entries, &original);
+  EXPECT_EQ(bst_remove(entries, &original), BST_OK);
   EXPECT_EQ(entries->root, nullptr);
-  bstDestroy(&entries);
+  bst_destroy(&entries);
 }

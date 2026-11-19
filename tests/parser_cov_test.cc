@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -16,13 +18,9 @@ extern "C" {
  */
 namespace {
 
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 struct Parsed {
@@ -32,16 +30,12 @@ struct Parsed {
     if (program_init(&program) != PARSER_OK) {
       return;
     }
-    FILE *stream = stream_from(source);
-    if (stream == nullptr) {
-      return;
-    }
+    std::vector<char> buffer = buffer_from(source);
     Lexer lexer;
-    if (lexer_init(&lexer, stream) == LEXER_OK) {
+    if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
       status = p_program(&lexer, &program);
       lexer_destroy(&lexer);
     }
-    fclose(stream);
   }
   ~Parsed() { program_destroy(&program); }
   Parsed(const Parsed &) = delete;
@@ -61,10 +55,9 @@ struct Parsed {
  *   PARSER_INVALID_ARGUMENT, as for a NULL lexer, and add no function.
  */
 TEST(ParserCovApiTest, DestroyedLexerIsInvalidArgument) {
-  FILE *stream = stream_from("def f() =\n  return\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> buffer = buffer_from("def f() =\n  return\n");
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   // Not a use-after-free: the struct still lives, only input is NULL.
   lexer_destroy(&lexer);
   Program program;
@@ -72,7 +65,6 @@ TEST(ParserCovApiTest, DestroyedLexerIsInvalidArgument) {
   EXPECT_EQ(p_program(&lexer, &program), PARSER_INVALID_ARGUMENT);
   EXPECT_EQ(program.functions.function_count, 0U);
   program_destroy(&program);
-  fclose(stream);
 }
 
 /*

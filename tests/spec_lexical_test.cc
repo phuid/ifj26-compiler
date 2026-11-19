@@ -5,17 +5,18 @@
  *   Write spec conformance tests for IFJ26 chapter 1.1/1.2 (lexical units,
  *   indentation, logical lines, commas and semicolons) and the lexical part
  *   of chapter 2 (prolog, @main). Compile whole programs through
- *   tests/spec_harness.h and compare the exit code with spec chapter 6.
+ *   tests/spec_harness.hpp and compare the exit code with spec chapter 6.
  *   Group the cases into TEST_P tables by topic; every row names its rule.
  *   Tests that fail today because the compiler breaks the spec stay enabled.
  */
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <ostream>
 #include <string>
 #include <vector>
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 #include "gtest/gtest.h"
 
 /*
@@ -1064,17 +1065,11 @@ bool owns_text(TokenType type) {
 /** Lexes @p input until the first status other than LEXER_OK. */
 LexResult lex_all(const std::string &input) {
   LexResult result{{}, LEXER_INVALID_ARGUMENT};
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    ADD_FAILURE() << "cannot create tmpfile";
-    return result;
-  }
-  fwrite(input.data(), 1U, input.size(), stream);
-  rewind(stream);
+  std::vector<char> buffer(input.begin(), input.end());
+  buffer.push_back('\0');
   Lexer lexer{};
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) != LEXER_OK) {
     ADD_FAILURE() << "cannot set up lexer";
-    fclose(stream);
     return result;
   }
   while (result.tokens.size() < kMaxTokens &&
@@ -1089,7 +1084,6 @@ LexResult lex_all(const std::string &input) {
     result.tokens.push_back(lexed);
   }
   lexer_destroy(&lexer);
-  fclose(stream);
   return result;
 }
 

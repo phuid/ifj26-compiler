@@ -1,5 +1,7 @@
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -87,13 +89,9 @@ extern "C" void free(void *p) {
 
 namespace {
 
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 struct ParseRun {
@@ -106,13 +104,10 @@ struct ParseRun {
 // up before arming and torn down while live blocks are still counted.
 ParseRun parse_failing_at(const char *source, long fail_at) {
   ParseRun run = {PARSER_INVALID_ARGUMENT, false, 0};
-  FILE *stream = stream_from(source);
-  if (stream == nullptr) {
-    return run;
-  }
+  std::vector<char> buffer = buffer_from(source);
   Lexer lexer;
   Program program;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     if (program_init(&program) == PARSER_OK) {
       oom::count = 0;
       oom::live = 0;
@@ -129,7 +124,6 @@ ParseRun parse_failing_at(const char *source, long fail_at) {
       lexer_destroy(&lexer);
     }
   }
-  fclose(stream);
   return run;
 }
 

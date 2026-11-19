@@ -4,7 +4,7 @@
  * Prompt:
  *   Write black-box spec conformance tests for IFJ26 control flow (spec
  *   2.1, 2.3 rules 2-3, 2.4, 2.5 and FUNEXP 5.1 calls in conditions). Each
- *   case is a whole program body run through tests/spec_harness.h and
+ *   case is a whole program body run through tests/spec_harness.hpp and
  *   checked against the exit code of spec chapter 6. Group the cases into
  *   TEST_P tables by topic, give every row a readable name and a comment
  *   with the spec rule and, when it fails today, the root cause.
@@ -13,7 +13,7 @@
 
 #include "gtest/gtest.h"
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 namespace {
 

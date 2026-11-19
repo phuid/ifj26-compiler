@@ -7,7 +7,7 @@
  *   6 from the approved catalog A6: the black-box programs the catalog
  *   keeps in this file (syntax errors, an undefined call and the
  *   precedence of code 7 over 6), with positive controls, and white-box
- *   tests of the status mapping in tests/spec_harness.h
+ *   tests of the status mapping in tests/spec_harness.hpp
  *   (ifj26_code_from_parser, ifj26_code_from_semantic,
  *   ifj26_code_from_wait, the prolog switch and the lexer -> parser ->
  *   code chain). Use TEST_P tables with readable row names, a spec
@@ -26,7 +26,7 @@
 
 #include "gtest/gtest.h"
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 namespace {
 
@@ -321,8 +321,8 @@ const ParserMapCase kParserMapCases[] = {
     // ch. 6 code 99: a value without an enumerator is never a success or an
     //   input error. 7 lies inside the value range of ParserStatus (0-127),
     //   so the cast is well defined.
-    {"UnknownStatusIsCode99",
-     static_cast<ParserStatus>(PARSER_TYPE_ERROR + 1), 99},
+    {"UnknownStatusIsCode99", static_cast<ParserStatus>(PARSER_TYPE_ERROR + 1),
+     99},
 };
 
 struct SemanticMapCase {
@@ -473,7 +473,7 @@ int wait_status_of_child(const WaitMapCase &row) {
   return wait_status;
 }
 
-// Harness codes (tests/spec_harness.h): an exit status is the chapter 6
+// Harness codes (tests/spec_harness.hpp): an exit status is the chapter 6
 //   code, 100 marks the folded parser status, a signal is a crash and
 //   SIGALRM (the time limit) is a timeout.
 const WaitMapCase kWaitMapCases[] = {
@@ -543,7 +543,7 @@ prolog_switch_case_name(const ::testing::TestParamInfo<PrologSwitchCase> &i) {
 }
 
 // §2: the spec-correct default keeps the prolog; only the exact value "1"
-//   switches it off (harness rule, tests/spec_harness.h).
+//   switches it off (harness rule, tests/spec_harness.hpp).
 const PrologSwitchCase kPrologSwitchCases[] = {
     // Harness rule: no variable, the prolog is added.
     {"UnsetKeepsProlog", nullptr, false},
@@ -697,13 +697,10 @@ INSTANTIATE_TEST_SUITE_P(SpecErrorCodes, SpecErrorCodesForkedRunTest,
 //   status to the harness exit code.
 TEST(SpecErrorCodesLexerChainTest, LexerInvalidArgumentIsInternalError99) {
   // Arrange
-  std::unique_ptr<FILE, int (*)(FILE *)> stream(tmpfile(), fclose);
-  ASSERT_NE(stream, nullptr);
-  fputs("@main def run(): Unit =\n  return\n", stream.get());
-  rewind(stream.get());
+  char source[] = "@main def run(): Unit =\n  return\n";
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream.get()), LEXER_OK);
-  lexer.input = nullptr;
+  ASSERT_EQ(lexer_init(&lexer, source), LEXER_OK);
+  lexer.input_str = nullptr;
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   // Act

@@ -1,4 +1,6 @@
 #include "gtest/gtest.h"
+
+#include "bst_test_util.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -19,7 +21,7 @@ namespace {
  *   Provide a fixture for black-box tests of bst.h: an entry type with a key
  *   and a payload the comparator ignores, a comparator that counts its calls,
  *   copy/destroy callbacks that count live entries (checked to be zero after
- *   bstDestroy) and the AVL height bound for n nodes.
+ *   bst_destroy) and the AVL height bound for n nodes.
  */
 struct Entry {
   int key;
@@ -58,27 +60,27 @@ protected:
   void SetUp() override {
     compareCalls = 0;
     liveEntries = 0;
-    tree = bstCreate(compareEntries, copyEntry, destroyEntry);
+    tree = make_tree(compareEntries, copyEntry, destroyEntry);
     ASSERT_NE(tree, nullptr);
   }
   void TearDown() override {
-    bstDestroy(&tree);
+    bst_destroy(&tree);
     EXPECT_EQ(tree, nullptr);
     EXPECT_EQ(liveEntries, 0) << "tree leaked or double-freed entries";
   }
 
-  // Number of comparator calls one bstSearch for key needs.
+  // Number of comparator calls one bst_search for key needs.
   long searchCost(int key, bool *found) {
     const Entry probe{key, 0};
     compareCalls = 0;
-    *found = bstSearch(tree, &probe) != nullptr;
+    *found = find_value(tree, &probe) != nullptr;
     return compareCalls;
   }
 
-  // Payload stored for key, or -1 when bstSearch does not find it.
+  // Payload stored for key, or -1 when bst_search does not find it.
   int payloadOf(int key) const {
     const Entry probe{key, -1};
-    const Entry *found = static_cast<const Entry *>(bstSearch(tree, &probe));
+    const Entry *found = static_cast<const Entry *>(find_value(tree, &probe));
     return found == nullptr ? -1 : found->payload;
   }
 
@@ -92,7 +94,7 @@ protected:
  * Model: Claude (Claude Code).
  * Prompt:
  *   bst.c promises a height-balanced tree; check through the public API only
- *   (by counting comparator calls of bstSearch) that the worst lookup stays
+ *   (by counting comparator calls of bst_search) that the worst lookup stays
  *   within kCallsPerLevel = 2 times the AVL height bound for n keys, for
  *   ascending, descending and portably shuffled insertion orders and after
  *   removing every other key; one assertion per phase.
@@ -100,7 +102,7 @@ protected:
 TEST_F(BSTCovTest, SearchComparisonCountStaysLogarithmic) {
   constexpr int kCount = 1000;
   // A three-way search may legitimately call the comparator up to twice per
-  // visited level, so only that much is assumed about bstSearch internals.
+  // visited level, so only that much is assumed about bst_search internals.
   constexpr int kCallsPerLevel = 2;
   std::vector<int> ascending(kCount);
   for (int i = 0; i < kCount; ++i) {
@@ -132,7 +134,7 @@ TEST_F(BSTCovTest, SearchComparisonCountStaysLogarithmic) {
                                         : "shuffled");
     for (int key : *order) {
       const Entry entry{key, key};
-      bstInsert(tree, &entry);
+      bst_insert(tree, &entry);
     }
     EXPECT_LE(
         worstSearchCost(-1, kCount, [](int k) { return k >= 0 && k < kCount; }),
@@ -140,15 +142,15 @@ TEST_F(BSTCovTest, SearchComparisonCountStaysLogarithmic) {
 
     for (int key = 0; key < kCount; key += 2) {
       const Entry entry{key, 0};
-      bstRemove(tree, &entry);
+      bst_remove(tree, &entry);
     }
     EXPECT_LE(worstSearchCost(
                   -1, kCount,
                   [](int k) { return k >= 0 && k < kCount && k % 2 == 1; }),
               kCallsPerLevel * avlHeightBound(kCount / 2));
-    bstDestroy(&tree);
+    bst_destroy(&tree);
     EXPECT_EQ(liveEntries, 0);
-    tree = bstCreate(compareEntries, copyEntry, destroyEntry);
+    tree = make_tree(compareEntries, copyEntry, destroyEntry);
     ASSERT_NE(tree, nullptr);
   }
 }
@@ -158,13 +160,13 @@ TEST_F(BSTCovTest, SearchComparisonCountStaysLogarithmic) {
  * Model: Claude (Claude Code).
  * Prompt:
  *   Insert keys 1..7, then insert keys 4 and 2 again with a different
- *   payload; bstSearch must return the new payload for them, the other keys
+ *   payload; bst_search must return the new payload for them, the other keys
  *   keep their payloads and the tree still holds exactly seven entries.
  */
 TEST_F(BSTCovTest, DuplicateInsertReplacesPayloadOfInnerNodes) {
   for (int key = 1; key <= 7; ++key) {
     const Entry entry{key, key * 10};
-    bstInsert(tree, &entry);
+    bst_insert(tree, &entry);
   }
   ASSERT_EQ(liveEntries, 7);
 
@@ -172,8 +174,8 @@ TEST_F(BSTCovTest, DuplicateInsertReplacesPayloadOfInnerNodes) {
   // root and 2 an inner node with two children.
   const Entry newRoot{4, 400};
   const Entry newInner{2, 200};
-  bstInsert(tree, &newRoot);
-  bstInsert(tree, &newInner);
+  bst_insert(tree, &newRoot);
+  bst_insert(tree, &newInner);
 
   EXPECT_EQ(liveEntries, 7);
   EXPECT_EQ(payloadOf(4), 400);
@@ -189,8 +191,8 @@ TEST_F(BSTCovTest, DuplicateInsertReplacesPayloadOfInnerNodes) {
  * AI-generated test block — duplicate insert replaces payload at any depth.
  * Model: Claude (Claude Code).
  * Prompt:
- *   A duplicate bstInsert must replace the stored value of its key wherever
- *   the node sits (inner nodes, nodes with two children); check bstSearch
+ *   A duplicate bst_insert must replace the stored value of its key wherever
+ *   the node sits (inner nodes, nodes with two children); check bst_search
  *   payloads against std::map over random inserts, duplicate updates and
  *   removes with a fixed mt19937 seed.
  */
@@ -202,17 +204,17 @@ TEST_F(BSTCovTest, PayloadFollowsKeyThroughRandomOperations) {
     const int key = static_cast<int>(rng() % kKeyRange);
     const Entry entry{key, static_cast<int>(rng() % 100000U)};
     if (rng() % 3U != 0U) {
-      bstInsert(tree, &entry);
+      bst_insert(tree, &entry);
       reference[key] = entry.payload; // duplicate key replaces the payload
     } else {
-      bstRemove(tree, &entry);
+      bst_remove(tree, &entry);
       reference.erase(key);
     }
     if (step % 50 == 0 || step == 4999) {
       for (int k = 0; k < kKeyRange; ++k) {
         const Entry probe{k, -1};
         const Entry *found =
-            static_cast<const Entry *>(bstSearch(tree, &probe));
+            static_cast<const Entry *>(find_value(tree, &probe));
         const auto it = reference.find(k);
         if (it == reference.end()) {
           EXPECT_EQ(found, nullptr) << "step " << step << ", key " << k;

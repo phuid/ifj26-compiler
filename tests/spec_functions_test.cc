@@ -16,7 +16,7 @@
 
 #include "gtest/gtest.h"
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 namespace {
 

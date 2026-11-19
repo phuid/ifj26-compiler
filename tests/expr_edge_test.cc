@@ -1,6 +1,8 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -113,9 +115,9 @@ const TokenType kEndTokens[] = {
     TOKEN_KW_DO, TOKEN_KW_ELSE};
 // Table rows (stack tops) plus the stack-only operand marker.
 const TerminalType kTableTops[] = {
-    TERMINAL_MUL, TERMINAL_DIV,    TERMINAL_PLUS,  TERMINAL_MINUS,
-    TERMINAL_CONCAT, TERMINAL_REL, TERMINAL_EQUAL, TERMINAL_AND,
-    TERMINAL_OR,  TERMINAL_TO,     TERMINAL_UNTIL, TERMINAL_BY,
+    TERMINAL_MUL,    TERMINAL_DIV,    TERMINAL_PLUS,  TERMINAL_MINUS,
+    TERMINAL_CONCAT, TERMINAL_REL,    TERMINAL_EQUAL, TERMINAL_AND,
+    TERMINAL_OR,     TERMINAL_TO,     TERMINAL_UNTIL, TERMINAL_BY,
     TERMINAL_DOLLAR, TERMINAL_OPERAND};
 
 #define EXPR_EDGE_GROUP(array) {#array, array, sizeof(array) / sizeof(array[0])}
@@ -171,8 +173,7 @@ TEST(ExprEdgeTest, OperandTokensHaveNoRelationWithAnyTop) {
 }
 
 TEST(ExprEdgeTest, MarkersOnStackTopHaveNoRelationWithAnyToken) {
-  const TokenGroup *groups[] = {&kMul, &kAdd,     &kRel,
-                                &kEq,  &kOperand, &kEnd};
+  const TokenGroup *groups[] = {&kMul, &kAdd, &kRel, &kEq, &kOperand, &kEnd};
   for (const TerminalType top :
        {TERMINAL_HANDLE, TERMINAL_INVALID, TERMINAL_OPERAND}) {
     for (const TokenGroup *group : groups) {
@@ -186,9 +187,9 @@ TEST(ExprEdgeTest, MarkersOnStackTopHaveNoRelationWithAnyToken) {
 
 TEST(ExprEdgeTest, StatementOnlyTokensHaveNoRelation) {
   const TokenType foreign[] = {
-      TOKEN_KW_VAL,    TOKEN_KW_VAR,    TOKEN_KW_WHILE,  TOKEN_KW_RETURN,
-      TOKEN_KW_INT,    TOKEN_KW_DOUBLE, TOKEN_KW_STRING, TOKEN_KW_UNIT,
-      TOKEN_KW_BOOLEAN, TOKEN_UNION,    TOKEN_FOR_GENERATOR};
+      TOKEN_KW_VAL,     TOKEN_KW_VAR,    TOKEN_KW_WHILE,     TOKEN_KW_RETURN,
+      TOKEN_KW_INT,     TOKEN_KW_DOUBLE, TOKEN_KW_STRING,    TOKEN_KW_UNIT,
+      TOKEN_KW_BOOLEAN, TOKEN_UNION,     TOKEN_FOR_GENERATOR};
   for (const TerminalType top : kTableTops) {
     for (const TokenType next : foreign) {
       EXPECT_EQ(PrecedenceOf(top, next), PREC_INVALID)
@@ -282,8 +283,7 @@ std::string ProgramSource(const std::string &functions) {
 }
 
 std::string InitializerSource(const std::string &expression) {
-  return ProgramSource(kHeader + std::string("  val r = ") + expression +
-                       "\n");
+  return ProgramSource(kHeader + std::string("  val r = ") + expression + "\n");
 }
 
 std::string ConditionSource(const std::string &expression) {
@@ -292,19 +292,13 @@ std::string ConditionSource(const std::string &expression) {
 }
 
 ParserStatus ParseInto(const std::string &source, Program *program) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
-  fputs(source.c_str(), stream);
-  rewind(stream);
+  std::vector<char> buffer(source.c_str(), source.c_str() + source.size() + 1);
   Lexer lexer;
   ParserStatus status = PARSER_INTERNAL_ERROR;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     status = p_program(&lexer, program);
     lexer_destroy(&lexer);
   }
-  fclose(stream);
   return status;
 }
 
@@ -352,17 +346,28 @@ private:
 
 const char *OperatorSpelling(ASTNodeKind kind) {
   switch (kind) {
-  case AST_ADD: return "+";
-  case AST_SUBTRACT: return "-";
-  case AST_MULTIPLY: return "*";
-  case AST_DIVIDE: return "/";
-  case AST_LESS: return "<";
-  case AST_LESS_EQUAL: return "<=";
-  case AST_GREATER: return ">";
-  case AST_GREATER_EQUAL: return ">=";
-  case AST_EQUAL: return "==";
-  case AST_NOT_EQUAL: return "!=";
-  default: return nullptr;
+  case AST_ADD:
+    return "+";
+  case AST_SUBTRACT:
+    return "-";
+  case AST_MULTIPLY:
+    return "*";
+  case AST_DIVIDE:
+    return "/";
+  case AST_LESS:
+    return "<";
+  case AST_LESS_EQUAL:
+    return "<=";
+  case AST_GREATER:
+    return ">";
+  case AST_GREATER_EQUAL:
+    return ">=";
+  case AST_EQUAL:
+    return "==";
+  case AST_NOT_EQUAL:
+    return "!=";
+  default:
+    return nullptr;
   }
 }
 
@@ -381,7 +386,8 @@ std::string CallSexpr(const ASTNode *node) {
 std::string LeafSexpr(const ASTNode *node) {
   char buffer[64];
   switch (node->kind) {
-  case AST_CONSTANT_INT: return std::to_string(node->data.int_value);
+  case AST_CONSTANT_INT:
+    return std::to_string(node->data.int_value);
   case AST_CONSTANT_REAL:
     snprintf(buffer, sizeof(buffer), "%g", node->data.real_value);
     return buffer;
@@ -390,13 +396,16 @@ std::string LeafSexpr(const ASTNode *node) {
     const std::string text = node->data.string_value;
     return !text.empty() && text[0] == '"' ? text : "\"" + text + "\"";
   }
-  case AST_CONSTANT_UNIT: return "()";
+  case AST_CONSTANT_UNIT:
+    return "()";
   case AST_VARIABLE_REF:
     return node->data.variable.symbol != nullptr
                ? node->data.variable.symbol->name
                : "<null var>";
-  case AST_FUNCTION_CALL: return CallSexpr(node);
-  default: return "<kind " + std::to_string(node->kind) + ">";
+  case AST_FUNCTION_CALL:
+    return CallSexpr(node);
+  default:
+    return "<kind " + std::to_string(node->kind) + ">";
   }
 }
 
@@ -419,8 +428,7 @@ struct ShapeCase {
   const char *shape;
 };
 
-template <size_t N>
-void ExpectInitializerShapes(const ShapeCase (&cases)[N]) {
+template <size_t N> void ExpectInitializerShapes(const ShapeCase (&cases)[N]) {
   for (const ShapeCase &c : cases) {
     SCOPED_TRACE(c.expression);
     ParsedProgram p(InitializerSource(c.expression));
@@ -464,9 +472,9 @@ TEST(ExprEdgeKnownGapTest, DISABLED_MultiplicativeBindsTighterThanAdditive) {
 
 TEST(ExprEdgeKnownGapTest, DISABLED_SameLevelOperatorsAssociateLeft) {
   const ShapeCase cases[] = {
-      {"a - b - c", "((a - b) - c)"},     {"a - b + c", "((a - b) + c)"},
-      {"a + b - c", "((a + b) - c)"},     {"a / b * c", "((a / b) * c)"},
-      {"a * b / c", "((a * b) / c)"},     {"a / b / c", "((a / b) / c)"},
+      {"a - b - c", "((a - b) - c)"},           {"a - b + c", "((a - b) + c)"},
+      {"a + b - c", "((a + b) - c)"},           {"a / b * c", "((a / b) * c)"},
+      {"a * b / c", "((a * b) / c)"},           {"a / b / c", "((a / b) / c)"},
       {"a - b - c - d", "(((a - b) - c) - d)"},
   };
   ExpectInitializerShapes(cases);
@@ -525,9 +533,12 @@ TEST(ExprEdgeKnownGapTest, DISABLED_OperatorNodeCarriesOperatorPosition) {
  */
 TEST(ExprEdgeKnownGapTest, DISABLED_RelationalOperatorsBindLoosest) {
   const ShapeCase cases[] = {
-      {"a < b", "(a < b)"},     {"a <= b", "(a <= b)"},
-      {"a > b", "(a > b)"},     {"a >= b", "(a >= b)"},
-      {"a == b", "(a == b)"},   {"a != b", "(a != b)"},
+      {"a < b", "(a < b)"},
+      {"a <= b", "(a <= b)"},
+      {"a > b", "(a > b)"},
+      {"a >= b", "(a >= b)"},
+      {"a == b", "(a == b)"},
+      {"a != b", "(a != b)"},
       {"a + b < c * d", "((a + b) < (c * d))"},
       {"a - 1 == b / 2", "((a - 1) == (b / 2))"},
       {"(a + b) != c", "((a + b) != c)"},
@@ -545,8 +556,8 @@ TEST(ExprEdgeKnownGapTest, DISABLED_RelationalOperatorsBindLoosest) {
 // Passes vacuously today (no `if` condition is parsed at all); it becomes
 // meaningful together with DISABLED_RelationalOperatorsBindLoosest.
 TEST(ExprEdgeKnownGapTest, DISABLED_SameLevelRelationalChainIsSyntaxError) {
-  const char *const chains[] = {"a < b < c",   "a <= b >= c", "a > b > c",
-                                "a == b == c", "a != b == c", "a == b != c",
+  const char *const chains[] = {"a < b < c",    "a <= b >= c", "a > b > c",
+                                "a == b == c",  "a != b == c", "a == b != c",
                                 "a < b < c < d"};
   ExpectStatus(chains, ConditionSource, PARSER_SYNTAX_ERROR);
 }
@@ -578,10 +589,9 @@ TEST(ExprEdgeKnownGapTest, DISABLED_MixedLevelRelationalChainIsRejected) {
  *   of the root operator, whatever node represents `-operand`.
  */
 TEST(ExprEdgeKnownGapTest, DISABLED_UnaryMinusIsAcceptedEverywhere) {
-  const char *const expressions[] = {"-a",     "- - a",     "-(-a)",
-                                     "-x",     "-(a + b)",  "a - -b",
-                                     "a * -b", "-a * -b",   "(-a)",
-                                     "-1"};
+  const char *const expressions[] = {"-a",       "- - a",  "-(-a)",  "-x",
+                                     "-(a + b)", "a - -b", "a * -b", "-a * -b",
+                                     "(-a)",     "-1"};
   ExpectStatus(expressions, InitializerSource, PARSER_OK);
 }
 
@@ -626,10 +636,9 @@ TEST(ExprEdgeKnownGapTest, DISABLED_UnaryMinusBindsTighterThanBinary) {
  *   errors (code 2); `()` alone is the Unit literal (spec 1.1, 2.1).
  */
 TEST(ExprEdgeKnownGapTest, DISABLED_UnbalancedParenthesesAreSyntaxError) {
-  const char *const expressions[] = {"(a + b", "a + b)",   "((a)",
-                                     "(a))",   ")a(",      "(",
-                                     ")",      "a * (b + c", "(a +) b",
-                                     "(()"};
+  const char *const expressions[] = {"(a + b",  "a + b)", "((a)", "(a))",
+                                     ")a(",     "(",      ")",    "a * (b + c",
+                                     "(a +) b", "(()"};
   ExpectStatus(expressions, InitializerSource, PARSER_SYNTAX_ERROR);
 }
 
@@ -671,16 +680,15 @@ TEST(ExprEdgeKnownGapTest, DISABLED_EmptyParenthesesAreTheUnitLiteral) {
 // `(a) (b)` is left out: LISTS (spec 5.8) indexes with call syntax, so it is
 // the indexing of `(a)` by `b`, a syntactically valid expression.
 TEST(ExprEdgeKnownGapTest, DISABLED_AdjacentOperandsAreSyntaxError) {
-  const char *const expressions[] = {"a b",    "1 2",   "a 1",
-                                     "\"t\" s", "1.5 x", "(a) b",
-                                     "a + b c", "a b + c"};
+  const char *const expressions[] = {"a b",   "1 2",   "a 1",     "\"t\" s",
+                                     "1.5 x", "(a) b", "a + b c", "a b + c"};
   ExpectStatus(expressions, InitializerSource, PARSER_SYNTAX_ERROR);
 }
 
 TEST(ExprEdgeKnownGapTest, DISABLED_MisplacedBinaryOperatorIsSyntaxError) {
   const char *const expressions[] = {
-      "* a",    "/ a",    "== a",   "< a",     "++ a",   "a *",
-      "a +",    "a -",    "a <",    "a ++",    "a + * b", "a * / b",
+      "* a",      "/ a",   "== a",  "< a",      "++ a",    "a *",
+      "a +",      "a -",   "a <",   "a ++",     "a + * b", "a * / b",
       "a < == b", "(* a)", "(a *)", "a + (/ b)"};
   ExpectStatus(expressions, InitializerSource, PARSER_SYNTAX_ERROR);
 }
@@ -839,8 +847,8 @@ TEST(ExprEdgeKnownGapTest, DISABLED_DeepNestingBuildsRightDeepTree) {
  *   (p_statement default branch); unary `-`, `!` and `+` are left out.
  */
 TEST(ExprEdgeTest, BinaryOperatorCannotStartStatement) {
-  const char *const lines[] = {"* a", "/ a", "== a", "!= a", "< a", "<= a",
-                               "> a", ">= a", "++ a", ") a"};
+  const char *const lines[] = {"* a",  "/ a", "== a", "!= a", "< a",
+                               "<= a", "> a", ">= a", "++ a", ") a"};
   for (const char *line : lines) {
     SCOPED_TRACE(line);
     const std::string source =

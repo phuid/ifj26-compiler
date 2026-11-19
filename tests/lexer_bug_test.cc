@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -20,35 +22,23 @@ extern "C" {
  */
 namespace {
 
-/** Returns a temporary stream that reads @p text from its beginning. */
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return nullptr;
-  }
-  fputs(text, stream);
-  rewind(stream);
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 /** Owns a lexer over an in-memory source for one test. */
 class LexerBugTest : public ::testing::Test {
 protected:
-  FILE *stream = nullptr;
+  std::vector<char> buffer;
   Lexer lexer{};
 
   void open(const char *text) {
-    stream = stream_from(text);
-    ASSERT_NE(stream, nullptr);
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    buffer = buffer_from(text);
+    ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   }
 
-  void TearDown() override {
-    lexer_destroy(&lexer);
-    if (stream != nullptr) {
-      fclose(stream);
-    }
-  }
+  void TearDown() override { lexer_destroy(&lexer); }
 
   /// Reads the next token and checks it is an identifier spelled @p name.
   void expect_identifier(const char *name) {

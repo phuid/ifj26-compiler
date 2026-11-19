@@ -9,6 +9,7 @@
  *   a stub; whole-program cases wait as DISABLED known-gap tests.
  */
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -243,9 +244,10 @@ const OpRow kCoveredOps[] = {
 };
 
 std::vector<OpRow> uncovered_op_rows() {
-  const ASTNodeKind ops[] = {
-      AST_ADD,  AST_SUBTRACT,   AST_MULTIPLY, AST_DIVIDE,        AST_LESS,
-      AST_LESS_EQUAL, AST_GREATER, AST_GREATER_EQUAL, AST_EQUAL, AST_NOT_EQUAL};
+  const ASTNodeKind ops[] = {AST_ADD,      AST_SUBTRACT,      AST_MULTIPLY,
+                             AST_DIVIDE,   AST_LESS,          AST_LESS_EQUAL,
+                             AST_GREATER,  AST_GREATER_EQUAL, AST_EQUAL,
+                             AST_NOT_EQUAL};
   const BaseType types[] = {I, R, S, U, B};
   std::vector<OpRow> rows;
   for (ASTNodeKind op : ops) {
@@ -319,8 +321,7 @@ TEST_P(SemanticEdgeOperatorTest, FollowsSpecOperatorTable) {
   EXPECT_EQ(widened(n->data.binary_op.right), r.right == I && r.left == R);
 }
 INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeOperatorTest,
-                         ::testing::ValuesIn(uncovered_op_rows()),
-                         op_row_name);
+                         ::testing::ValuesIn(uncovered_op_rows()), op_row_name);
 
 /*
  * AI-generated test block — nested expressions and operand errors.
@@ -382,11 +383,11 @@ TEST_P(SemanticEdgeConditionTest, NonBooleanConditionIsError6) {
   add(m, if_(value(GetParam()), block({unit()}), block({unit()})));
   EXPECT_EQ(check(), E6);
 }
-INSTANTIATE_TEST_SUITE_P(
-    SemanticEdge, SemanticEdgeConditionTest, ::testing::Values(R, S, U),
-    [](const ::testing::TestParamInfo<BaseType> &info) {
-      return std::string(type_name(info.param));
-    });
+INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeConditionTest,
+                         ::testing::Values(R, S, U),
+                         [](const ::testing::TestParamInfo<BaseType> &info) {
+                           return std::string(type_name(info.param));
+                         });
 
 TEST_F(SemanticEdgeTest, ErrorInElseBranchIsReported) {
   // val k = 1; if 1 < 2 then () else k = 2      -> 7
@@ -590,9 +591,9 @@ const BodyRow kBodies[] = {
      OK, U},
     {"NestedIfWithIntBranchCannotInfer", N,
      [](Program *, FunctionSymbol *f) {
-       add(f, if_(truthy(), block({unit()}),
-                  block({if_(truthy(), block({unit()}),
-                             block({integer(1)}))})));
+       add(f,
+           if_(truthy(), block({unit()}),
+               block({if_(truthy(), block({unit()}), block({integer(1)}))})));
      },
      E6, N},
     {"EmptyBranchCountsAsUnit", N,
@@ -615,8 +616,8 @@ const BodyRow kBodies[] = {
     // `return` anywhere requires an explicit return type.
     {"NestedReturnWithoutAnnotation", N,
      [](Program *, FunctionSymbol *f) {
-       add(f, if_(truthy(), block({unit()}),
-                  block({block({ret(integer(1))})})));
+       add(f,
+           if_(truthy(), block({unit()}), block({block({ret(integer(1))})})));
      },
      E6, N},
     {"NestedBareReturnWithoutAnnotation", N,
@@ -788,8 +789,8 @@ std::vector<ArgRow> uncovered_arg_rows() {
   std::vector<ArgRow> rows;
   for (BaseType p : {I, R, S, U}) {
     for (BaseType a : {I, R, S, U, B}) {
-      bool covered = (p == R && a == I) || (p == I && a == B) ||
-                     (p == I && a == R);
+      bool covered =
+          (p == R && a == I) || (p == I && a == B) || (p == I && a == R);
       if (!covered) {
         rows.push_back({p, a});
       }
@@ -810,13 +811,12 @@ TEST_P(SemanticEdgeArgumentTest, AcceptsOnlyCompatibleArgument) {
   add(m, call(g, {value(row.argument)}));
   EXPECT_EQ(check(), row.parameter == row.argument ? OK : E5);
 }
-INSTANTIATE_TEST_SUITE_P(
-    SemanticEdge, SemanticEdgeArgumentTest,
-    ::testing::ValuesIn(uncovered_arg_rows()),
-    [](const ::testing::TestParamInfo<ArgRow> &info) {
-      return std::string(type_name(info.param.parameter)) + "_" +
-             type_name(info.param.argument);
-    });
+INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeArgumentTest,
+                         ::testing::ValuesIn(uncovered_arg_rows()),
+                         [](const ::testing::TestParamInfo<ArgRow> &info) {
+                           return std::string(type_name(info.param.parameter)) +
+                                  "_" + type_name(info.param.argument);
+                         });
 
 TEST_F(SemanticEdgeTest, TooManyArgumentsToParameterlessFunctionIsError5) {
   FunctionSymbol *m = def_main();
@@ -844,24 +844,24 @@ struct BuiltinRow {
 };
 
 const BuiltinRow kBuiltins[] = {
-    {"readLine", {I}, N, E5},       {"readDouble", {S}, N, E5},
-    {"readInt", {}, R, OK},         {"readDouble", {}, I, E6},
-    {"readLine", {}, I, E6},        {"toStr", {}, N, E5},
-    {"toStr", {S, S}, N, E5},       {"toStr", {R}, S, OK},
-    {"toStr", {S}, S, OK},          {"print", {S}, U, OK},
-    {"print", {I}, N, OK},          {"toInt", {S}, N, E5},
-    {"toInt", {U}, N, E5},          {"toInt", {}, N, E5},
-    {"toInt", {R, R}, N, E5},       {"toInt", {R}, R, OK},
-    {"strLength", {}, N, E5},       {"strLength", {R}, N, E5},
-    {"strLength", {U}, N, E5},      {"strLength", {S, S}, N, E5},
-    {"strLength", {S}, S, E6},      {"subStr", {I, I, I}, N, E5},
-    {"subStr", {S, R, I}, N, E5},   {"subStr", {S, I, R}, N, E5},
-    {"subStr", {S, I, S}, N, E5},   {"subStr", {S, I, I, I}, N, E5},
-    {"subStr", {}, N, E5},          {"ord", {I, I}, N, E5},
-    {"ord", {S}, N, E5},            {"ord", {S, I, I}, N, E5},
-    {"ord", {S, S}, N, E5},         {"ord", {S, I}, R, OK},
-    {"chr", {R}, N, E5},            {"chr", {}, N, E5},
-    {"chr", {I, I}, N, E5},         {"chr", {U}, N, E5},
+    {"readLine", {I}, N, E5},     {"readDouble", {S}, N, E5},
+    {"readInt", {}, R, OK},       {"readDouble", {}, I, E6},
+    {"readLine", {}, I, E6},      {"toStr", {}, N, E5},
+    {"toStr", {S, S}, N, E5},     {"toStr", {R}, S, OK},
+    {"toStr", {S}, S, OK},        {"print", {S}, U, OK},
+    {"print", {I}, N, OK},        {"toInt", {S}, N, E5},
+    {"toInt", {U}, N, E5},        {"toInt", {}, N, E5},
+    {"toInt", {R, R}, N, E5},     {"toInt", {R}, R, OK},
+    {"strLength", {}, N, E5},     {"strLength", {R}, N, E5},
+    {"strLength", {U}, N, E5},    {"strLength", {S, S}, N, E5},
+    {"strLength", {S}, S, E6},    {"subStr", {I, I, I}, N, E5},
+    {"subStr", {S, R, I}, N, E5}, {"subStr", {S, I, R}, N, E5},
+    {"subStr", {S, I, S}, N, E5}, {"subStr", {S, I, I, I}, N, E5},
+    {"subStr", {}, N, E5},        {"ord", {I, I}, N, E5},
+    {"ord", {S}, N, E5},          {"ord", {S, I, I}, N, E5},
+    {"ord", {S, S}, N, E5},       {"ord", {S, I}, R, OK},
+    {"chr", {R}, N, E5},          {"chr", {}, N, E5},
+    {"chr", {I, I}, N, E5},       {"chr", {U}, N, E5},
     {"chr", {I}, I, E6},
 };
 
@@ -921,7 +921,7 @@ INSTANTIATE_TEST_SUITE_P(
  */
 namespace {
 
-/** Parses @p source into its own Program and releases the stream. */
+/** Parses @p source into its own Program and releases the buffer. */
 struct ParsedProgram {
   Program program{};
   ParserStatus status = PARSER_INTERNAL_ERROR;
@@ -930,18 +930,12 @@ struct ParsedProgram {
     if (program_init(&program) != PARSER_OK) {
       return;
     }
-    FILE *stream = tmpfile();
-    if (stream == nullptr) {
-      return;
-    }
-    fputs(source, stream);
-    rewind(stream);
+    std::vector<char> buffer(source, source + strlen(source) + 1);
     Lexer lexer;
-    if (lexer_init(&lexer, stream) == LEXER_OK) {
+    if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
       status = p_program(&lexer, &program);
       lexer_destroy(&lexer);
     }
-    fclose(stream);
   }
   ~ParsedProgram() { program_destroy(&program); }
 };

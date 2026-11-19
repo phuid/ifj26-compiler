@@ -4,7 +4,7 @@
  * Prompt:
  *   Cover the remaining data structure edge cases of bst.c, symtable.c and
  *   dynamic_array.c that the existing suites miss. Provide a direction-
- *   agnostic AVL auditor (stored height and balance, |balance| <= 1, strictly
+ *   agnostic AVL auditor (stored height, |balance| <= 1, strictly
  *   monotonic in-order traversal equal to the model key set, owned value
  *   count) and tracking copy/destroy callbacks that can detect reads of a
  *   destroyed value without dereferencing it.
@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+
+#include "bst_test_util.h"
 
 extern "C" {
 #include "../src/bst.h"
@@ -104,11 +106,10 @@ int auditNode(const BST_Node *node, std::vector<int> *inorder,
     return -1;
   }
   const int height = 1 + std::max(left, right);
-  if (node->height != height || node->balance != right - left ||
-      std::abs(right - left) > 1) {
+  // The balance factor is no longer stored; it is derived from the heights.
+  if (node->height != height || std::abs(right - left) > 1) {
     *error = "node " + std::to_string(valueOf(node)) + ": stored height " +
-             std::to_string(node->height) + " balance " +
-             std::to_string(node->balance) + ", actual heights L" +
+             std::to_string(node->height) + ", actual heights L" +
              std::to_string(left) + " R" + std::to_string(right);
     return -1;
   }
@@ -127,8 +128,8 @@ int auditNode(const BST_Node *node, std::vector<int> *inorder,
   const std::vector<int> descending(model.rbegin(), model.rend());
   if (inorder != ascending && inorder != descending) {
     return ::testing::AssertionFailure()
-           << "in-order traversal is not the sorted key set ("
-           << inorder.size() << " nodes, " << model.size() << " keys)";
+           << "in-order traversal is not the sorted key set (" << inorder.size()
+           << " nodes, " << model.size() << " keys)";
   }
   if (liveValues.size() != model.size()) {
     return ::testing::AssertionFailure()
@@ -140,14 +141,14 @@ int auditNode(const BST_Node *node, std::vector<int> *inorder,
 
 ::testing::AssertionResult insertAndAudit(BST *tree, int key,
                                           std::set<int> *model) {
-  bstInsert(tree, &key);
+  bst_insert(tree, &key);
   model->insert(key);
   return holdsExactly(tree, *model) << " after inserting " << key;
 }
 
 ::testing::AssertionResult removeAndAudit(BST *tree, int key,
                                           std::set<int> *model) {
-  bstRemove(tree, &key);
+  bst_remove(tree, &key);
   model->erase(key);
   return holdsExactly(tree, *model) << " after removing " << key;
 }
@@ -254,11 +255,11 @@ class BstEdgeTest : public ::testing::Test {
 protected:
   void SetUp() override {
     resetTracking();
-    tree = bstCreate(compareInt, copyInt, destroyInt);
+    tree = make_tree(compareInt, copyInt, destroyInt);
     ASSERT_NE(tree, nullptr);
   }
   void TearDown() override {
-    bstDestroy(&tree);
+    bst_destroy(&tree);
     EXPECT_TRUE(liveValues.empty()) << "tree leaked owned values";
   }
   BST *tree = nullptr;
@@ -291,8 +292,7 @@ TEST_P(BstEdgeOrderTest, InvariantsHoldAfterEveryInsertAndRemove) {
     ASSERT_TRUE(insertAndAudit(tree, key, &model));
   }
   if (removePattern == Pattern::kRootFirst) {
-    for (int step = 0; tree->root != nullptr && step < kOrderKeyCount;
-         ++step) {
+    for (int step = 0; tree->root != nullptr && step < kOrderKeyCount; ++step) {
       ASSERT_TRUE(removeAndAudit(tree, valueOf(tree->root), &model));
     }
   } else {
@@ -330,7 +330,7 @@ INSTANTIATE_TEST_SUITE_P(
  *   Missing keys (gaps, out of range, INT_MIN/INT_MAX) and duplicate inserts
  *   must not change the tree shape; removal from an empty tree and destroying
  *   an empty tree are no-ops; removing or re-inserting through the pointer
- *   returned by bstSearch must never read the destroyed value; a 100 000-key
+ *   returned by bst_search must never read the destroyed value; a 100 000-key
  *   ascending tree stays within the AVL height bound.
  */
 TEST_F(BstEdgeTest, MissingKeysAndDuplicatesLeaveShapeUntouched) {
@@ -342,13 +342,13 @@ TEST_F(BstEdgeTest, MissingKeysAndDuplicatesLeaveShapeUntouched) {
   const long destroysBefore = destroyCalls;
 
   for (int key : {INT_MIN, -1, 1, 199, 399, 400, INT_MAX}) {
-    bstRemove(tree, &key);
+    bst_remove(tree, &key);
   }
   EXPECT_EQ(shapeOf(tree), before) << "removing missing keys reshaped tree";
   EXPECT_EQ(destroyCalls, destroysBefore);
 
   for (int key = 0; key < 400; key += 2) {
-    bstInsert(tree, &key);
+    bst_insert(tree, &key);
   }
   EXPECT_EQ(shapeOf(tree), before) << "duplicate inserts reshaped tree";
   EXPECT_EQ(destroyCalls - destroysBefore, 200);
@@ -357,13 +357,13 @@ TEST_F(BstEdgeTest, MissingKeysAndDuplicatesLeaveShapeUntouched) {
 
 TEST_F(BstEdgeTest, EmptyTreeRemoveAndDestroyAreNoOps) {
   const int key = 7;
-  bstRemove(tree, &key);
+  bst_remove(tree, &key);
   EXPECT_EQ(tree->root, nullptr);
-  EXPECT_EQ(bstSearch(tree, &key), nullptr);
+  EXPECT_EQ(find_value(tree, &key), nullptr);
 
-  bstDestroy(&tree);
+  bst_destroy(&tree);
   EXPECT_EQ(tree, nullptr);
-  bstDestroy(&tree); // a cleared handle stays safe to destroy again
+  bst_destroy(&tree); // a cleared handle stays safe to destroy again
   EXPECT_EQ(copyCalls + destroyCalls, 0);
 }
 
@@ -378,18 +378,18 @@ TEST_F(BstEdgeTest, RemovingThroughStoredPointerNeverReadsDestroyedValue) {
     const BST_Node *node = findNode(tree->root, target);
     ASSERT_NE(node, nullptr);
     removedKind[childCount(node)] = true;
-    watchedValue = bstSearch(tree, &target);
+    watchedValue = find_value(tree, &target);
     ASSERT_EQ(watchedValue, node->value);
 
-    bstRemove(tree, watchedValue); // probe aliases the stored value
+    bst_remove(tree, watchedValue); // probe aliases the stored value
     model.erase(target);
 
     EXPECT_FALSE(destroyedValueTouched) << "removing " << target;
     EXPECT_TRUE(watchedDestroyed) << "removing " << target;
     EXPECT_TRUE(holdsExactly(tree, model)) << "removing " << target;
-    bstDestroy(&tree);
+    bst_destroy(&tree);
     resetTracking();
-    tree = bstCreate(compareInt, copyInt, destroyInt);
+    tree = make_tree(compareInt, copyInt, destroyInt);
     ASSERT_NE(tree, nullptr);
   }
   EXPECT_TRUE(removedKind[0] && removedKind[1] && removedKind[2])
@@ -402,15 +402,15 @@ TEST_F(BstEdgeTest, DuplicateInsertFromStoredPointerCopiesBeforeDestroying) {
     ASSERT_TRUE(insertAndAudit(tree, key, &model));
   }
   for (int key = 1; key <= 7; ++key) {
-    watchedValue = bstSearch(tree, &key);
+    watchedValue = find_value(tree, &key);
     watchedDestroyed = false;
     ASSERT_NE(watchedValue, nullptr);
 
-    bstInsert(tree, watchedValue); // copy source is the replaced value
+    bst_insert(tree, watchedValue); // copy source is the replaced value
 
     EXPECT_FALSE(destroyedValueTouched) << "key " << key;
     EXPECT_TRUE(watchedDestroyed) << "old value must be replaced, key " << key;
-    const int *stored = static_cast<const int *>(bstSearch(tree, &key));
+    const int *stored = static_cast<const int *>(find_value(tree, &key));
     ASSERT_NE(stored, nullptr);
     EXPECT_EQ(*stored, key);
   }
@@ -421,7 +421,7 @@ TEST_F(BstEdgeTest, HundredThousandAscendingKeysStayWithinAvlBound) {
   constexpr int kLarge = 100000;
   std::set<int> model;
   for (int key = 0; key < kLarge; ++key) {
-    bstInsert(tree, &key);
+    bst_insert(tree, &key);
     model.insert(model.end(), key);
   }
   ASSERT_TRUE(holdsExactly(tree, model));
@@ -431,7 +431,7 @@ TEST_F(BstEdgeTest, HundredThousandAscendingKeysStayWithinAvlBound) {
 
   const std::vector<int> order = zigzagOutsideIn(kLarge);
   for (size_t i = 0; i < order.size(); ++i) {
-    bstRemove(tree, &order[i]);
+    bst_remove(tree, &order[i]);
     model.erase(order[i]);
     if (i + 1 == order.size() / 2) {
       ASSERT_TRUE(holdsExactly(tree, model)) << "halfway";
@@ -461,9 +461,8 @@ protected:
 
   ::testing::AssertionResult define(SymbolTable *scope, const char *name,
                                     Symbol **out = nullptr) {
-    const SymbolTableStatus status =
-        symbol_table_define(scope, name, type_scalar(TYPE_INT), true, false,
-                            out);
+    const SymbolTableStatus status = symbol_table_define(
+        scope, name, type_scalar(TYPE_INT), true, false, out);
     if (status != SYMTABLE_OK) {
       return ::testing::AssertionFailure()
              << "define " << name << " returned " << status;
@@ -489,18 +488,16 @@ TEST_F(SymbolTableEdgeTest, ResolveSeesOnlyOwnScopeAndAncestors) {
   SymbolTable *const scopes[] = {root, a, a1, a2, b, b1};
   const char *const names[] = {"r", "a", "shared", "a1", "a2", "b", "b1"};
   const std::pair<int, const char *> defs[] = {
-      {0, "r"},  {1, "a"},      {1, "shared"}, {2, "a1"}, {3, "a2"},
+      {0, "r"},      {1, "a"}, {1, "shared"}, {2, "a1"}, {3, "a2"},
       {3, "shared"}, {4, "b"}, {5, "b1"},     {5, "r"}};
   for (const auto &def : defs) {
     ASSERT_TRUE(define(scopes[def.first], def.second));
   }
   // owner index of the binding each scope resolves per name, -1 = unknown
-  const int expected[6][7] = {{0, -1, -1, -1, -1, -1, -1},
-                              {0, 1, 1, -1, -1, -1, -1},
-                              {0, 1, 1, 2, -1, -1, -1},
-                              {0, 1, 3, -1, 3, -1, -1},
-                              {0, -1, -1, -1, -1, 4, -1},
-                              {5, -1, -1, -1, -1, 4, 5}};
+  const int expected[6][7] = {
+      {0, -1, -1, -1, -1, -1, -1}, {0, 1, 1, -1, -1, -1, -1},
+      {0, 1, 1, 2, -1, -1, -1},    {0, 1, 3, -1, 3, -1, -1},
+      {0, -1, -1, -1, -1, 4, -1},  {5, -1, -1, -1, -1, 4, 5}};
   for (int s = 0; s < 6; ++s) {
     for (int n = 0; n < 7; ++n) {
       SCOPED_TRACE(std::string("scope ") + std::to_string(s) + ", " + names[n]);
@@ -511,8 +508,8 @@ TEST_F(SymbolTableEdgeTest, ResolveSeesOnlyOwnScopeAndAncestors) {
       }
       ASSERT_NE(found, nullptr);
       EXPECT_EQ(found->owner, scopes[expected[s][n]]);
-      EXPECT_EQ(found, symbol_table_lookup_local(scopes[expected[s][n]],
-                                                 names[n]));
+      EXPECT_EQ(found,
+                symbol_table_lookup_local(scopes[expected[s][n]], names[n]));
       EXPECT_STREQ(found->name, names[n]);
     }
   }
@@ -520,7 +517,7 @@ TEST_F(SymbolTableEdgeTest, ResolveSeesOnlyOwnScopeAndAncestors) {
 
 TEST_F(SymbolTableEdgeTest, RepeatedShadowingResolvesNearestDefinition) {
   constexpr int kDepth = 48;
-  std::vector<SymbolTable *> scopes{root};
+  std::vector<SymbolTable *> scopes(1U, root);
   std::vector<Symbol *> definedAt(kDepth, nullptr);
   for (int level = 0; level < kDepth; ++level) {
     if (level > 0) {

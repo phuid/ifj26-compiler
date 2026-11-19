@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -18,15 +20,9 @@ extern "C" {
  */
 namespace {
 
-/** Returns a temporary stream that reads @p text from its beginning. */
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return nullptr;
-  }
-  fputs(text, stream);
-  rewind(stream);
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 /**
@@ -34,18 +30,13 @@ FILE *stream_from(const char *text) {
  * Returns PARSER_INTERNAL_ERROR when the stream or lexer cannot be set up.
  */
 ParserStatus parse_text(const char *source, Program *program) {
-  FILE *stream = stream_from(source);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> buffer = buffer_from(source);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, buffer.data()) != LEXER_OK) {
     return PARSER_INTERNAL_ERROR;
   }
   ParserStatus status = p_program(&lexer, program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return status;
 }
 

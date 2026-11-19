@@ -9,14 +9,15 @@
  *   Run each program in a forked child with a time limit so that a crash or
  *   a hang in the compiler fails one test instead of the whole binary.
  */
-#ifndef TESTS_SPEC_HARNESS_H_
-#define TESTS_SPEC_HARNESS_H_
+#ifndef TESTS_SPEC_HARNESS_HPP_
+#define TESTS_SPEC_HARNESS_HPP_
 
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -26,6 +27,7 @@ extern "C" {
 #include "../src/lexer.h"
 #include "../src/parser.h"
 #include "../src/semantic.h"
+#include "../src/source_preprocess.h"
 }
 
 /*
@@ -155,19 +157,25 @@ inline int ifj26_code_from_semantic(SemanticStatus status) {
   return static_cast<int>(status);
 }
 
-/** Compiles @p source in this process and returns its exit code. */
+/**
+ * Compiles @p source in this process and returns its exit code. Mirrors
+ * main.c: the source is copied into a writable buffer, preprocessed (comments
+ * and the prolog are removed) and only then handed to the lexer.
+ */
 inline int ifj26_exit_code_in_process(const char *source) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return 99;
+  std::vector<char> buffer(source, source + strlen(source) + 1);
+  PreprocessStatus preprocessed = source_preprocess(buffer.data());
+  if (preprocessed != PREPROCESS_OK) {
+    // PreprocessStatus values already equal the chapter 6 exit codes.
+    return static_cast<int>(preprocessed);
   }
-  fputs(source, stream);
-  rewind(stream);
   Lexer lexer;
   Program program;
-  if (lexer_init(&lexer, stream) != LEXER_OK ||
-      program_init(&program) != PARSER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, buffer.data()) != LEXER_OK) {
+    return 99;
+  }
+  if (program_init(&program) != PARSER_OK) {
+    lexer_destroy(&lexer);
     return 99;
   }
   ParserStatus parsed = p_program(&lexer, &program);
@@ -177,7 +185,6 @@ inline int ifj26_exit_code_in_process(const char *source) {
   }
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return code;
 }
 
@@ -250,4 +257,4 @@ inline int ifj26_exit_code(const char *source) {
   return ifj26_exit_code_raw(full.c_str());
 }
 
-#endif // TESTS_SPEC_HARNESS_H_
+#endif // TESTS_SPEC_HARNESS_HPP_

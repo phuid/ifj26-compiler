@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -22,27 +23,19 @@ extern "C" {
  */
 namespace {
 
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 ParserStatus parse_into(const char *source, Program *program) {
-  FILE *stream = stream_from(source);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> buffer = buffer_from(source);
   Lexer lexer;
   ParserStatus status = PARSER_INTERNAL_ERROR;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     status = p_program(&lexer, program);
     lexer_destroy(&lexer);
   }
-  fclose(stream);
   return status;
 }
 
@@ -105,13 +98,11 @@ TEST(ParserGapApiTest, NullArgumentsAndDoubleDestroy) {
   program_destroy(&program);
   EXPECT_FALSE(program.initialized);
   program_destroy(&program);
-  FILE *stream = stream_from("def f() =\n  return\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> buffer = buffer_from("def f() =\n  return\n");
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   EXPECT_EQ(p_program(&lexer, nullptr), PARSER_INVALID_ARGUMENT);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 /*

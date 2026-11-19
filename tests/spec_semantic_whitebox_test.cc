@@ -11,7 +11,7 @@
  *   skip every case an existing tests/semantic_* test already covers.
  */
 // The RC-* root-cause IDs of the "Fails today:" comments are listed in
-// tests/spec_harness.h.
+// tests/spec_harness.hpp.
 #include <cstddef>
 #include <ostream>
 #include <string>
@@ -980,7 +980,8 @@ TEST_F(SpecSemanticWhiteboxTest, ReturnOfForwardCallInfersCallee) {
   // Assert
   ASSERT_EQ(status, OK);
   EXPECT_TRUE(has_type(g->return_type.type, I));
-  EXPECT_TRUE(has_type(stmt(f, 0)->data.return_statement.value->inferred_type.type, I));
+  EXPECT_TRUE(
+      has_type(stmt(f, 0)->data.return_statement.value->inferred_type.type, I));
 }
 
 // §1.3, §2.3: an inferred Int result passed to a Double parameter is widened
@@ -1043,8 +1044,10 @@ TEST_F(SpecSemanticWhiteboxTest, IfIsUnitAndConditionIsBoolean) {
   ASSERT_EQ(status, OK);
   ASTNode *node = stmt(m, 0);
   EXPECT_TRUE(has_type(node->inferred_type.type, U));
-  EXPECT_TRUE(has_type(node->data.if_statement.condition->inferred_type.type, B));
-  EXPECT_TRUE(has_type(node->data.if_statement.then_branch->inferred_type.type, U));
+  EXPECT_TRUE(
+      has_type(node->data.if_statement.condition->inferred_type.type, B));
+  EXPECT_TRUE(
+      has_type(node->data.if_statement.then_branch->inferred_type.type, U));
 }
 
 // §1.3, §2.3 rules 3-4: every Int return of a nested final if in a Double

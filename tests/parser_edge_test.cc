@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -24,14 +25,9 @@ extern "C" {
  */
 namespace {
 
-/** Returns a temporary stream that reads @p text from its beginning. */
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 /** Owns the Program produced by parsing one source. */
@@ -43,16 +39,12 @@ struct Parsed {
     if (program_init(&program) != PARSER_OK) {
       return;
     }
-    FILE *stream = stream_from(source.c_str());
-    if (stream == nullptr) {
-      return;
-    }
+    std::vector<char> buffer = buffer_from(source.c_str());
     Lexer lexer;
-    if (lexer_init(&lexer, stream) == LEXER_OK) {
+    if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
       status = p_program(&lexer, &program);
       lexer_destroy(&lexer);
     }
-    fclose(stream);
   }
   ~Parsed() { program_destroy(&program); }
   Parsed(const Parsed &) = delete;
@@ -65,9 +57,7 @@ struct Parsed {
   }
 };
 
-ParserStatus parse(const std::string &source) {
-  return Parsed(source).status;
-}
+ParserStatus parse(const std::string &source) { return Parsed(source).status; }
 
 /** Returns the body block of function `f`, or null. */
 const ASTNode *f_body(const Parsed &p) {
@@ -123,13 +113,11 @@ INSTANTIATE_TEST_SUITE_P(
                       "@main def m():", "@main def m(): Unit",
                       "def f(\n  a: Int,\n", "def f(\n  a: Int,\n  b"));
 
-INSTANTIATE_TEST_SUITE_P(Statements, ParserEdgeEofTest,
-                         ::testing::Values("def f() =\n  val",
-                                           "def f() =\n  var x",
-                                           "def f() =\n  val x:",
-                                           "def f() =\n  var x: Int",
-                                           "def f() =\n  if",
-                                           "def f() =\n  return\n  val"));
+INSTANTIATE_TEST_SUITE_P(
+    Statements, ParserEdgeEofTest,
+    ::testing::Values("def f() =\n  val", "def f() =\n  var x",
+                      "def f() =\n  val x:", "def f() =\n  var x: Int",
+                      "def f() =\n  if", "def f() =\n  return\n  val"));
 
 /*
  * AI-generated test block — one missing or doubled token of a header.
@@ -149,20 +137,15 @@ TEST_P(ParserEdgeTokenTest, MalformedHeaderIsSyntaxError) {
 
 INSTANTIATE_TEST_SUITE_P(
     Missing, ParserEdgeTokenTest,
-    ::testing::Values("f(a: Int, b: String): Unit =",
-                      "def (a: Int, b: String): Unit =",
-                      "def f a: Int, b: String): Unit =",
-                      "def f(: Int, b: String): Unit =",
-                      "def f(a Int, b: String): Unit =",
-                      "def f(a:, b: String): Unit =",
-                      "def f(a: Int b: String): Unit =",
-                      "def f(a: Int, : String): Unit =",
-                      "def f(a: Int, b String): Unit =",
-                      "def f(a: Int, b:): Unit =",
-                      "def f(a: Int, b: String: Unit =",
-                      "def f(a: Int, b: String) Unit =",
-                      "def f(a: Int, b: String): Unit",
-                      "def f(a: Int, b: String): Unit = return"));
+    ::testing::Values(
+        "f(a: Int, b: String): Unit =", "def (a: Int, b: String): Unit =",
+        "def f a: Int, b: String): Unit =", "def f(: Int, b: String): Unit =",
+        "def f(a Int, b: String): Unit =", "def f(a:, b: String): Unit =",
+        "def f(a: Int b: String): Unit =", "def f(a: Int, : String): Unit =",
+        "def f(a: Int, b String): Unit =", "def f(a: Int, b:): Unit =",
+        "def f(a: Int, b: String: Unit =", "def f(a: Int, b: String) Unit =",
+        "def f(a: Int, b: String): Unit",
+        "def f(a: Int, b: String): Unit = return"));
 
 INSTANTIATE_TEST_SUITE_P(
     Doubled, ParserEdgeTokenTest,
@@ -182,11 +165,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(ParserEdgeTest, MissingBlockPartsAreSyntaxErrors) {
   const char *const sources[] = {
-      "def f(a: Int, b: String): Unit =\nreturn\n",   // INDENT dropped
-      "def f(a: Int, b: String): Unit =\n  \n",       // body dropped
+      "def f(a: Int, b: String): Unit =\nreturn\n", // INDENT dropped
+      "def f(a: Int, b: String): Unit =\n  \n",     // body dropped
       "def f(a: Int, b: String): Unit =\ndef g() =\n  return\n",
-      "def f()\n: Int =\n  return\n",  // `:` on the next logical line
-      "def f()\n  =\n  return\n",      // `=` on the next logical line
+      "def f()\n: Int =\n  return\n", // `:` on the next logical line
+      "def f()\n  =\n  return\n",     // `=` on the next logical line
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
@@ -212,8 +195,13 @@ TEST(ParserEdgeTest, LexicalErrorAfterEveryTokenIsLexerError) {
     EXPECT_EQ(parse(source), PARSER_LEXER_ERROR);
   }
   const char *const tails[] = {
-      "\n  $", "\n  return\n  $", "\n  return;$", "\n  return; $\n",
-      "\n  return\n$", "\n  return\n@main $", "\n  return\n@main def $",
+      "\n  $",
+      "\n  return\n  $",
+      "\n  return;$",
+      "\n  return; $\n",
+      "\n  return\n$",
+      "\n  return\n@main $",
+      "\n  return\n@main def $",
   };
   for (const char *tail : tails) {
     const std::string source = std::string(kHeader) + tail;
@@ -224,8 +212,8 @@ TEST(ParserEdgeTest, LexicalErrorAfterEveryTokenIsLexerError) {
 
 TEST(ParserEdgeTest, LexicalErrorInBlockLayoutIsLexerError) {
   const char *const sources[] = {
-      "def f() =\n\treturn\n",               // tab as indentation
-      "def f() =\n  return\n\treturn\n",     // tab on the second line
+      "def f() =\n\treturn\n",              // tab as indentation
+      "def f() =\n  return\n\treturn\n",    // tab on the second line
       "def f() =\n  return \"unterminated", // string not closed
       "def f(a: Int,\n  b: Int\n  $) =\n  return\n",
   };
@@ -267,15 +255,16 @@ TEST_P(ParserEdgeKeywordTest, KeywordAsVariableNameIsSyntaxError) {
             PARSER_SYNTAX_ERROR);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    Keywords, ParserEdgeKeywordTest,
-    ::testing::Values("def", "do", "Double", "else", "if", "import", "Int",
-                      "return", "String", "then", "Unit", "val", "var",
-                      "while", "Boolean", "case", "class", "extension", "for",
-                      "List", "match", "type", "_"));
+INSTANTIATE_TEST_SUITE_P(Keywords, ParserEdgeKeywordTest,
+                         ::testing::Values("def", "do", "Double", "else", "if",
+                                           "import", "Int", "return", "String",
+                                           "then", "Unit", "val", "var",
+                                           "while", "Boolean", "case", "class",
+                                           "extension", "for", "List", "match",
+                                           "type", "_"));
 
 TEST(ParserEdgeTest, NamesContainingKeywordsAreIdentifiers) {
-  const char *const names[] = {"main", "Main",    "iff", "_if",
+  const char *const names[] = {"main", "Main", "iff",     "_if",
                                "Int2", "defx", "return_", "__"};
   for (const char *name : names) {
     SCOPED_TRACE(name);
@@ -357,8 +346,8 @@ TEST(ParserEdgeLayoutTest, RejectedLayoutsAreSyntaxErrors) {
  * Prompt:
  *   Many parameters keep their types in source order, many functions keep
  *   their order, a block with hundreds of statements (also separated by
- *   blank and whitespace-only lines) keeps all of them and a 1000-space indentation opens a
- *   block; every case parses quickly with PARSER_OK.
+ *   blank and whitespace-only lines) keeps all of them and a 1000-space
+ * indentation opens a block; every case parses quickly with PARSER_OK.
  */
 TEST(ParserEdgeLimitTest, ManyParametersKeepSourceOrder) {
   constexpr size_t kParameters = 70U;
@@ -366,8 +355,8 @@ TEST(ParserEdgeLimitTest, ManyParametersKeepSourceOrder) {
   const BaseType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT};
   std::string source = "def f(";
   for (size_t i = 0; i < kParameters; ++i) {
-    source += (i == 0 ? "p" : ",\n  p") + std::to_string(i) + ": " +
-              types[i % 4U];
+    source +=
+        (i == 0 ? "p" : ",\n  p") + std::to_string(i) + ": " + types[i % 4U];
   }
   Parsed p(with_entry(source + ") =\n  return\n"));
   ASSERT_EQ(p.status, PARSER_OK);
@@ -517,22 +506,24 @@ TEST(ParserEdgeKnownGapTest, DISABLED_DefinitionAsOneLineBodyIsSyntaxError) {
 // levels closes the innermost branch and one of three levels the function.
 TEST(ParserEdgeKnownGapTest, DISABLED_NestedIfClosesSeveralLevelsAtOnce) {
   Parsed p(with_entry("def g(a: Int): Unit =\n"
-           "  if a < 1 then\n    return\n"
-           "  else\n"
-           "    if a < 2 then\n"
-           "      if a < 3 then\n        return\n"
-           "      else\n        return\n"
-           "    else\n      return\n"
-           "def h(): Unit =\n  return\n"));
+                      "  if a < 1 then\n    return\n"
+                      "  else\n"
+                      "    if a < 2 then\n"
+                      "      if a < 3 then\n        return\n"
+                      "      else\n        return\n"
+                      "    else\n      return\n"
+                      "def h(): Unit =\n  return\n"));
   ASSERT_EQ(p.status, PARSER_OK);
   ASSERT_EQ(p.count(), 3U);
   const ASTNode *outer = single_statement(p.at(0)->ast_root);
   ASSERT_NE(outer, nullptr);
   ASSERT_EQ(outer->kind, AST_IF);
-  const ASTNode *middle = single_statement(outer->data.if_statement.else_branch);
+  const ASTNode *middle =
+      single_statement(outer->data.if_statement.else_branch);
   ASSERT_NE(middle, nullptr);
   ASSERT_EQ(middle->kind, AST_IF);
-  const ASTNode *inner = single_statement(middle->data.if_statement.then_branch);
+  const ASTNode *inner =
+      single_statement(middle->data.if_statement.then_branch);
   ASSERT_NE(inner, nullptr);
   EXPECT_EQ(inner->kind, AST_IF);
   EXPECT_NE(single_statement(p.at(1)->ast_root), nullptr);
@@ -593,9 +584,9 @@ TEST(ParserEdgeKnownGapTest, DISABLED_MalformedWhileIsSyntaxError) {
 // source runs in a child process.
 TEST(ParserEdgeKnownGapTest, DISABLED_StatementsStartingWithTermsAreAccepted) {
   const char *const sources[] = {
-      "def f(): Unit =\n  var x = 1\n  x = 2\n", // assignment
+      "def f(): Unit =\n  var x = 1\n  x = 2\n",             // assignment
       "def f(): Unit =\n  g()\ndef g(): Unit =\n  return\n", // call first
-      "def f(): Unit =\n  ()\n",                 // Unit literal body
+      "def f(): Unit =\n  ()\n", // Unit literal body
       "def f() =\n  -1\n",
       "def f() =\n  1.5\n",
       "def f() =\n  \"s\"\n",
@@ -643,12 +634,15 @@ TEST(ParserEdgeKnownGapTest, DISABLED_BranchesHaveSeparateScopes) {
 // spec 2 allows any whitespace between its tokens and blank lines after it.
 TEST(ParserEdgeKnownGapTest, DISABLED_PrologWithWhitespaceIsAccepted) {
   const char *const prologs[] = {
-      "import ifj26.*\n", "import   ifj26 . *  \n", "import ifj26.*\n\n\n",
+      "import ifj26.*\n",
+      "import   ifj26 . *  \n",
+      "import ifj26.*\n\n\n",
   };
   for (const char *prolog : prologs) {
     SCOPED_TRACE(prolog);
-    Parsed p(std::string(prolog) + kFunction + "@main def m(): Unit =\n"
-                                               "  return\n");
+    Parsed p(std::string(prolog) + kFunction +
+             "@main def m(): Unit =\n"
+             "  return\n");
     EXPECT_EQ(p.status, PARSER_OK);
     EXPECT_EQ(p.count(), 2U);
   }

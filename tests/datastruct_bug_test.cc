@@ -3,6 +3,8 @@
 
 #include "gtest/gtest.h"
 
+#include "bst_test_util.h"
+
 extern "C" {
 #include "../src/ast.h"
 #include "../src/bst.h"
@@ -21,7 +23,7 @@ extern "C" {
  *   AST node leaves its inferred_type registered as a dependent of the
  *   symbol's type, so a later resolve writes to freed memory; and removing
  *   a BST node with two children frees the stored value of a different key,
- *   invalidating pointers returned by bstSearch. Do not dereference freed
+ *   invalidating pointers returned by bst_search. Do not dereference freed
  *   memory in the assertions. These tests are expected to fail until fixed.
  */
 namespace {
@@ -78,9 +80,9 @@ TEST(DataStructBugTest, DestroyedAstNodeIsNoLongerADependent) {
   SymbolTable *root = symbol_table_create_root();
   ASSERT_NE(root, nullptr);
   Symbol *symbol = nullptr;
-  ASSERT_EQ(symbol_table_define(root, "x", type_unknown(), false, false,
-                                &symbol),
-            SYMTABLE_OK);
+  ASSERT_EQ(
+      symbol_table_define(root, "x", type_unknown(), false, false, &symbol),
+      SYMTABLE_OK);
   ASTNode *reference = ast_node_create_variable_ref(symbol, 1, 1);
   ASSERT_NE(reference, nullptr);
   ASSERT_EQ(type_entity_depend(&symbol->type, &reference->inferred_type),
@@ -95,20 +97,20 @@ TEST(DataStructBugTest, DestroyedAstNodeIsNoLongerADependent) {
 }
 
 TEST(DataStructBugTest, TwoChildRemovalKeepsOtherValuePointersStable) {
-  BST *tree = bstCreate(compare_int, copy_int, destroy_int);
+  BST *tree = make_tree(compare_int, copy_int, destroy_int);
   ASSERT_NE(tree, nullptr);
   for (int key : {20, 10, 30, 5, 15, 25, 35}) {
-    bstInsert(tree, &key);
+    bst_insert(tree, &key);
   }
   int kept = 15;
   int removed = 20;
-  void *kept_before = bstSearch(tree, &kept);
+  const void *kept_before = find_value(tree, &kept);
   ASSERT_NE(kept_before, nullptr);
 
-  bstRemove(tree, &removed);
+  bst_remove(tree, &removed);
 
-  // bst.h: bstSearch returns a pointer to the stored value; removing another
+  // bst.h: bst_search yields a pointer to the stored value; removing another
   // key must not free and replace it.
-  EXPECT_EQ(bstSearch(tree, &kept), kept_before);
-  bstDestroy(&tree);
+  EXPECT_EQ(find_value(tree, &kept), kept_before);
+  bst_destroy(&tree);
 }

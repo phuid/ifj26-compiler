@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -24,15 +25,14 @@ namespace {
 
 using namespace std::string_literals;
 
-/** Returns a rewound temporary stream holding exactly @p bytes. */
-FILE *stream_from(const std::string &bytes) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return nullptr;
-  }
-  fwrite(bytes.data(), 1U, bytes.size(), stream);
-  rewind(stream);
-  return stream;
+/**
+ * Returns a null-terminated copy of @p bytes for the lexer to borrow. The
+ * lexer reads a C string, so an embedded NUL ends the input there.
+ */
+std::vector<char> buffer_from(const std::string &bytes) {
+  std::vector<char> buffer(bytes.begin(), bytes.end());
+  buffer.push_back('\0');
+  return buffer;
 }
 
 bool owns_text(TokenType type) {
@@ -58,9 +58,9 @@ const size_t kMaxTokens = 10000U;
 
 LexResult lex_all(const std::string &input) {
   LexResult result{{}, LEXER_INVALID_ARGUMENT, Token{}, 0U};
-  FILE *stream = stream_from(input);
+  std::vector<char> buffer = buffer_from(input);
   Lexer lexer;
-  if (stream == nullptr || lexer_init(&lexer, stream) != LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) != LEXER_OK) {
     ADD_FAILURE() << "cannot set up lexer";
     return result;
   }
@@ -76,7 +76,6 @@ LexResult lex_all(const std::string &input) {
   result.last = lexer.token;
   result.final_indent = lexer.current_indent;
   lexer_destroy(&lexer);
-  fclose(stream);
   return result;
 }
 
@@ -135,21 +134,15 @@ size_t count_type(const LexResult &result, TokenType type) {
 /** Owns one lexer over an in-memory source for step-by-step tests. */
 class LexerEdgeTest : public ::testing::Test {
 protected:
-  FILE *stream = nullptr;
+  std::vector<char> buffer;
   Lexer lexer{};
 
   void open(const std::string &text) {
-    stream = stream_from(text);
-    ASSERT_NE(stream, nullptr);
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    buffer = buffer_from(text);
+    ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   }
 
-  void TearDown() override {
-    lexer_destroy(&lexer);
-    if (stream != nullptr) {
-      fclose(stream);
-    }
-  }
+  void TearDown() override { lexer_destroy(&lexer); }
 
   void next(TokenType type) {
     ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
@@ -287,7 +280,9 @@ const AcceptedCase kMunchCases[] = {
     {"ArrowThenAssign", "=>=", {T(TOKEN_ARROW, "=>"), T(TOKEN_ASSIGN, "=")}},
     {"LessEqualThenMinus", "<=-", {T(TOKEN_LESS_EQUAL), T(TOKEN_MINUS)}},
     {"GeneratorThenAssign", "<-=", {T(TOKEN_FOR_GENERATOR), T(TOKEN_ASSIGN)}},
-    {"GreaterEqualThenAssign", ">==", {T(TOKEN_GREATER_EQUAL), T(TOKEN_ASSIGN)}},
+    {"GreaterEqualThenAssign",
+     ">==",
+     {T(TOKEN_GREATER_EQUAL), T(TOKEN_ASSIGN)}},
     {"AssignThenLess", "=<", {T(TOKEN_ASSIGN), T(TOKEN_LESS)}},
     {"AndThenAssign", "&&=", {T(TOKEN_AND, "&&"), T(TOKEN_ASSIGN)}},
     {"UnionThenGreater", "|>", {T(TOKEN_UNION, "|"), T(TOKEN_GREATER)}},
@@ -353,8 +348,6 @@ class LexerEdgeRejectedTest : public ::testing::TestWithParam<RejectedCase> {};
 
 const RejectedCase kUnknownCharCases[] = {
     {"Backtick", "`val`", 0U},
-    {"Nul", "\0"s, 0U},
-    {"NulAfterToken", "a\0"s, 1U},
     {"ControlChar", "\x01", 0U},
     {"Escape", "\x1b", 0U},
     {"Del", "\x7f", 0U},
@@ -410,6 +403,23 @@ std::string rejected_name(const ::testing::TestParamInfo<RejectedCase> &info) {
 
 } // namespace
 
+/*
+ * The lexer reads a null-terminated C string (lexer_init(Lexer *, char *)),
+ * so a NUL byte is never a character of the input: it ends the input. A
+ * NUL in the source file therefore cuts the program short instead of being
+ * an invalid token.
+ */
+TEST(LexerEdgeNulTest, NulEndsTheInput) {
+  LexResult result = lex_all("\0"s);
+  EXPECT_EQ(result.status, LEXER_EOF);
+  EXPECT_TRUE(result.tokens.empty());
+
+  result = lex_all("a\0b"s);
+  EXPECT_EQ(result.status, LEXER_EOF);
+  ASSERT_EQ(result.tokens.size(), 1U);
+  EXPECT_EQ(result.tokens[0].text, "a");
+}
+
 TEST_P(LexerEdgeRejectedTest, EndsInInvalidToken) {
   const RejectedCase &test_case = GetParam();
   const LexResult result = lex_all(test_case.input);
@@ -437,9 +447,10 @@ INSTANTIATE_TEST_SUITE_P(Numbers, LexerEdgeRejectedTest,
 namespace {
 
 const char *const kSpecKeywords[] = {
-    "def",     "do",   "Double", "else",      "if",  "import", "Int",  "return",
-    "String",  "then", "Unit",   "val",       "var", "while",  "Boolean",
-    "case",    "class", "extension", "for",   "List", "match", "type",
+    "def", "do",     "Double",  "else", "if",    "import",
+    "Int", "return", "String",  "then", "Unit",  "val",
+    "var", "while",  "Boolean", "case", "class", "extension",
+    "for", "List",   "match",   "type",
 };
 
 bool is_spec_keyword(const std::string &word) {
@@ -492,13 +503,12 @@ TEST_F(LexerEdgeTest, KeywordNearMissesAreIdentifiers) {
 }
 
 TEST_F(LexerEdgeTest, KeywordsEndAtNonIdentifierCharacter) {
-  expect_tokens(
-      lex_all("if(x)then\"s\"val=1\nInt)do:"),
-      {T(TOKEN_KW_IF, "if"), T(TOKEN_LEFT_PAREN), Id("x"),
-       T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_THEN, "then"), T(TOKEN_STRING, "\"s\""),
-       T(TOKEN_KW_VAL, "val"), T(TOKEN_ASSIGN), I(1), kNl,
-       T(TOKEN_KW_INT, "Int"), T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_DO, "do"),
-       T(TOKEN_COLON)});
+  expect_tokens(lex_all("if(x)then\"s\"val=1\nInt)do:"),
+                {T(TOKEN_KW_IF, "if"), T(TOKEN_LEFT_PAREN), Id("x"),
+                 T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_THEN, "then"),
+                 T(TOKEN_STRING, "\"s\""), T(TOKEN_KW_VAL, "val"),
+                 T(TOKEN_ASSIGN), I(1), kNl, T(TOKEN_KW_INT, "Int"),
+                 T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_DO, "do"), T(TOKEN_COLON)});
 }
 
 /*
@@ -513,16 +523,15 @@ TEST_F(LexerEdgeTest, KeywordsEndAtNonIdentifierCharacter) {
 TEST_F(LexerEdgeTest, NestedBlocksDedentAllLevelsAtOnce) {
   const Expected dedent = T(TOKEN_DEDENT);
   const LexResult result = lex_all("a\n  b\n    c\nd");
-  expect_tokens(result, {Id("a"), kNl, kIndent, kIndent, Id("b"), kNl,
-                         kIndent, kIndent, Id("c"), kNl, dedent, dedent,
-                         dedent, dedent, Id("d")});
+  expect_tokens(result,
+                {Id("a"), kNl, kIndent, kIndent, Id("b"), kNl, kIndent, kIndent,
+                 Id("c"), kNl, dedent, dedent, dedent, dedent, Id("d")});
   EXPECT_EQ(result.final_indent, 0U);
 }
 
 TEST_F(LexerEdgeTest, DeepIndentationIsCountedExactly) {
   const size_t depth = 1000U;
-  const LexResult result =
-      lex_all("a\n" + std::string(depth, ' ') + "b\nc");
+  const LexResult result = lex_all("a\n" + std::string(depth, ' ') + "b\nc");
   ASSERT_EQ(result.status, LEXER_EOF);
   ASSERT_EQ(result.tokens.size(), 2U * depth + 5U);
   for (size_t index = 2U; index < depth + 2U; index += 1U) {
@@ -552,10 +561,10 @@ TEST_F(LexerEdgeTest, IndentAdjustmentChangesBaseForNextNewline) {
 
 TEST_F(LexerEdgeTest, MultilineStringDoesNotChangeIndentation) {
   const LexResult result = lex_all("a\n  x = \"\"\"p\n        q\"\"\"\n  y");
-  expect_tokens(result, {Id("a"), kNl, kIndent, kIndent, Id("x"),
-                         T(TOKEN_ASSIGN),
-                         T(TOKEN_STRING, "\"\"\"p\n        q\"\"\""),
-                         T(TOKEN_NEWLINE, "\n  "), Id("y")});
+  expect_tokens(result,
+                {Id("a"), kNl, kIndent, kIndent, Id("x"), T(TOKEN_ASSIGN),
+                 T(TOKEN_STRING, "\"\"\"p\n        q\"\"\""),
+                 T(TOKEN_NEWLINE, "\n  "), Id("y")});
   EXPECT_EQ(result.final_indent, 2U);
 }
 
@@ -622,8 +631,8 @@ INSTANTIATE_TEST_SUITE_P(Positions, LexerEdgePositionTest,
  * Prompt:
  *   lexer.h contract: repeated lexer_pls after EOF is stable, token_destroy
  *   is idempotent and leaves numeric tokens alone, lexer_destroy resets the
- *   state without closing the borrowed stream, and lexing starts at the
- *   stream's current position with 1:1.
+ *   state without touching the borrowed buffer, and lexing starts at the
+ *   given buffer position with 1:1.
  */
 TEST_F(LexerEdgeTest, RepeatedEofKeepsTypeAndPosition) {
   open("x\n");
@@ -651,24 +660,21 @@ TEST_F(LexerEdgeTest, TokenDestroyIsIdempotentAndKeepsNumbers) {
   EXPECT_EQ(lexer.token.type, TOKEN_INT);
 }
 
-TEST_F(LexerEdgeTest, LexerDestroyKeepsStreamOpenAndResetsState) {
+TEST_F(LexerEdgeTest, LexerDestroyKeepsBufferAndResetsState) {
   open("ab c"); // lookahead is still `c` when the lexer is destroyed
   next(TOKEN_IDENTIFIER);
   lexer_destroy(&lexer);
-  EXPECT_EQ(lexer.input, nullptr);
+  EXPECT_EQ(lexer.input_str, nullptr);
   EXPECT_EQ(lexer.lookahead, EOF);
   EXPECT_EQ(lexer.line, 0U);
   EXPECT_EQ(lexer.column, 0U);
   EXPECT_EQ(lexer.token.value.string_value, nullptr);
-  rewind(stream);
-  EXPECT_EQ(fgetc(stream), 'a'); // the borrowed stream is still usable
+  EXPECT_STREQ(buffer.data(), "ab c"); // the borrowed buffer is untouched
 }
 
-TEST_F(LexerEdgeTest, LexerStartsAtCurrentStreamPosition) {
-  stream = stream_from("skip x");
-  ASSERT_NE(stream, nullptr);
-  ASSERT_EQ(fseek(stream, 5L, SEEK_SET), 0);
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+TEST_F(LexerEdgeTest, LexerStartsAtGivenBufferPosition) {
+  buffer = buffer_from("skip x");
+  ASSERT_EQ(lexer_init(&lexer, buffer.data() + 5), LEXER_OK);
   next(TOKEN_IDENTIFIER);
   EXPECT_STREQ(lexer.token.value.string_value, "x");
   EXPECT_EQ(lexer.token.line, 1U);
@@ -734,9 +740,9 @@ TEST(LexerEdgeKnownGapTest, DISABLED_LineMarkerInsideBlockCommentIsIgnored) {
 
 // Spec 2: "Před prologem mohou být pouze bílé znaky a komentáře."
 TEST(LexerEdgeKnownGapTest, DISABLED_CommentBeforePrologIsIgnored) {
-  expect_tokens(lex_all("/* c */import ifj26.*"),
-                {T(TOKEN_KW_IMPORT), Id("ifj26"), T(TOKEN_DOT),
-                 T(TOKEN_MULTIPLY)});
+  expect_tokens(
+      lex_all("/* c */import ifj26.*"),
+      {T(TOKEN_KW_IMPORT), Id("ifj26"), T(TOKEN_DOT), T(TOKEN_MULTIPLY)});
 }
 
 // Spec 5.4 VALMEM: "libovolná hodnota toString"; spec 1.1: `5.` is not a

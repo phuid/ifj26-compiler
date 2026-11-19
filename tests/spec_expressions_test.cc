@@ -4,7 +4,7 @@
  * Prompt:
  *   Write black-box spec conformance tests for IFJ26 expressions (spec 1.1
  *   negative numbers, 1.2 logical lines, 1.3 conversions, 3). Each case is
- *   a whole program body run through tests/spec_harness.h and checked
+ *   a whole program body run through tests/spec_harness.hpp and checked
  *   against the exit code of spec chapter 6. Group the cases into TEST_P
  *   tables by topic, give every row a readable name and a comment with the
  *   spec rule and, when it fails today, the root cause.
@@ -25,7 +25,7 @@
 
 #include "gtest/gtest.h"
 
-#include "spec_harness.h"
+#include "spec_harness.hpp"
 
 namespace {
 

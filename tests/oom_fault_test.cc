@@ -1,8 +1,12 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #include "gtest/gtest.h"
+
+#include "bst_test_util.h"
 
 extern "C" {
 #include "../src/bst.h"
@@ -143,13 +147,9 @@ protected:
   }
 };
 
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream != nullptr) {
-    fputs(text, stream);
-    rewind(stream);
-  }
-  return stream;
+/** Returns a null-terminated copy of @p text for the lexer to borrow. */
+std::vector<char> buffer_from(const char *text) {
+  return std::vector<char>(text, text + strlen(text) + 1);
 }
 
 int compare_int(const void *a, const void *b) {
@@ -179,12 +179,9 @@ struct LexRun {
 
 LexRun lex_first_token_failing_at(const char *source, long k) {
   LexRun run = {LEXER_INVALID_ARGUMENT, TOKEN_INVALID, false, 0};
-  FILE *stream = stream_from(source);
-  if (stream == nullptr) {
-    return run;
-  }
+  std::vector<char> buffer = buffer_from(source);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     oom::Arm arm(k);
     run.status = lexer_pls(&lexer);
     run.type = lexer.token.type;
@@ -193,7 +190,6 @@ LexRun lex_first_token_failing_at(const char *source, long k) {
     lexer_destroy(&lexer);
     run.live = oom::live;
   }
-  fclose(stream);
   return run;
 }
 
@@ -207,13 +203,10 @@ struct ParseRun {
 // lexer are initialised before arming and destroyed while still tracking.
 ParseRun parse_failing_at(const char *source, long k) {
   ParseRun run = {PARSER_INVALID_ARGUMENT, false, 0};
-  FILE *stream = stream_from(source);
-  if (stream == nullptr) {
-    return run;
-  }
+  std::vector<char> buffer = buffer_from(source);
   Lexer lexer;
   Program program;
-  if (lexer_init(&lexer, stream) == LEXER_OK) {
+  if (lexer_init(&lexer, buffer.data()) == LEXER_OK) {
     if (program_init(&program) == PARSER_OK) {
       oom::Arm arm(k);
       run.status = p_program(&lexer, &program);
@@ -226,7 +219,6 @@ ParseRun parse_failing_at(const char *source, long k) {
       lexer_destroy(&lexer);
     }
   }
-  fclose(stream);
   return run;
 }
 
@@ -350,52 +342,58 @@ TEST_F(OomFaultTest, TypeDependFailureAddsNoDependent) {
  * AI-generated test block — BST allocation failures.
  * Model: Claude (Claude Code).
  * Prompt:
- *   bstCreate returns NULL on allocation failure; a failed bstInsert must
+ *   bst_create reports BST_ALLOCATION_FAIL and sets the tree to NULL on
+ *   allocation failure; a failed bst_insert must
  *   leave the tree (and its stored copies) unchanged and leak nothing.
  */
 TEST_F(OomFaultTest, BstAllocationFailureLeavesTreeUnchanged) {
-  BST *failed;
+  BST *failed = nullptr;
+  BST_STATUS create_status;
   {
     oom::Arm arm(1);
-    failed = bstCreate(compare_int, copy_int, destroy_int);
+    create_status = bst_create(compare_int, copy_int, destroy_int, &failed);
   }
+  EXPECT_EQ(create_status, BST_ALLOCATION_FAIL);
   EXPECT_EQ(failed, nullptr);
 
-  BST *tree = bstCreate(compare_int, copy_int, destroy_int);
+  BST *tree = make_tree(compare_int, copy_int, destroy_int);
   ASSERT_NE(tree, nullptr);
   const int five = 5;
-  bstInsert(tree, &five);
-  void *const stored_five = bstSearch(tree, &five);
+  ASSERT_EQ(bst_insert(tree, &five), BST_OK);
+  const void *const stored_five = find_value(tree, &five);
   ASSERT_NE(stored_five, nullptr);
 
   const int seven = 7;
   long k = 1;
   for (;; ++k) {
     ASSERT_LT(k, kMaxAllocationPoints);
-    void *found;
+    const void *found;
+    BST_STATUS insert_status;
     bool injected;
     long live;
     {
       oom::Arm arm(k);
-      bstInsert(tree, &seven);
+      insert_status = bst_insert(tree, &seven);
       arm.off();
       injected = arm.injected();
-      found = bstSearch(tree, &seven);
+      found = find_value(tree, &seven);
       if (found != nullptr) {
-        bstRemove(tree, &seven);
+        bst_remove(tree, &seven);
       }
       live = oom::live;
     }
     if (!injected) {
+      EXPECT_EQ(insert_status, BST_OK) << "k=" << k;
       EXPECT_NE(found, nullptr) << "insert without failure, k=" << k;
       break;
     }
+    EXPECT_EQ(insert_status, BST_ALLOCATION_FAIL) << "k=" << k;
     EXPECT_EQ(found, nullptr) << "k=" << k;
-    EXPECT_EQ(bstSearch(tree, &five), stored_five) << "k=" << k;
+    EXPECT_EQ(find_value(tree, &five), stored_five) << "k=" << k;
     EXPECT_EQ(live, 0) << "k=" << k;
   }
-  EXPECT_GT(k, 1) << "bstInsert never allocated";
-  bstDestroy(&tree);
+  EXPECT_GT(k, 1) << "bst_insert never allocated";
+  bst_destroy(&tree);
 }
 
 /*
