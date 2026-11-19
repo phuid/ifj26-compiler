@@ -2927,6 +2927,14 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     }
   }
 
+  if (block_node->data.block.statement_count == 0U) {
+    ERROR_ORIGIN(&lexer->token,
+                 "syntax error: an indented block in function '%s' is empty",
+                 function->name);
+    ast_node_destroy(block_node);
+    return PARSER_SYNTAX_ERROR;
+  }
+
   /// Consume same number of DEDENT tokens as the INDENT tokens that started
   /// the block.
   status = parser_consume_dedents(lexer, indent_delta);
