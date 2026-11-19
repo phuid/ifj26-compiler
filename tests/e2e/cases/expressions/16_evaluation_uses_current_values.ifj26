@@ -1,0 +1,11 @@
+// AI-generated test - expression reads the current value of a var.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  var x = 2
+  x = x * x * x
+  val y = x - 1
+  x = y * 2
+  print(x)
