@@ -238,6 +238,7 @@ void handle_add(const ASTNode *node, bool discard_return_value) {
     print_POPS(TRASH_GLOBAL);
     print_POPS(TMP_GLOBAL);
     print_CONCAT(TMP_GLOBAL, TMP_GLOBAL, TRASH_GLOBAL);
+    print_PUSHS(TMP_GLOBAL);
   } else {
     print_ADDS();
   }
