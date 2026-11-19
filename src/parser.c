@@ -2810,6 +2810,10 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     return PARSER_INTERNAL_ERROR;
   }
 
+  /// Keep track of whether the last statement has ended with a semicolon, then
+  /// unary operands are accepted
+  bool ended_with_semicolon = false;
+
   /// Loop over statements until a DEDENT or EOF is reached.
   while (lexer->token.type != TOKEN_DEDENT && lexer->token.type != TOKEN_EOF) {
 
@@ -2819,7 +2823,10 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
     if (lexer->token.type == TOKEN_INVALID ||
         lexer->token.type == TOKEN_KW_DEF ||
         lexer->token.type == TOKEN_INDENT ||
-        lexer->token.type == TOKEN_SEMICOLON) {
+        lexer->token.type == TOKEN_SEMICOLON ||
+        (!ended_with_semicolon &&
+         (lexer->token.type == TOKEN_MINUS || lexer->token.type == TOKEN_PLUS ||
+          lexer->token.type == TOKEN_NOT))) {
       ERROR_ORIGIN(&lexer->token,
                    lexer->token.type == TOKEN_KW_DEF
                        ? "syntax error: nested function definitions are not "
@@ -2884,6 +2891,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       return PARSER_INTERNAL_ERROR;
     }
 
+    ended_with_semicolon = false;
     /// A semicolon is only a separator: it must be followed by the next
     /// statement on the same logical line, so it cannot end a line, a block
     /// or the file.
@@ -2904,6 +2912,7 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
         return PARSER_SYNTAX_ERROR;
       }
       /// The next statement is on the same line: parse it right away.
+      ended_with_semicolon = true;
       continue;
     }
 
@@ -2916,6 +2925,14 @@ static ParserStatus p_code_block(Lexer *lexer, Program *program,
       ast_node_destroy(block_node);
       return status;
     }
+  }
+
+  if (block_node->data.block.statement_count == 0U) {
+    ERROR_ORIGIN(&lexer->token,
+                 "syntax error: an indented block in function '%s' is empty",
+                 function->name);
+    ast_node_destroy(block_node);
+    return PARSER_SYNTAX_ERROR;
   }
 
   /// Consume same number of DEDENT tokens as the INDENT tokens that started
