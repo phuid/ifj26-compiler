@@ -63,11 +63,12 @@ TEST(DataStructBugTest, DiamondChainResolvesInLinearTime) {
   }
 
   auto start = std::chrono::steady_clock::now();
-  EXPECT_EQ(type_entity_resolve(&entities[0], TYPE_INT), TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(&entities[0], type_scalar(TYPE_INT)),
+            TYPE_RESOLVE_OK);
   auto elapsed = std::chrono::steady_clock::now() - start;
 
   EXPECT_LT(elapsed, std::chrono::milliseconds(500));
-  EXPECT_EQ(entities.back().type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(entities.back().type, TYPE_INT));
   for (TypeEntity &entity : entities) {
     type_entity_destroy(&entity);
   }
@@ -77,7 +78,8 @@ TEST(DataStructBugTest, DestroyedAstNodeIsNoLongerADependent) {
   SymbolTable *root = symbol_table_create_root();
   ASSERT_NE(root, nullptr);
   Symbol *symbol = nullptr;
-  ASSERT_EQ(symbol_table_define(root, "x", TYPE_UNKNOWN, false, false, &symbol),
+  ASSERT_EQ(symbol_table_define(root, "x", type_unknown(), false, false,
+                                &symbol),
             SYMTABLE_OK);
   ASTNode *reference = ast_node_create_variable_ref(symbol, 1, 1);
   ASSERT_NE(reference, nullptr);

@@ -462,7 +462,8 @@ protected:
   ::testing::AssertionResult define(SymbolTable *scope, const char *name,
                                     Symbol **out = nullptr) {
     const SymbolTableStatus status =
-        symbol_table_define(scope, name, TYPE_INT, true, false, out);
+        symbol_table_define(scope, name, type_scalar(TYPE_INT), true, false,
+                            out);
     if (status != SYMTABLE_OK) {
       return ::testing::AssertionFailure()
              << "define " << name << " returned " << status;
@@ -578,7 +579,8 @@ TEST_F(SymbolTableEdgeTest, BindingResolvedBeforeShadowingStaysOuter) {
   EXPECT_EQ(symbol_table_lookup_local(root, "x"), outer);
   EXPECT_EQ(outer->owner, root);
   EXPECT_STREQ(outer->name, "x");
-  EXPECT_EQ(symbol_table_define(block, "x", TYPE_REAL, true, false, nullptr),
+  EXPECT_EQ(symbol_table_define(block, "x", type_scalar(TYPE_REAL), true, false,
+                                nullptr),
             SYMTABLE_DUPLICATE);
   EXPECT_EQ(symbol_table_resolve(block, "x"), inner);
 }

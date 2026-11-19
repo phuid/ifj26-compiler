@@ -67,13 +67,28 @@ template <typename Body> long long HeapGrowth(Body body) {
 
 ASTNode *Int(long long value) { return ast_node_create_int(value, 1U, 1U); }
 
+/** Defines parameter @p name in the local scope of @p fn and appends it. */
+Symbol *AddParameter(FunctionSymbol *fn, const std::string &name,
+                     BaseType base) {
+  SymbolTable *scope = function_symbol_create_local_scope(fn);
+  Symbol *symbol = nullptr;
+  if (scope == nullptr ||
+      symbol_table_define(scope, name.c_str(), type_scalar(base), true, true,
+                          &symbol) != SYMTABLE_OK ||
+      function_symbol_add_parameter(fn, symbol) != FUNCTION_TABLE_OK) {
+    return nullptr;
+  }
+  return symbol;
+}
+
 /** Owns a root scope with symbol `x` and a function table with `f`. */
 class ModelFixture : public ::testing::Test {
 protected:
   void SetUp() override {
     scope = symbol_table_create_root();
     ASSERT_NE(scope, nullptr);
-    ASSERT_EQ(symbol_table_define(scope, "x", TYPE_INT, true, false, &x),
+    ASSERT_EQ(symbol_table_define(scope, "x", type_scalar(TYPE_INT), true,
+                                  false, &x),
               SYMTABLE_OK);
     ASSERT_EQ(function_table_init(&table), FUNCTION_TABLE_OK);
     ASSERT_EQ(function_table_get_or_create(&table, "f", &f), FUNCTION_TABLE_OK);
@@ -109,7 +124,7 @@ struct Position {
 struct CtorCase {
   const char *name;
   ASTNodeKind kind;
-  DataType type;
+  BaseType type;
   ASTNode *(*make)(Symbol *x, FunctionSymbol *f, Position at);
 };
 
@@ -183,15 +198,16 @@ TEST_P(AstConstructorEdgeTest, StoresKindPositionAndInitialType) {
     EXPECT_EQ(node->kind, c.kind) << c.name;
     EXPECT_EQ(node->line, at.line) << c.name;
     EXPECT_EQ(node->column, at.column) << c.name;
-    EXPECT_EQ(node->inferred_type.type, c.type) << c.name;
+    EXPECT_TRUE(type_equal(node->inferred_type.type, type_scalar(c.type)))
+        << c.name;
     EXPECT_EQ(node->inferred_type.dependents, nullptr) << c.name;
     EXPECT_EQ(node->inferred_type.dependent_count, 0U) << c.name;
     EXPECT_FALSE(node->inferred_type.resolving) << c.name;
     ast_node_destroy(node);
   }
-  EXPECT_EQ(x->type.type, TYPE_INT);
+  EXPECT_TRUE(type_equal(x->type.type, type_scalar(TYPE_INT)));
   EXPECT_EQ(x->type.dependent_count, 0U);
-  EXPECT_EQ(f->return_type.type, TYPE_UNKNOWN);
+  EXPECT_TRUE(type_equal(f->return_type.type, type_scalar(TYPE_UNKNOWN)));
   EXPECT_EQ(f->return_type.dependent_count, 0U);
 }
 
@@ -223,7 +239,7 @@ TEST(AstPayloadEdgeTest, RealLiteralKeepsSpecialValues) {
       EXPECT_EQ(stored, value);
       EXPECT_EQ(std::signbit(stored), std::signbit(value)) << value;
     }
-    EXPECT_EQ(node->inferred_type.type, TYPE_REAL);
+    EXPECT_TRUE(type_equal(node->inferred_type.type, type_scalar(TYPE_REAL)));
     ast_node_destroy(node);
   }
 }
@@ -438,20 +454,21 @@ private:
 
 TEST(TypeGraphEdgeTest, SelfEdgeOnResolvedEntityStoresNoEdge) {
   Graph g(1U);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_UNIT), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_UNIT)), TYPE_RESOLVE_OK);
   EXPECT_EQ(type_entity_depend(g[0], g[0]), TYPE_RESOLVE_OK);
   EXPECT_EQ(g[0]->dependent_count, 0U);
-  EXPECT_EQ(g[0]->type, TYPE_UNIT);
+  EXPECT_TRUE(type_equal(g[0]->type, type_scalar(TYPE_UNIT)));
 }
 
 TEST(TypeGraphEdgeTest, UnknownOnResolvedEntityIsRejectedAndKeepsType) {
   Graph g(2U);
   ASSERT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_STRING), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_UNKNOWN),
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_STRING)),
+            TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_UNKNOWN)),
             TYPE_RESOLVE_INVALID_ARGUMENT);
-  EXPECT_EQ(g[0]->type, TYPE_STRING);
-  EXPECT_EQ(g[1]->type, TYPE_STRING);
+  EXPECT_TRUE(type_equal(g[0]->type, type_scalar(TYPE_STRING)));
+  EXPECT_TRUE(type_equal(g[1]->type, type_scalar(TYPE_STRING)));
   EXPECT_EQ(g[0]->dependent_count, 1U);
 }
 
@@ -459,9 +476,9 @@ TEST(TypeGraphEdgeTest, PreResolvedDependentOfSameTypeIsNoConflict) {
   Graph g(3U);
   ASSERT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[1], g[2]), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[1], TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(g[2]->type, TYPE_INT);
+  ASSERT_EQ(type_entity_resolve(g[1], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
+  EXPECT_TRUE(type_equal(g[2]->type, type_scalar(TYPE_INT)));
   EXPECT_FALSE(g.AnyResolving());
 }
 
@@ -470,19 +487,20 @@ TEST(TypeGraphEdgeTest, DependOnResolvedSourceFollowsStoredEdges) {
   Graph g(4U);
   ASSERT_EQ(type_entity_depend(g[1], g[2]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[2], g[3]), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_REAL), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_REAL)), TYPE_RESOLVE_OK);
   EXPECT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_OK);
-  EXPECT_EQ(g[3]->type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(g[3]->type, type_scalar(TYPE_REAL)));
   EXPECT_EQ(g[0]->dependent_count, 0U);
 }
 
 TEST(TypeGraphEdgeTest, DependOnResolvedSourceReportsTransitiveConflict) {
   Graph g(3U);
   ASSERT_EQ(type_entity_depend(g[1], g[2]), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[2], TYPE_STRING), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[2], type_scalar(TYPE_STRING)),
+            TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
   EXPECT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_CONFLICT);
-  EXPECT_EQ(g[2]->type, TYPE_STRING);
+  EXPECT_TRUE(type_equal(g[2]->type, type_scalar(TYPE_STRING)));
   EXPECT_FALSE(g.AnyResolving());
 }
 
@@ -492,10 +510,11 @@ TEST(TypeGraphEdgeTest, FanInAcceptsSameTypeAndRejectsOther) {
   for (size_t source = 0U; source < 3U; source++) {
     ASSERT_EQ(type_entity_depend(g[source], g[3]), TYPE_RESOLVE_OK);
   }
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[1], TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[2], TYPE_REAL), TYPE_RESOLVE_CONFLICT);
-  EXPECT_EQ(g[3]->type, TYPE_INT);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(g[1], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(g[2], type_scalar(TYPE_REAL)),
+            TYPE_RESOLVE_CONFLICT);
+  EXPECT_TRUE(type_equal(g[3]->type, type_scalar(TYPE_INT)));
   EXPECT_FALSE(g.AnyResolving());
 }
 
@@ -505,11 +524,12 @@ TEST(TypeGraphEdgeTest, ConflictIsReportedWhateverSiblingPosition) {
     for (size_t child = 1U; child <= 3U; child++) {
       ASSERT_EQ(type_entity_depend(g[0], g[child]), TYPE_RESOLVE_OK);
     }
-    ASSERT_EQ(type_entity_resolve(g[conflicting + 1U], TYPE_BOOL),
+    ASSERT_EQ(type_entity_resolve(g[conflicting + 1U], type_scalar(TYPE_BOOL)),
               TYPE_RESOLVE_OK);
-    EXPECT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_CONFLICT)
+    EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)),
+              TYPE_RESOLVE_CONFLICT)
         << "conflicting sibling " << conflicting;
-    EXPECT_EQ(g[conflicting + 1U]->type, TYPE_BOOL);
+    EXPECT_TRUE(type_equal(g[conflicting + 1U]->type, type_scalar(TYPE_BOOL)));
     EXPECT_FALSE(g.AnyResolving());
   }
 }
@@ -520,25 +540,29 @@ TEST(TypeGraphEdgeTest, LongRingResolvesEveryNode) {
   for (size_t i = 0U; i < kCount; i++) {
     ASSERT_EQ(type_entity_depend(g[i], g[(i + 1U) % kCount]), TYPE_RESOLVE_OK);
   }
-  ASSERT_EQ(type_entity_resolve(g[kCount / 2U], TYPE_STRING), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[kCount / 2U], type_scalar(TYPE_STRING)),
+            TYPE_RESOLVE_OK);
   for (size_t i = 0U; i < kCount; i++) {
-    EXPECT_EQ(g[i]->type, TYPE_STRING) << i;
+    EXPECT_TRUE(type_equal(g[i]->type, type_scalar(TYPE_STRING))) << i;
   }
   EXPECT_FALSE(g.AnyResolving());
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_STRING), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_CONFLICT);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_STRING)),
+            TYPE_RESOLVE_OK);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)),
+            TYPE_RESOLVE_CONFLICT);
 }
 
 TEST(TypeGraphEdgeTest, RingWithConflictingExitClearsResolvingFlags) {
   // 0 -> 1 -> 2 -> 0 ring, 2 -> 3 exit already typed Int.
   Graph g(4U);
-  ASSERT_EQ(type_entity_resolve(g[3], TYPE_INT), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[3], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[1], g[2]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[2], g[0]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[2], g[3]), TYPE_RESOLVE_OK);
-  EXPECT_EQ(type_entity_resolve(g[0], TYPE_REAL), TYPE_RESOLVE_CONFLICT);
-  EXPECT_EQ(g[3]->type, TYPE_INT);
+  EXPECT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_REAL)),
+            TYPE_RESOLVE_CONFLICT);
+  EXPECT_TRUE(type_equal(g[3]->type, type_scalar(TYPE_INT)));
   EXPECT_FALSE(g.AnyResolving());
 }
 
@@ -548,9 +572,9 @@ TEST(TypeGraphEdgeTest, LongChainResolvesToTheEnd) {
   for (size_t i = 0U; i + 1U < kCount; i++) {
     ASSERT_EQ(type_entity_depend(g[i], g[i + 1U]), TYPE_RESOLVE_OK);
   }
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_UNIT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(g[kCount - 1U]->type, TYPE_UNIT);
-  EXPECT_EQ(g[kCount / 2U]->type, TYPE_UNIT);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_UNIT)), TYPE_RESOLVE_OK);
+  EXPECT_TRUE(type_equal(g[kCount - 1U]->type, type_scalar(TYPE_UNIT)));
+  EXPECT_TRUE(type_equal(g[kCount / 2U]->type, type_scalar(TYPE_UNIT)));
   EXPECT_FALSE(g.AnyResolving());
 }
 
@@ -561,21 +585,22 @@ TEST(TypeGraphEdgeTest, DestroyInMiddleCutsPropagation) {
   type_entity_destroy(g[1]);
   EXPECT_EQ(g[1]->dependent_count, 0U);
   EXPECT_EQ(g[1]->dependents, nullptr);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_INT), TYPE_RESOLVE_OK);
-  EXPECT_EQ(g[2]->type, TYPE_UNKNOWN);
-  EXPECT_EQ(g[0]->type, TYPE_INT);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_INT)), TYPE_RESOLVE_OK);
+  EXPECT_TRUE(type_equal(g[2]->type, type_scalar(TYPE_UNKNOWN)));
+  EXPECT_TRUE(type_equal(g[0]->type, type_scalar(TYPE_INT)));
 }
 
 TEST(TypeGraphEdgeTest, DestroyedSourceLeavesDependentTypes) {
   Graph g(3U);
   ASSERT_EQ(type_entity_depend(g[0], g[1]), TYPE_RESOLVE_OK);
   ASSERT_EQ(type_entity_depend(g[1], g[2]), TYPE_RESOLVE_OK);
-  ASSERT_EQ(type_entity_resolve(g[0], TYPE_BOOL), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(g[0], type_scalar(TYPE_BOOL)), TYPE_RESOLVE_OK);
   type_entity_destroy(g[0]);
-  EXPECT_EQ(g[0]->type, TYPE_UNKNOWN);
-  EXPECT_EQ(g[1]->type, TYPE_BOOL);
-  EXPECT_EQ(g[2]->type, TYPE_BOOL);
-  EXPECT_EQ(type_entity_resolve(g[1], TYPE_INT), TYPE_RESOLVE_CONFLICT);
+  EXPECT_TRUE(type_equal(g[0]->type, type_scalar(TYPE_UNKNOWN)));
+  EXPECT_TRUE(type_equal(g[1]->type, type_scalar(TYPE_BOOL)));
+  EXPECT_TRUE(type_equal(g[2]->type, type_scalar(TYPE_BOOL)));
+  EXPECT_EQ(type_entity_resolve(g[1], type_scalar(TYPE_INT)),
+            TYPE_RESOLVE_CONFLICT);
 }
 
 /*
@@ -611,11 +636,13 @@ TEST_F(ModelFixture, EmptyAndLongNamesAreDistinctRecords) {
 }
 
 TEST_F(ModelFixture, SameNameNeverCreatesAnOverload) {
-  ASSERT_EQ(function_symbol_add_parameter(f, TYPE_INT), FUNCTION_TABLE_OK);
-  ASSERT_EQ(function_symbol_add_parameter(f, TYPE_STRING), FUNCTION_TABLE_OK);
+  ASSERT_NE(AddParameter(f, "a", TYPE_INT), nullptr);
+  Symbol *second = AddParameter(f, "b", TYPE_STRING);
+  ASSERT_NE(second, nullptr);
   f->is_defined = true;
   f->has_explicit_return_type = true;
-  ASSERT_EQ(type_entity_resolve(&f->return_type, TYPE_REAL), TYPE_RESOLVE_OK);
+  ASSERT_EQ(type_entity_resolve(&f->return_type, type_scalar(TYPE_REAL)),
+            TYPE_RESOLVE_OK);
 
   FunctionSymbol *again = nullptr;
   ASSERT_EQ(function_table_get_or_create(&table, "f", &again),
@@ -623,9 +650,10 @@ TEST_F(ModelFixture, SameNameNeverCreatesAnOverload) {
   EXPECT_EQ(again, f);
   EXPECT_EQ(table.function_count, 1U);
   ASSERT_EQ(again->argument_count, 2U);
-  EXPECT_EQ(again->parameter_types[1], TYPE_STRING);
+  EXPECT_EQ(again->parameters[1], second);
+  EXPECT_TRUE(type_is_scalar(again->parameters[1]->type.type, TYPE_STRING));
   EXPECT_TRUE(again->is_defined);
-  EXPECT_EQ(again->return_type.type, TYPE_REAL);
+  EXPECT_TRUE(type_equal(again->return_type.type, type_scalar(TYPE_REAL)));
 }
 
 TEST_F(ModelFixture, FailedGetOrCreateResetsOutParameter) {
@@ -648,21 +676,27 @@ TEST_F(ModelFixture, ParameterListsOfZeroOneAndManyTypes) {
   ASSERT_EQ(function_table_get_or_create(&table, "one", &one),
             FUNCTION_TABLE_OK);
   EXPECT_EQ(none->argument_count, 0U);
-  EXPECT_EQ(none->parameter_types, nullptr);
-  ASSERT_EQ(function_symbol_add_parameter(one, TYPE_ANY), FUNCTION_TABLE_OK);
+  EXPECT_EQ(none->parameters, nullptr);
+  Symbol *only = AddParameter(one, "p", TYPE_ANY);
+  ASSERT_NE(only, nullptr);
   ASSERT_EQ(one->argument_count, 1U);
-  EXPECT_EQ(one->parameter_types[0], TYPE_ANY);
-  const DataType all[] = {TYPE_UNIT, TYPE_BOOL, TYPE_ANY,   TYPE_UNKNOWN,
+  EXPECT_EQ(one->parameters[0], only);
+  EXPECT_TRUE(type_is_scalar(one->parameters[0]->type.type, TYPE_ANY));
+  const BaseType all[] = {TYPE_UNIT, TYPE_BOOL, TYPE_ANY,   TYPE_UNKNOWN,
                           TYPE_INT,  TYPE_REAL, TYPE_STRING};
   for (size_t round = 0U; round < 100U; round++) {
-    for (DataType type : all) {
-      ASSERT_EQ(function_symbol_add_parameter(f, type), FUNCTION_TABLE_OK);
+    for (size_t k = 0U; k < 7U; k++) {
+      const std::string name = "p" + std::to_string(round * 7U + k);
+      ASSERT_NE(AddParameter(f, name, all[k]), nullptr) << name;
     }
   }
   ASSERT_EQ(f->argument_count, 700U);
   EXPECT_GE(f->parameter_capacity, 700U);
   for (size_t i = 0U; i < f->argument_count; i++) {
-    EXPECT_EQ(f->parameter_types[i], all[i % 7U]) << i;
+    EXPECT_STREQ(f->parameters[i]->name, ("p" + std::to_string(i)).c_str());
+    EXPECT_TRUE(type_equal(f->parameters[i]->type.type,
+                           type_scalar(all[i % 7U])))
+        << i;
   }
   EXPECT_EQ(none->argument_count, 0U);
 }
@@ -705,12 +739,12 @@ namespace {
 
 /** Fills @p fn with every owned part: params, callees, scope, AST, deps. */
 bool PopulateFunction(FunctionSymbol *fn, FunctionSymbol *callee) {
-  bool ok = function_symbol_add_parameter(fn, TYPE_INT) == FUNCTION_TABLE_OK;
+  bool ok = AddParameter(fn, "param", TYPE_INT) != nullptr;
   ok &= function_symbol_add_callee(fn, callee) == FUNCTION_TABLE_OK;
   SymbolTable *scope = function_symbol_create_local_scope(fn);
   Symbol *local = nullptr;
   ok &= scope != nullptr &&
-        symbol_table_define(scope, "local", TYPE_UNKNOWN, true, false,
+        symbol_table_define(scope, "local", type_unknown(), true, false,
                             &local) == SYMTABLE_OK;
   ok &= local != nullptr && type_entity_depend(&fn->return_type,
                                                &local->type) == TYPE_RESOLVE_OK;
