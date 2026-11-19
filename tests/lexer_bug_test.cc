@@ -89,9 +89,13 @@ TEST_F(LexerBugTest, UnterminatedBlockCommentIsLexicalError) {
 }
 
 TEST_F(LexerBugTest, WhitespaceBeforeFirstTokenIsSkipped) {
-  // Spec 2: only whitespace and comments may precede the prolog.
-  open("  import");
-  expect_token(TOKEN_KW_IMPORT);
+  // Spec 2: only whitespace and comments may precede the prolog, also on its
+  // own line. source_preprocess removes them with the prolog (as in main.c).
+  char source[] = " /* c */\timport ifj26.*\nx";
+  ASSERT_EQ(source_preprocess(source), PREPROCESS_OK);
+  open(source);
+  expect_token(TOKEN_NEWLINE);
+  expect_identifier("x");
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
 }
 

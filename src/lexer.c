@@ -436,7 +436,9 @@ static void skip_inline_whitespace(Lexer *lexer) {
  */
 static void update_indent_delta(Lexer *lexer, const char *newline_lexeme) {
   const char *last_newline = strrchr(newline_lexeme, '\n');
-  size_t indent = strlen(last_newline + 1);
+  /// A whitespace-only last line is blank, so it does not indent; the file
+  /// ends as if it ended with a plain newline.
+  size_t indent = lexer->lookahead == EOF ? 0U : strlen(last_newline + 1);
 
   if (indent > lexer->current_indent) {
     lexer->pending_indent_delta = (ptrdiff_t)(indent - lexer->current_indent);
@@ -484,8 +486,16 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
     state = next_state;
   }
 
+  /// A tab is an error only at the start of a non-empty line; a newline
+  /// suffix with tabs that runs to EOF is a blank last line.
+  bool final = lexer_dfa_final_token(state, &token_type);
+  if (!final && state == STATE_NEWLINE_TABS && lexer->lookahead == EOF) {
+    token_type = TOKEN_NEWLINE;
+    final = true;
+  }
+
   /// If the state is not final return invalid token
-  if (!lexer_dfa_final_token(state, &token_type)) {
+  if (!final) {
     if (lexer->lookahead == EOF || lexer->lookahead == '\0') {
       ERROR_ORIGIN_AT(token->line, token->column, builder.text,
                       "invalid token: unexpected end of input");
