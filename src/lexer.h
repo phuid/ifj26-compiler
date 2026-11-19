@@ -144,7 +144,9 @@ typedef enum {
  * @ref lexer_pls or by @ref lexer_destroy.
  */
 typedef struct {
-  FILE *input;
+  char *input_str;
+  size_t input_str_pos;
+
   int lookahead;
   Token token;
   size_t line;
@@ -160,10 +162,10 @@ typedef struct {
 /**
  * @brief Initializes a lexer and reads its initial lookahead byte.
  * @param lexer Lexer storage to initialize.
- * @param input Open stream borrowed until @ref lexer_destroy.
+ * @param input_str Borrowed, null-terminated string of characters to tokenize.
  * @return LEXER_OK or LEXER_INVALID_ARGUMENT.
  */
-LexerStatus lexer_init(Lexer *lexer, FILE *input);
+LexerStatus lexer_init(Lexer *lexer, char *input_str);
 
 /**
  * @brief Adjusts the current indentation level.

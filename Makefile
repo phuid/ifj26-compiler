@@ -15,7 +15,7 @@ build: $(SOURCES)
 	gcc -Wall -Wextra -std=c11 -g $(SOURCES) -o ifj26-compiler
 
 run: build
-	./ifj26-compiler > prg.code
+	./ifj26-compiler < prog.ifj26 > prg.code
 	./ic26int prg.code < prg.in > prg.out
 
 test: build configure

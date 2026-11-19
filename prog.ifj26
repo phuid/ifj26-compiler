@@ -1,3 +1,5 @@
+import ifj26.*
+
 def test2(number: Int): Int =
     print(number)
     return 0

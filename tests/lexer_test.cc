@@ -1,4 +1,4 @@
-#include <cstdio>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -8,24 +8,14 @@ extern "C" {
 
 namespace {
 
-/*
- * AI-generated test block — temporary input stream fixture.
- * Model: gpt-5.6-terra (OpenAI Codex via Hermes Agent).
- * Prompt:
- *   Implement only stream_from below for GoogleTest. Write a NUL-terminated
- *   input string to a temporary FILE, rewind it, and return nullptr if creation
- *   fails. The helper must not own the returned stream after the test closes
- * it.
- */
-/** Creates a rewinded temporary stream containing text. */
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return nullptr;
+/** Creates a NUL-terminated source buffer containing text. */
+std::vector<char> source_from(const char *text) {
+  std::vector<char> source;
+  for (; *text != '\0'; ++text) {
+    source.push_back(*text);
   }
-  fputs(text, stream);
-  rewind(stream);
-  return stream;
+  source.push_back('\0');
+  return source;
 }
 
 struct ExpectedToken {
@@ -35,11 +25,10 @@ struct ExpectedToken {
 
 void expect_token_sequence(const char *input, const ExpectedToken *expected,
                            size_t expected_count) {
-  FILE *stream = stream_from(input);
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from(input);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   for (size_t index = 0U; index < expected_count; index += 1U) {
     ASSERT_EQ(lexer_pls(&lexer), LEXER_OK) << index;
     EXPECT_EQ(lexer.token.type, expected[index].type) << index;
@@ -51,7 +40,6 @@ void expect_token_sequence(const char *input, const ExpectedToken *expected,
 
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 } // namespace
@@ -65,11 +53,10 @@ void expect_token_sequence(const char *input, const ExpectedToken *expected,
  *   Double with a following digit. Check lexeme, value, and source position.
  */
 TEST(LexerTest, PeriodIsDotWhenNotFollowedByDigit) {
-  FILE *stream = stream_from(".");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from(".");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_DOT);
@@ -79,15 +66,13 @@ TEST(LexerTest, PeriodIsDotWhenNotFollowedByDigit) {
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, CurrentIndentCanBeAdjustedSafely) {
-  FILE *stream = stream_from("");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   EXPECT_EQ(lexer_change_current_indent(&lexer, 4), LEXER_OK);
   EXPECT_EQ(lexer.current_indent, 4U);
@@ -97,15 +82,13 @@ TEST(LexerTest, CurrentIndentCanBeAdjustedSafely) {
   EXPECT_EQ(lexer.current_indent, 1U);
 
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, PeriodFollowedByDigitIsDouble) {
-  FILE *stream = stream_from(".5");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from(".5");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
@@ -113,7 +96,6 @@ TEST(LexerTest, PeriodFollowedByDigitIsDouble) {
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 /*
@@ -124,14 +106,13 @@ TEST(LexerTest, PeriodFollowedByDigitIsDouble) {
  *   and IFJ26 specification §1.1: separators occur only between digits, an
  *   integer retains its original lexeme and parsed value, and a decimal may
  *   use separators, exponent sign, and d/D suffix. Do not test other lexer
- *   states. Use GoogleTest and existing stream_from/token_destroy helpers.
+ *   states. Use GoogleTest and existing source_from/token_destroy helpers.
  */
 TEST(LexerTest, IntegerWithDigitSeparatorsIsInteger) {
-  FILE *stream = stream_from("1_000_000");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("1_000_000");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_INT);
@@ -139,15 +120,13 @@ TEST(LexerTest, IntegerWithDigitSeparatorsIsInteger) {
 
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, DecimalWithExponentSuffixAndSeparatorsIsDouble) {
-  FILE *stream = stream_from("1_2.3_4e+5_6D");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("1_2.3_4e+5_6D");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_DOUBLE);
@@ -155,19 +134,16 @@ TEST(LexerTest, DecimalWithExponentSuffixAndSeparatorsIsDouble) {
 
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, SeparatorMustBeBetweenDigits) {
-  FILE *stream = stream_from("12_");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("12_");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 /*
@@ -297,11 +273,10 @@ TEST(LexerTest, NumericFinalStatesAcceptBoundaryForms) {
 
   for (const NumericCase &numeric_case : cases) {
     SCOPED_TRACE(numeric_case.input);
-    FILE *stream = stream_from(numeric_case.input);
-    ASSERT_NE(stream, nullptr);
+    std::vector<char> source = source_from(numeric_case.input);
 
     Lexer lexer;
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
     ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
     EXPECT_EQ(lexer.token.type, numeric_case.type);
     if (numeric_case.type == TOKEN_INT) {
@@ -312,7 +287,6 @@ TEST(LexerTest, NumericFinalStatesAcceptBoundaryForms) {
     }
     EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
     lexer_destroy(&lexer);
-    fclose(stream);
   }
 }
 
@@ -323,23 +297,20 @@ TEST(LexerTest, IncompleteNumericFormsAreLexicalErrors) {
 
   for (const char *input : inputs) {
     SCOPED_TRACE(input);
-    FILE *stream = stream_from(input);
-    ASSERT_NE(stream, nullptr);
+    std::vector<char> source = source_from(input);
 
     Lexer lexer;
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
     EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
-    fclose(stream);
   }
 }
 
 TEST(LexerTest, NumericFinalStatesPreserveFollowingToken) {
-  FILE *stream = stream_from("42foo 1.5bar 2e3+");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("42foo 1.5bar 2e3+");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
 
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_INT);
@@ -361,21 +332,18 @@ TEST(LexerTest, NumericFinalStatesPreserveFollowingToken) {
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
 
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, NormalStringAcceptsEverySpecifiedEscape) {
-  FILE *stream = stream_from("\"\\\\\\\"\\n\\r\\t\"");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("\"\\\\\\\"\\n\\r\\t\"");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_STRING);
   EXPECT_STREQ(lexer.token.value.string_value, "\"\\\\\\\"\\n\\r\\t\"");
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, InvalidOrUnterminatedNormalStringIsLexicalError) {
@@ -384,41 +352,35 @@ TEST(LexerTest, InvalidOrUnterminatedNormalStringIsLexicalError) {
 
   for (const char *input : inputs) {
     SCOPED_TRACE(input);
-    FILE *stream = stream_from(input);
-    ASSERT_NE(stream, nullptr);
+    std::vector<char> source = source_from(input);
 
     Lexer lexer;
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
     EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
-    fclose(stream);
   }
 }
 
 TEST(LexerTest, MultilineStringAllowsQuotesAndLiteralEscapes) {
-  FILE *stream = stream_from("\"\"\"one\"\"two\\q\nthree\"\"\"");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("\"\"\"one\"\"two\\q\nthree\"\"\"");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_STRING);
   EXPECT_STREQ(lexer.token.value.string_value,
                "\"\"\"one\"\"two\\q\nthree\"\"\"");
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, UnterminatedMultilineStringIsLexicalError) {
-  FILE *stream = stream_from("\"\"\"unterminated");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("\"\"\"unterminated");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, IdentifierMayStartWithUnderscoreWhenNotWildcard) {
@@ -436,14 +398,12 @@ TEST(LexerTest, IncompleteMandatoryPrefixesAreLexicalErrors) {
 
   for (const char *input : inputs) {
     SCOPED_TRACE(input);
-    FILE *stream = stream_from(input);
-    ASSERT_NE(stream, nullptr);
+    std::vector<char> source = source_from(input);
 
     Lexer lexer;
-    ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+    ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
     EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
     lexer_destroy(&lexer);
-    fclose(stream);
   }
 }
 
@@ -479,23 +439,20 @@ TEST(LexerTest, IgnoresHorizontalWhitespaceInsideLine) {
 }
 
 TEST(LexerTest, RejectsTabsInPrefixOfNonemptyLine) {
-  FILE *stream = stream_from("a\n \tb");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("a\n \tb");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, TokensReportPositionsAcrossNewline) {
-  FILE *stream = stream_from("\"a\"\nxyz");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("\"a\"\nxyz");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_STRING);
   EXPECT_EQ(lexer.token.line, 1U);
@@ -510,15 +467,13 @@ TEST(LexerTest, TokensReportPositionsAcrossNewline) {
   EXPECT_EQ(lexer.token.column, 1U);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, LookaheadTokenIsInvalidAfterInitAndEofAtEnd) {
-  FILE *stream = stream_from("x");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("x");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_INVALID);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_IDENTIFIER);
@@ -527,20 +482,17 @@ TEST(LexerTest, LookaheadTokenIsInvalidAfterInitAndEofAtEnd) {
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   EXPECT_EQ(lexer.token.type, TOKEN_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerTest, LookaheadTokenIsInvalidAfterLexicalError) {
-  FILE *stream = stream_from("abc &");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("abc &");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
   EXPECT_EQ(lexer.token.type, TOKEN_INVALID);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(LexerKeywordTest, KeywordsBecomeKeywordTokens) {
@@ -559,11 +511,10 @@ TEST(LexerKeywordTest, KeywordsBecomeKeywordTokens) {
 }
 
 TEST(LexerKeywordTest, KeywordTokenOwnsItsSpelling) {
-  FILE *stream = stream_from("while ");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("while ");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   ASSERT_EQ(lexer_pls(&lexer), LEXER_OK);
   EXPECT_EQ(lexer.token.type, TOKEN_KW_WHILE);
   EXPECT_STREQ(lexer.token.value.string_value, "while");
@@ -571,7 +522,6 @@ TEST(LexerKeywordTest, KeywordTokenOwnsItsSpelling) {
   EXPECT_EQ(lexer.token.column, 1U);
   EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 /* Whether `(` may follow a keyword is decided by the parser, not the lexer. */
