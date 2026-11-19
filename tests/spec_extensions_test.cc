@@ -30,7 +30,7 @@ extern "C" {
 #include "../src/keyword.h"
 #include "../src/lexer.h"
 #include "../src/parser.h"
-// psa.h has no include guard and is force-included (C linkage) by the build.
+#include "../src/psa.h"
 #include "../src/semantic.h"
 #include "../src/symtable.h"
 }

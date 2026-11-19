@@ -11,6 +11,10 @@
 #ifndef SOURCE_PREPROCESS_H
 #define SOURCE_PREPROCESS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   PREPROCESS_OK = 0,        ///< Preprocessing succeeded.
   PREPROCESS_MALFORMED = 1, ///< Malformed input (e.g., unclosed comment).
@@ -33,5 +37,9 @@ typedef enum {
  * internal error.
  */
 PreprocessStatus source_preprocess(char *source_buffer);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
