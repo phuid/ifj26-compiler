@@ -1,0 +1,8 @@
+// AI-generated test - call result passed directly as an argument (valid with FUNEXP).
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that are errors only in the base language and become valid with FUNEXP, BOOLTHEN or CONTROL (plan-e2e.md 3.7).
+import ifj26.*
+
+@main def run(): Unit =
+  val s = "abc"
+  print(strLength(s))
