@@ -18,8 +18,8 @@ TEST(PreprocessTest, PrologWithWhitespace) {
   int result = source_preprocess(source_buffer);
   ASSERT_EQ(result, 0); // Expecting return value 0 for success
   ASSERT_STREQ(source_buffer,
-               "   \nint main() { return 0 }"); // Expecting prolog and leading
-                                                // whitespace removed
+               "\nint main() { return 0 }"); // Expecting prolog and leading
+                                             // whitespace removed
 }
 
 TEST(PreprocessTest, PrologWithLeadingWhitespace) {

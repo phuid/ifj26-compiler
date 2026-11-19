@@ -284,14 +284,12 @@ static PreprocessStatus remove_prolog(char *source, size_t *length) {
   static const char first_word[] = "import";
   static const char second_word[] = "ifj26.*";
   size_t position = 0;
-  size_t prolog_start;
   size_t word_index;
 
   /* Skip whitespace before the prolog. */
   while (is_whitespace(source[position])) {
     position++;
   }
-  prolog_start = position;
   /* Reject a source whose first token is not the prolog. */
   if (strncmp(source + position, first_word, sizeof(first_word) - 1) != 0) {
     return PREPROCESS_MISSING_PROLOG;
@@ -322,13 +320,11 @@ static PreprocessStatus remove_prolog(char *source, size_t *length) {
   if (source[position] != '\0' && source[position] != '\n') {
     return PREPROCESS_MISSING_PROLOG; // syntax error
   }
-  /* Remove the prolog and leading whitespace while retaining the newline. */
-  /* Keep same-line indentation but discard whitespace from prior lines. */
-  if (memchr(source, '\n', prolog_start) != NULL) {
-    prolog_start = 0;
-  }
-  memmove(source + prolog_start, source + position, *length - position + 1);
-  *length = prolog_start + *length - position;
+  /* Remove the prolog and all whitespace before it, retaining the newline, so
+   * the result is empty or starts with a newline and the lexer never sees
+   * whitespace before the first line break. */
+  memmove(source, source + position, *length - position + 1);
+  *length -= position;
   return PREPROCESS_OK;
 }
 
