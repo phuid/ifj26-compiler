@@ -1636,10 +1636,11 @@ p_member_suffix(Lexer *lexer, Program *program, FunctionSymbol *function,
 }
 
 /**
- * @brief Parses a primary operand followed by any number of indexing suffixes.
- * @details Indexing is completed before the operand enters precedence parsing,
- * giving it higher precedence than unary and binary operators. Repeated
- * suffixes wrap the preceding result from left to right.
+ * @brief Parses a primary operand with suffixes and prefix operators.
+ * @details Prefix operators recurse so repeated unary operators associate from
+ * the right. Indexing and member suffixes are completed before the operand
+ * enters binary precedence parsing; repeated suffixes wrap the preceding
+ * result from left to right.
  */
 static ParserStatus p_operand(Lexer *lexer, Program *program,
                               FunctionSymbol *function, SymbolTable *scope,
@@ -1653,9 +1654,69 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
   }
 
   ASTNode *operand_node = NULL;
-  ParserStatus status =
-      p_primary(lexer, program, function, scope, &operand_node,
-                consume_newlines_indents, indentation_level);
+  ParserStatus status = PARSER_OK;
+
+  /// Parse prefix operators recursively so chains associate from the right.
+  if (lexer->token.type == TOKEN_MINUS || lexer->token.type == TOKEN_PLUS ||
+      lexer->token.type == TOKEN_NOT) {
+    TokenType unary_op = lexer->token.type;
+    size_t unary_line = lexer->token.line;
+    size_t unary_column = lexer->token.column;
+
+    status = parser_advance(lexer);
+    if (status != PARSER_OK) {
+      return status;
+    }
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        ERROR_TRACE("after a unary operator");
+        return status;
+      }
+    }
+
+    status = p_operand(lexer, program, function, scope, &operand_node,
+                       consume_newlines_indents, indentation_level);
+    if (status != PARSER_OK) {
+      ast_node_destroy(operand_node);
+      return status;
+    }
+
+    /// Unary `+` needs no wrapper because it does not change the operand.
+    if (unary_op == TOKEN_NOT) {
+      ASTNode *not_node =
+          ast_node_create_not(operand_node, unary_line, unary_column);
+      if (not_node == NULL) {
+        ERROR_INTERNAL("failed to allocate a '!' node");
+        ast_node_destroy(operand_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+      operand_node = not_node;
+    } else if (unary_op == TOKEN_MINUS) {
+      /// The AST has no unary-minus kind, so represent negation as `0 - x`.
+      ASTNode *zero_node = ast_node_create_int(0, unary_line, unary_column);
+      if (zero_node == NULL) {
+        ERROR_INTERNAL("failed to allocate a negation node");
+        ast_node_destroy(operand_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+      ASTNode *neg_node = ast_node_create_binary_op(
+          AST_SUBTRACT, zero_node, operand_node, unary_line, unary_column);
+      if (neg_node == NULL) {
+        ERROR_INTERNAL("failed to allocate a negation node");
+        ast_node_destroy(zero_node);
+        ast_node_destroy(operand_node);
+        return PARSER_INTERNAL_ERROR;
+      }
+      operand_node = neg_node;
+    }
+
+    *return_node = operand_node;
+    return PARSER_OK;
+  }
+
+  status = p_primary(lexer, program, function, scope, &operand_node,
+                     consume_newlines_indents, indentation_level);
   if (status != PARSER_OK) {
     ast_node_destroy(operand_node);
     return status;
@@ -1778,39 +1839,6 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
         }
       }
 
-      TokenType unary_op = TOKEN_INVALID;
-      size_t unary_line = 0;
-      size_t unary_column = 0;
-
-      /// `+`, `-`, and `!` have their prefix meaning only while an operand is
-      /// expected. Save the operator and its source position before consuming
-      /// it.
-      if (lexer->token.type == TOKEN_MINUS || lexer->token.type == TOKEN_PLUS ||
-          lexer->token.type == TOKEN_NOT) {
-        unary_op = lexer->token.type;
-        unary_line = lexer->token.line;
-        unary_column = lexer->token.column;
-
-        /// Consume the unary operator now; its operand must be available
-        /// before the corresponding AST wrapper can be created.
-        status = parser_advance(lexer);
-        if (status != PARSER_OK) {
-          terminal_stack_cleanup_nodes(&stack);
-          return status;
-        }
-
-        /// Layout between a unary operator and its operand is governed by the
-        /// same multiline-expression rule as layout before the operator.
-        if (consume_newlines_indents) {
-          status = parser_consume_newlines(lexer, false, true, local_indent);
-          if (status != PARSER_OK) {
-            ERROR_TRACE("after a unary operator");
-            terminal_stack_cleanup_nodes(&stack);
-            return status;
-          }
-        }
-      }
-
       /// Delegate one primary operand to p_operand. It consumes that operand
       /// and any nested syntax it owns, leaving the next operator or
       /// delimiter as the current lookahead token.
@@ -1830,39 +1858,6 @@ static ParserStatus p_expression(Lexer *lexer, Program *program,
         ERROR_INTERNAL("operand produced no node");
         terminal_stack_cleanup_nodes(&stack);
         return PARSER_INTERNAL_ERROR;
-      }
-
-      /// Wrap the now-complete operand in the saved unary operation. Unary
-      /// `+` needs no wrapper because it does not change the operand's value.
-      if (unary_op == TOKEN_NOT) {
-        ASTNode *not_node =
-            ast_node_create_not(operand_node, unary_line, unary_column);
-        if (not_node == NULL) {
-          ERROR_INTERNAL("failed to allocate a '!' node");
-          ast_node_destroy(operand_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return PARSER_INTERNAL_ERROR;
-        }
-        operand_node = not_node;
-      } else if (unary_op == TOKEN_MINUS) {
-        /// The AST has no unary-minus kind, so represent negation as `0 - x`.
-        ASTNode *zero_node = ast_node_create_int(0, unary_line, unary_column);
-        if (zero_node == NULL) {
-          ERROR_INTERNAL("failed to allocate a negation node");
-          ast_node_destroy(operand_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return PARSER_INTERNAL_ERROR;
-        }
-        ASTNode *neg_node = ast_node_create_binary_op(
-            AST_SUBTRACT, zero_node, operand_node, unary_line, unary_column);
-        if (neg_node == NULL) {
-          ERROR_INTERNAL("failed to allocate a negation node");
-          ast_node_destroy(zero_node);
-          ast_node_destroy(operand_node);
-          terminal_stack_cleanup_nodes(&stack);
-          return PARSER_INTERNAL_ERROR;
-        }
-        operand_node = neg_node;
       }
 
       /// Store the completed operand as a nonterminal stack item. A
