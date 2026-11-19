@@ -14,7 +14,12 @@
 
 const char whitespace_chars[] = {' ', '\t', '\n', '\r'};
 
-/* Check whether c is one of the source language whitespace characters. */
+/**
+ * @brief Checks whether a character is source-language whitespace.
+ * @param c Character to test.
+ * @return @c true if @p c is a space, tab, newline, or carriage return;
+ * otherwise @c false.
+ */
 bool is_whitespace(char c) {
   size_t index;
 
@@ -271,10 +276,11 @@ static bool strip_comments(const char *source, size_t source_length,
  *
  * @param source Mutable, null-terminated source text.
  * @param length In/out length of @p source, excluding its null terminator.
- * @return @c 0 on success, @c 1 for invalid trailing content, or @c 2 when
- *         the required prolog is missing or malformed.
+ * @return @c PREPROCESS_OK on success, @c PREPROCESS_MALFORMED for invalid
+ * trailing content, or @c PREPROCESS_MISSING_PROLOG when the required prolog is
+ * missing or malformed.
  */
-static int remove_prolog(char *source, size_t *length) {
+static PreprocessStatus remove_prolog(char *source, size_t *length) {
   static const char first_word[] = "import";
   static const char second_word[] = "ifj26.*";
   size_t position = 0;
@@ -288,12 +294,12 @@ static int remove_prolog(char *source, size_t *length) {
   prolog_start = position;
   /* Reject a source whose first token is not the prolog. */
   if (strncmp(source + position, first_word, sizeof(first_word) - 1) != 0) {
-    return 2;
+    return PREPROCESS_MISSING_PROLOG;
   }
   position += sizeof(first_word) - 1;
   /* Require at least one whitespace character between prolog words. */
   if (!is_whitespace(source[position])) {
-    return 2;
+    return PREPROCESS_MISSING_PROLOG;
   }
   /* Skip whitespace between the prolog words. */
   while (is_whitespace(source[position])) {
@@ -304,7 +310,7 @@ static int remove_prolog(char *source, size_t *length) {
     /* Reject a mismatch in the second prolog word. */
     if (position + word_index >= *length ||
         source[position + word_index] != second_word[word_index]) {
-      return 2;
+      return PREPROCESS_MISSING_PROLOG;
     }
   }
   position += word_index;
@@ -314,7 +320,7 @@ static int remove_prolog(char *source, size_t *length) {
   }
   /* Reject non-whitespace characters before the required line ending. */
   if (source[position] != '\0' && source[position] != '\n') {
-    return 1;
+    return PREPROCESS_MALFORMED;
   }
   /* Remove the prolog and leading whitespace while retaining the newline. */
   /* Keep same-line indentation but discard whitespace from prior lines. */
@@ -323,11 +329,11 @@ static int remove_prolog(char *source, size_t *length) {
   }
   memmove(source + prolog_start, source + position, *length - position + 1);
   *length = prolog_start + *length - position;
-  return 0;
+  return PREPROCESS_OK;
 }
 
 /* Preprocess source_buffer in place without partial changes on errors. */
-int source_preprocess(char *source_buffer) {
+PreprocessStatus source_preprocess(char *source_buffer) {
   size_t original_length;
   size_t output_length = 0;
   char *processed;
@@ -336,24 +342,24 @@ int source_preprocess(char *source_buffer) {
   /* Reject a null input pointer. */
   if (source_buffer == NULL) {
     fprintf(stderr, "source_preprocess: source buffer is null\n");
-    return 99;
+    return PREPROCESS_INTERNAL_ERROR;
   }
   original_length = strlen(source_buffer);
   processed = malloc(original_length + 1);
   /* Report allocation failure without modifying the input buffer. */
   if (processed == NULL) {
     fprintf(stderr, "source_preprocess: allocation failed\n");
-    return 99;
+    return PREPROCESS_INTERNAL_ERROR;
   }
   /* Validate and strip comments into temporary storage. */
   if (!strip_comments(source_buffer, original_length, processed,
                       &output_length)) {
     free(processed);
-    return 1;
+    return PREPROCESS_MALFORMED;
   }
   /* Validate and remove the prolog from the temporary result. */
   result = remove_prolog(processed, &output_length);
-  if (result != 0) {
+  if (result != PREPROCESS_OK) {
     free(processed);
     return result;
   }
@@ -361,10 +367,10 @@ int source_preprocess(char *source_buffer) {
   if (output_length > original_length) {
     fprintf(stderr, "source_preprocess: processed string is too long\n");
     free(processed);
-    return 99;
+    return PREPROCESS_INTERNAL_ERROR;
   }
   /* Commit the result only after every validation step succeeds. */
   memcpy(source_buffer, processed, output_length + 1);
   free(processed);
-  return 0;
+  return PREPROCESS_OK;
 }

@@ -24,6 +24,7 @@ typedef enum {
   /** Placeholder parameter type of builtins accepting any value (print, toStr).
    */
   TYPE_ANY,
+  TYPE_ANY_LIST
 } BaseType;
 
 /**

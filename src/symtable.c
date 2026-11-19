@@ -58,6 +58,7 @@ static void *symbol_copy(const void *value) {
   type_entity_init(&copy->type);
   copy->type.type = source->type.type;
   copy->initialized = source->initialized;
+  copy->assembler_suffix = source->assembler_suffix;
   copy->constant = source->constant;
   copy->owner = source->owner;
   return copy;
@@ -179,6 +180,7 @@ SymbolTableStatus symbol_table_define(SymbolTable *table, const char *name,
 
   /// Create a temporary candidate symbol to insert into the BVS.
   candidate.name = (char *)name;
+  candidate.assembler_suffix = -1;
   type_entity_init(&candidate.type);
   candidate.type.type = type;
   candidate.initialized = initialized;

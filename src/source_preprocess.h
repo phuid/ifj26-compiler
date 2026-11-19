@@ -11,16 +11,13 @@
 #ifndef SOURCE_PREPROCESS_H
 #define SOURCE_PREPROCESS_H
 
-/** Source-language whitespace characters recognized by the preprocessor. */
-extern const char whitespace_chars[];
-
-/**
- * @brief Checks whether a character is source-language whitespace.
- * @param c Character to test.
- * @return @c true if @p c is a space, tab, newline, or carriage return;
- * otherwise @c false.
- */
-bool is_whitespace(char c);
+typedef enum {
+  PREPROCESS_OK = 0,        ///< Preprocessing succeeded.
+  PREPROCESS_MALFORMED = 1, ///< Malformed input (e.g., unclosed comment).
+  PREPROCESS_MISSING_PROLOG =
+      2, ///< Required import prolog is missing or invalid.
+  PREPROCESS_INTERNAL_ERROR = 99 ///< Internal error (e.g., null buffer).
+} PreprocessStatus;
 
 /**
  * @brief Removes comments and the required import prolog in place.
@@ -35,6 +32,6 @@ bool is_whitespace(char c);
  * prolog is missing or invalid, or @c 99 for a null buffer or another
  * internal error.
  */
-int source_preprocess(char *source_buffer);
+PreprocessStatus source_preprocess(char *source_buffer);
 
 #endif

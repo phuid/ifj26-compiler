@@ -3,8 +3,8 @@
  * @brief Parser and semantic tests of while and for loops.
  */
 
-#include <cstdio>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -21,12 +21,12 @@ const char *const kMainFunction = "@main def added_main(): Unit =\n"
 
 /**
  * @brief Owns one parsed program (a valid main function is prepended).
- * @details Keeps the lexer, the program and the input stream alive, so the
+ * @details Keeps the lexer, the program and the source buffer alive, so the
  * AST can be inspected after parsing.
  */
 class LoopTest : public ::testing::Test {
 protected:
-  FILE *stream = nullptr;
+  std::vector<char> source;
   Lexer lexer{};
   Program program{};
   bool lexer_ready = false;
@@ -36,21 +36,17 @@ protected:
     if (lexer_ready) {
       lexer_destroy(&lexer);
     }
-    if (stream != nullptr) {
-      fclose(stream);
-    }
   }
 
   /** Parses @p text preceded by a valid main function. */
   ParserStatus parse(const char *text) {
-    std::string source = std::string(kMainFunction) + text;
-    stream = tmpfile();
-    if (stream == nullptr) {
-      return PARSER_INTERNAL_ERROR;
+    std::string source_text = std::string(kMainFunction) + text;
+    source.clear();
+    for (char c : source_text) {
+      source.push_back(c);
     }
-    fputs(source.c_str(), stream);
-    rewind(stream);
-    if (lexer_init(&lexer, stream) != LEXER_OK) {
+    source.push_back('\0');
+    if (lexer_init(&lexer, source.data()) != LEXER_OK) {
       return PARSER_INTERNAL_ERROR;
     }
     lexer_ready = true;
@@ -295,7 +291,7 @@ TEST_F(LoopTest, ForMultilineHeaderWithGuards) {
             0);
 
   ASTNode *body = body_of("foo");
-  ASSERT_EQ(body->data.block.statement_count, 3U);
+  ASSERT_EQ(body->data.block.statement_count, 4U);
   ASTNode *loop = body->data.block.statements[1];
   ASSERT_EQ(loop->kind, AST_FOR);
   EXPECT_EQ(loop->data.for_loop.iterable->kind, AST_UNTIL);

@@ -6,12 +6,20 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/ifj26-compiler",
-            "cwd": "${workspaceFolder}/src",
+            "args": [],
+            "cwd": "${workspaceFolder}",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
-            "preLaunchTask": "make"
+            "preLaunchTask": "make",
+            "setupCommands": [
+                {
+                    "description": "Redirect stdin",
+                    "text": "set exec-wrapper sh -c 'exec \"$@\" < prog.ifj26' sh",
+                    "ignoreFailures": false
+                }
+            ]
         }
     ]
 }

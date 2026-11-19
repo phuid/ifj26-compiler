@@ -34,15 +34,6 @@ DataType type_list(DataType element_type) {
   return element_type;
 }
 
-DataType type_member(DataType list) {
-  if (!type_is_list(list)) {
-    return type_unknown();
-  }
-
-  list.list_depth -= 1U;
-  return list;
-}
-
 bool type_is_unknown(DataType type) {
   return type.base == TYPE_UNKNOWN && type.list_depth == 0U;
 }

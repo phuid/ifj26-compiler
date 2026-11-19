@@ -1,5 +1,5 @@
-#include <cstdio>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -10,14 +10,14 @@ extern "C" {
 
 namespace {
 
-FILE *stream_from(const char *text) {
-  FILE *stream = tmpfile();
-  if (stream == nullptr) {
-    return nullptr;
+/** Creates a NUL-terminated source buffer containing text. */
+std::vector<char> source_from(const char *text) {
+  std::vector<char> source;
+  for (; *text != '\0'; ++text) {
+    source.push_back(*text);
   }
-  fputs(text, stream);
-  rewind(stream);
-  return stream;
+  source.push_back('\0');
+  return source;
 }
 
 /** Valid main function added to parsed test programs. */
@@ -25,34 +25,30 @@ const char *const kMainFunction = "@main def added_main(): Unit =\n"
                                   "  return\n";
 
 /**
- * @brief Like @ref stream_from, but prepends a valid main function.
+ * @brief Like @ref source_from, but prepends a valid main function.
  * @details Keeps the missing-main error (code 3) out of tests aimed at other
  * constructs. The main function goes first so that @p text keeps its exact
  * ending (e.g. no trailing newline).
  */
-FILE *stream_with_main(const char *text) {
-  return stream_from((std::string(kMainFunction) + text).c_str());
+std::vector<char> source_with_main(const char *text) {
+  return source_from((std::string(kMainFunction) + text).c_str());
 }
 
 /**
- * @brief Like @ref stream_from, but appends a valid main function.
+ * @brief Like @ref source_from, but appends a valid main function.
  * @details Used by error tests: every error in @p text is detected before the
  * appended main, and an `@main` in @p text stays the first one.
  */
-FILE *stream_with_main_after(const char *text) {
-  return stream_from((std::string(text) + "\n" + kMainFunction).c_str());
+std::vector<char> source_with_main_after(const char *text) {
+  return source_from((std::string(text) + "\n" + kMainFunction).c_str());
 }
 
 /// Parses @p text preceded by a valid main function and returns only the
 /// parser status. Prepending keeps the exact ending of @p text.
 ParserStatus parse_status(const char *text) {
-  FILE *stream = stream_with_main(text);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> source = source_with_main(text);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, source.data()) != LEXER_OK) {
     return PARSER_INTERNAL_ERROR;
   }
   Program program;
@@ -62,20 +58,15 @@ ParserStatus parse_status(const char *text) {
   }
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return status;
 }
 
 /// Parses @p text preceded by a valid main function and, when parsing
 /// succeeds, runs the semantic pass. Returns the compiler exit code.
 int compile_status(const char *text) {
-  FILE *stream = stream_with_main(text);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> source = source_with_main(text);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, source.data()) != LEXER_OK) {
     return PARSER_INTERNAL_ERROR;
   }
   Program program;
@@ -89,18 +80,16 @@ int compile_status(const char *text) {
   }
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return code;
 }
 
 } // namespace
 
 TEST(ParserDirectLexerTest, EmptyInputMissesMainFunction) {
-  FILE *stream = stream_from("");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_UNDEFINED_ERROR);
@@ -108,16 +97,14 @@ TEST(ParserDirectLexerTest, EmptyInputMissesMainFunction) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, IfOperandIsMarkedAsExpression) {
-  FILE *stream =
-      stream_with_main("def foo() =\n  val value = if true then 1 else 2");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n  val value = if true then 1 else 2");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -135,16 +122,14 @@ TEST(ParserDirectLexerTest, IfOperandIsMarkedAsExpression) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ElseIfOperandCreatesNestedConditional) {
-  FILE *stream = stream_with_main(
+  std::vector<char> source = source_with_main(
       "def foo() =\n  val value = if true then 1 else if false then 2 else 3");
-  ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -168,16 +153,14 @@ TEST(ParserDirectLexerTest, ElseIfOperandCreatesNestedConditional) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, IfExpressionMarksNestedBranchesAsExpressions) {
-  FILE *stream = stream_with_main(
+  std::vector<char> source = source_with_main(
       "def foo() =\n  val value = if true then if false then 1 else 2 else 3");
-  ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -199,34 +182,31 @@ TEST(ParserDirectLexerTest, IfExpressionMarksNestedBranchesAsExpressions) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ElseIfOperandWithoutFinalElseIsAllowed) {
-  FILE *stream = stream_with_main(
+  std::vector<char> source = source_with_main(
       "def foo() =\n  val value = if true then 1 else if false then 2");
-  ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
-  FILE *stream = stream_with_main("def foo() =\n"
-                                  "  val value = (if true then 1 else\n"
-                                  "    if false then 2 else\n"
-                                  "    if true then 3 else 4)");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n"
+                       "  val value = (if true then 1 else\n"
+                       "    if false then 2 else\n"
+                       "    if true then 3 else 4)");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -251,16 +231,15 @@ TEST(ParserDirectLexerTest, ParenthesizedElseIfCanStartOnNextLine) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, TrailingIfStatementInBlockIsNotAnExpression) {
-  FILE *stream = stream_with_main("def foo() =\n  if true then return\n"
-                                  "  if false then return\n  else return");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n  if true then return\n"
+                       "  if false then return\n  else return");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -279,46 +258,42 @@ TEST(ParserDirectLexerTest, TrailingIfStatementInBlockIsNotAnExpression) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, IfOperandWithoutElseIsAllowed) {
-  FILE *stream = stream_with_main("def foo() =\n  val value = if true then 1");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n  val value = if true then 1");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, LastIfStatementWithoutElseIsAllowed) {
-  FILE *stream = stream_with_main("def foo() =\n  if true then return");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n  if true then return");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
-  FILE *stream = stream_with_main(
+  std::vector<char> source = source_with_main(
       "def consume(matrix: List[List[List[Int]]]) =\n  return");
-  ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -334,32 +309,28 @@ TEST(ParserDirectLexerTest, ParsesMultidimensionalListTypeAnnotations) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, RejectsMalformedNestedListTypeAnnotation) {
-  FILE *stream =
-      stream_with_main("def consume(matrix: List[List[Int]) =\n  return");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def consume(matrix: List[List[Int]) =\n  return");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_SYNTAX_ERROR);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ChainedIndexingWrapsThePreviousResult) {
-  FILE *stream = stream_with_main(
+  std::vector<char> source = source_with_main(
       "def index(matrix: List[List[Int]]) =\n  val value = matrix(0)(1)");
-  ASSERT_NE(stream, nullptr);
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -387,15 +358,14 @@ TEST(ParserDirectLexerTest, ChainedIndexingWrapsThePreviousResult) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, IndexesListConstructorResult) {
-  FILE *stream = stream_with_main("def make() =\n  val value = List(1, 2)(0)");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def make() =\n  val value = List(1, 2)(0)");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -418,18 +388,16 @@ TEST(ParserDirectLexerTest, IndexesListConstructorResult) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, IndexesFunctionCallResult) {
-  FILE *stream = stream_with_main("def getItems() =\n"
-                                  "  return List(1, 2)\n"
-                                  "def use() =\n"
-                                  "  val value = getItems()(0)");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_with_main("def getItems() =\n"
+                                              "  return List(1, 2)\n"
+                                              "def use() =\n"
+                                              "  val value = getItems()(0)");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -450,39 +418,36 @@ TEST(ParserDirectLexerTest, IndexesFunctionCallResult) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ParsesMultilinePostfixIndexes) {
-  FILE *stream = stream_with_main("def index(matrix: List[List[Int]]) =\n"
-                                  "  val value = matrix(\n"
-                                  "    0\n"
-                                  "    )(\n"
-                                  "    1\n"
-                                  "    )");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def index(matrix: List[List[Int]]) =\n"
+                       "  val value = matrix(\n"
+                       "    0\n"
+                       "    )(\n"
+                       "    1\n"
+                       "    )");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_OK);
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
-  FILE *stream = stream_with_main("def make() =\n"
-                                  "  val value = (\n"
-                                  "    List(1, 2)\n"
-                                  "    (0)\n"
-                                  "    )");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_with_main("def make() =\n"
+                                              "  val value = (\n"
+                                              "    List(1, 2)\n"
+                                              "    (0)\n"
+                                              "    )");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -500,7 +465,6 @@ TEST(ParserDirectLexerTest, PostfixIndexCanFollowNewlineInsideParentheses) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 namespace {
@@ -510,25 +474,19 @@ namespace {
  * @return The parser status.
  */
 ParserStatus parse_text(const char *text) {
-  FILE *stream = stream_with_main_after(text);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> source = source_with_main_after(text);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, source.data()) != LEXER_OK) {
     return PARSER_INTERNAL_ERROR;
   }
   Program program;
   if (program_init(&program) != PARSER_OK) {
     lexer_destroy(&lexer);
-    fclose(stream);
     return PARSER_INTERNAL_ERROR;
   }
   ParserStatus status = p_program(&lexer, &program);
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return status;
 }
 
@@ -547,16 +505,14 @@ TEST(ParserErrorTest, StatusValuesAreExitCodes) {
 }
 
 TEST(ParserErrorTest, MissingMainIsUndefined) {
-  FILE *stream = stream_from("def f(): Unit =\n  return\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_from("def f(): Unit =\n  return\n");
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   EXPECT_EQ(p_program(&lexer, &program), PARSER_UNDEFINED_ERROR);
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserErrorTest, DuplicateParameterIsRedefinition) {
@@ -757,12 +713,11 @@ TEST(ParserDirectLexerTest, SemicolonAfterIfOperand) {
 }
 
 TEST(ParserDirectLexerTest, SemicolonEndsOneLineIfStatement) {
-  FILE *stream =
-      stream_with_main("def foo() =\n  if true then val a = 1; val b = 2\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source =
+      source_with_main("def foo() =\n  if true then val a = 1; val b = 2\n");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -781,7 +736,6 @@ TEST(ParserDirectLexerTest, SemicolonEndsOneLineIfStatement) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, RejectsSemicolonStartingLineAfterBlockBranch) {
@@ -798,16 +752,15 @@ TEST(ParserDirectLexerTest, RejectsSemicolonStartingLineAfterBlockBranch) {
 }
 
 TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
-  FILE *stream = stream_with_main("def foo() =\n"
-                                  "  if true then\n"
-                                  "    val a = 1\n"
-                                  "  else\n"
-                                  "    val b = 2\n"
-                                  "  val c = 3\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_with_main("def foo() =\n"
+                                              "  if true then\n"
+                                              "    val a = 1\n"
+                                              "  else\n"
+                                              "    val b = 2\n"
+                                              "  val c = 3\n");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -828,17 +781,15 @@ TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, ParsesAssignmentToVariable) {
-  FILE *stream = stream_with_main("def foo() =\n"
-                                  "  var a = 1\n"
-                                  "  a = 5 + 6\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_with_main("def foo() =\n"
+                                              "  var a = 1\n"
+                                              "  a = 5 + 6\n");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -859,7 +810,6 @@ TEST(ParserDirectLexerTest, ParsesAssignmentToVariable) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, AssignmentAcceptsAnyExpressionOnTheRight) {

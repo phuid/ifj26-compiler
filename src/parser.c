@@ -930,6 +930,160 @@ static ParserStatus p_primary(Lexer *lexer, Program *program,
       }
     }
 
+    if (lexer->token.type == TOKEN_DOT) {
+      /// List.range(1,10,2)
+      status = parser_expect_and_consume(lexer, TOKEN_DOT);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// indentifier
+      if (lexer->token.type != TOKEN_IDENTIFIER) {
+        return PARSER_SYNTAX_ERROR;
+      }
+      const char *method_name = lexer->token.value.string_value;
+      if (strcmp(method_name, "range") != 0) {
+        return PARSER_SYNTAX_ERROR;
+      }
+
+      status = parser_expect_and_consume(lexer, TOKEN_IDENTIFIER);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// Inside parentheses: Consume any number of layout tokens after the '.'
+      if (consume_newlines_indents) {
+        status = parser_consume_newlines(lexer, false, true, indentation_level);
+        if (status != PARSER_OK) {
+          return status;
+        }
+      }
+
+      /// lpar
+      status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      ptrdiff_t local_indent = 0;
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      /// args, convert range(x,y,z) to operators ((x until y) by z)
+      ASTNode *from_expr = NULL;
+      status = p_expression(lexer, program, function, scope, &from_expr, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        return status;
+      }
+
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        return status;
+      }
+
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        return status;
+      }
+
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        return status;
+      }
+
+      /// second argument (until)
+      ASTNode *until_expr = NULL;
+      status = p_expression(lexer, program, function, scope, &until_expr, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        return status;
+      }
+
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        return status;
+      }
+
+      /// third argument is optional
+      ASTNode *by_expr = NULL;
+      if (lexer->token.type == TOKEN_COMMA) {
+        status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+        if (status != PARSER_OK) {
+          ast_node_destroy(from_expr);
+          ast_node_destroy(until_expr);
+          return status;
+        }
+
+        status = parser_consume_newlines(lexer, false, true, &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(from_expr);
+          ast_node_destroy(until_expr);
+          return status;
+        }
+
+        /// third argument (by)
+        status = p_expression(lexer, program, function, scope, &by_expr, true,
+                              &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(from_expr);
+          ast_node_destroy(until_expr);
+          return status;
+        }
+
+        status = parser_consume_newlines(lexer, false, true, &local_indent);
+        if (status != PARSER_OK) {
+          ast_node_destroy(from_expr);
+          ast_node_destroy(until_expr);
+          ast_node_destroy(by_expr);
+          return status;
+        }
+      }
+
+      /// build the expression ((x until y) by z)
+      ASTNode *to_node =
+          ast_node_create_binary_op(AST_UNTIL, from_expr, until_expr,
+                                    lexer->token.line, lexer->token.column);
+      if (to_node == NULL) {
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        ast_node_destroy(by_expr);
+        return PARSER_INTERNAL_ERROR;
+      }
+
+      if (by_expr != NULL) {
+        /// wrap in by operator
+        ASTNode *by_node = ast_node_create_binary_op(
+            AST_BY, to_node, by_expr, lexer->token.line, lexer->token.column);
+        if (by_node == NULL) {
+          ast_node_destroy(to_node);
+          ast_node_destroy(by_expr);
+          return PARSER_INTERNAL_ERROR;
+        }
+        *return_node = by_node;
+      } else {
+        *return_node = to_node;
+      }
+
+      /// rpar
+      status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+      if (status != PARSER_OK) {
+        ast_node_destroy(*return_node);
+        *return_node = NULL;
+        return status;
+      }
+
+      return PARSER_OK;
+    }
+
     ASTNode *list_node = ast_node_create_list_constructor(lexer->token.line,
                                                           lexer->token.column);
 
@@ -1190,6 +1344,97 @@ static ParserStatus p_index_suffix(Lexer *lexer, Program *program,
   return PARSER_OK;
 }
 
+static ParserStatus
+p_member_suffix(Lexer *lexer, Program *program, FunctionSymbol *function,
+                SymbolTable *scope, ASTNode *list_node, ASTNode **return_node,
+                bool consume_newlines_indents, ptrdiff_t *indentation_level) {
+  if (lexer == NULL || program == NULL || scope == NULL || list_node == NULL ||
+      return_node == NULL) {
+    return PARSER_INVALID_ARGUMENT;
+  }
+
+  ParserStatus status = parser_expect_and_consume(lexer, TOKEN_DOT);
+  if (status != PARSER_OK) {
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      ast_node_destroy(list_node);
+      return status;
+    }
+  }
+
+  size_t member_line = lexer->token.line;
+  size_t member_column = lexer->token.column;
+
+  if (lexer->token.type != TOKEN_IDENTIFIER) {
+    ast_node_destroy(list_node);
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  const char *token_name = lexer->token.value.string_value;
+  size_t name_length = strlen(token_name) + 1U;
+  char *name = malloc(name_length + 5); // Extra space for "list$" prefix
+  if (name == NULL) {
+    ast_node_destroy(list_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+  memcpy(name, "list$", 6); // Copy the prefix "list$"
+  memcpy(name + 5, token_name, name_length);
+
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    free(name);
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  FunctionSymbol *called_function = NULL;
+  if (function_table_get_or_create(&program->functions, name,
+                                   &called_function) != FUNCTION_TABLE_OK) {
+    free(name);
+    ast_node_destroy(list_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+  free(name);
+
+  ASTNode *member_node = ast_node_create_function_call(
+      called_function, member_line, member_column);
+  if (member_node == NULL) {
+    ast_node_destroy(list_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  ASTStatus ast_status = ast_node_call_append_argument(member_node, list_node);
+  if (ast_status != AST_OK) {
+    ast_node_destroy(member_node);
+    ast_node_destroy(list_node);
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      ast_node_destroy(member_node);
+      return status;
+    }
+  }
+
+  if (lexer->token.type == TOKEN_LEFT_PAREN) {
+    status = p_call_args(lexer, program, function, scope, member_node);
+    if (status != PARSER_OK) {
+      ast_node_destroy(member_node);
+      return status;
+    }
+  }
+
+  *return_node = member_node;
+  return PARSER_OK;
+}
+
 /**
  * @brief Parses a primary operand followed by any number of indexing suffixes.
  * @details Indexing is completed before the operand enters precedence parsing,
@@ -1224,17 +1469,26 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       }
     }
 
-    if (lexer->token.type != TOKEN_LEFT_PAREN) {
+    if (lexer->token.type == TOKEN_LEFT_PAREN) {
+      ASTNode *indexing_node = NULL;
+      status = p_index_suffix(lexer, program, function, scope, operand_node,
+                              &indexing_node);
+      if (status != PARSER_OK) {
+        return status;
+      }
+      operand_node = indexing_node;
+    } else if (lexer->token.type == TOKEN_DOT) {
+      ASTNode *member_node = NULL;
+      status = p_member_suffix(lexer, program, function, scope, operand_node,
+                               &member_node, consume_newlines_indents,
+                               indentation_level);
+      if (status != PARSER_OK) {
+        return status;
+      }
+      operand_node = member_node;
+    } else {
       break;
     }
-
-    ASTNode *indexing_node = NULL;
-    status = p_index_suffix(lexer, program, function, scope, operand_node,
-                            &indexing_node);
-    if (status != PARSER_OK) {
-      return status;
-    }
-    operand_node = indexing_node;
   }
 
   *return_node = operand_node;
