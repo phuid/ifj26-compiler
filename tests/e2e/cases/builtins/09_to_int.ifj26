@@ -1,0 +1,15 @@
+// AI-generated test - toInt truncates toward zero.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val n = -2.7
+  val a = toInt(2.7)
+  val b = toInt(n)
+  val c = toInt(5.0)
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)

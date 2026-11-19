@@ -1,0 +1,21 @@
+// AI-generated test - Int division rounds toward zero, not toward minus infinity.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val p = 7
+  val n = -7
+  val two = 2
+  val mtwo = -2
+  val a = p / two
+  val b = n / two
+  val c = p / mtwo
+  val d = n / mtwo
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)
+  print(" ")
+  print(d)

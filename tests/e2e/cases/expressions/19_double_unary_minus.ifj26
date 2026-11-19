@@ -1,0 +1,9 @@
+// AI-generated test - two unary minus operators in a row (right associative).
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 4
+  val a = - -x
+  print(a)

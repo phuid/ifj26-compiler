@@ -1,0 +1,38 @@
+// AI-generated test - chain of ten functions, each calling one defined below.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val r = f1(1)
+  print(r)
+  print("\n")
+
+def f1(x: Int) =
+  val r = f2(x)
+  r + 1
+def f2(x: Int) =
+  val r = f3(x)
+  r + 1
+def f3(x: Int) =
+  val r = f4(x)
+  r + 1
+def f4(x: Int) =
+  val r = f5(x)
+  r + 1
+def f5(x: Int) =
+  val r = f6(x)
+  r + 1
+def f6(x: Int) =
+  val r = f7(x)
+  r + 1
+def f7(x: Int) =
+  val r = f8(x)
+  r + 1
+def f8(x: Int) =
+  val r = f9(x)
+  r + 1
+def f9(x: Int) =
+  val r = f10(x)
+  r + 1
+def f10(x: Int) = x * 2

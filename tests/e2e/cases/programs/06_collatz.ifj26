@@ -1,0 +1,17 @@
+// AI-generated test - length of the Collatz sequence.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var n = readInt()
+  var steps = 0
+  while n != 1 do
+    val half = n / 2
+    if half * 2 == n then
+      n = half
+    else
+      n = 3 * n + 1
+    steps = steps + 1
+  print(steps)
+  print("\n")

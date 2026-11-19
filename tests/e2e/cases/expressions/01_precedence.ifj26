@@ -1,0 +1,11 @@
+// AI-generated test - multiplication binds tighter than addition.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = 2 + 3 * 4
+  val b = (2 + 3) * 4
+  print(a)
+  print(" ")
+  print(b)

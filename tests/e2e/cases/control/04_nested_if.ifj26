@@ -1,0 +1,21 @@
+// AI-generated test - if nested in else simulates else-if.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+def classify(n: Int): Unit =
+  if n < 0 then
+    print("neg ")
+  else
+    if n == 0 then
+      print("zero ")
+    else
+      print("pos ")
+
+@main def run(): Unit =
+  val a = -3
+  val b = 0
+  val c = 8
+  classify(a)
+  classify(b)
+  classify(c)

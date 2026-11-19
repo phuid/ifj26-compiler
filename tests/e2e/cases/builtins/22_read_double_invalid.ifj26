@@ -1,0 +1,14 @@
+// AI-generated test - readDouble returns 0 for text and an empty line.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = readDouble()
+  val b = readDouble()
+  val c = readDouble()
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)

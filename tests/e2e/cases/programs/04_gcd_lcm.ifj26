@@ -1,0 +1,24 @@
+// AI-generated test - Euclid algorithm with remainder by formula.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def gcd(x: Int, y: Int): Int =
+  var a = x
+  var b = y
+  while b != 0 do
+    val t = a - (a / b) * b
+    a = b
+    b = t
+  a
+
+@main def run(): Unit =
+  val x = readInt()
+  val y = readInt()
+  val g = gcd(x, y)
+  val l = x / g * y
+  print("gcd=")
+  print(g)
+  print(" lcm=")
+  print(l)
+  print("\n")

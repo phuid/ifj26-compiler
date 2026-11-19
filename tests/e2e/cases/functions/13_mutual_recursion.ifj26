@@ -1,0 +1,24 @@
+// AI-generated test - mutually recursive isEven and isOdd.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def isEven(n: Int): Int =
+  if n == 0 then
+    return 1
+  else
+    val m = n - 1
+    return isOdd(m)
+
+def isOdd(n: Int): Int =
+  if n == 0 then
+    return 0
+  else
+    val m = n - 1
+    return isEven(m)
+
+@main def run(): Unit =
+  val a = isEven(10)
+  val b = isEven(7)
+  print(a)
+  print(b)

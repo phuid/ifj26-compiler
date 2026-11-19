@@ -2,7 +2,7 @@ BUILD_DIR ?= build
 ITESTS ?= ""
 ETESTS ?= ""
 
-.PHONY: all build test clean check doc run
+.PHONY: all configure build test e2e clean check doc run
 
 all: build
 
@@ -26,6 +26,9 @@ run: build
 test: build configure
 	cmake --build $(BUILD_DIR)
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -L $(ITESTS) -E $(ETESTS)
+
+e2e: build
+	IFJ26_COMPILER=./ifj26-compiler ./tests/e2e/run_e2e.sh $(E2E_ARGS)
 
 check: build
 	pre-commit run --files $$(git ls-files -m)

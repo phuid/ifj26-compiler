@@ -1,0 +1,11 @@
+// AI-generated test - Int initializer widened to an annotated Double.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val d: Double = 3
+  val s = toStr(d)
+  print(s)
+  print(" ")
+  print(d)

@@ -1,0 +1,15 @@
+// AI-generated test - call result as initializer and as right side of =.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def inc(x: Int): Int = x + 1
+
+@main def run(): Unit =
+  val a = 1
+  val r = inc(a)
+  var r2 = 0
+  r2 = inc(r)
+  print(r)
+  print(" ")
+  print(r2)

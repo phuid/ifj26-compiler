@@ -1,0 +1,13 @@
+// AI-generated test - last line without LF, then empty string after EOF.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = readLine()
+  val b = readLine()
+  val na = strLength(a)
+  val nb = strLength(b)
+  print(na)
+  print(" ")
+  print(nb)

@@ -1,0 +1,14 @@
+// AI-generated test - sum of decimal digits.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var n = readInt()
+  var sum = 0
+  while n > 0 do
+    val q = n / 10
+    sum = sum + (n - q * 10)
+    n = q
+  print(sum)
+  print("\n")

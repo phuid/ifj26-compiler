@@ -1,0 +1,19 @@
+// AI-generated test - return inside a while body leaves the function.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+def firstSquareAbove(limit: Int): Int =
+  var i = 0
+  while i < 100 do
+    if i * i > limit then
+      return i
+    else
+      ()
+    i = i + 1
+  -1
+
+@main def run(): Unit =
+  val a = 50
+  val r = firstSquareAbove(a)
+  print(r)

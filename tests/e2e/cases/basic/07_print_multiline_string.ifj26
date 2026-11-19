@@ -1,0 +1,9 @@
+// AI-generated test - triple-quoted string keeps newlines and a literal \n.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val s = """A
+    b\n"""
+  print(s)

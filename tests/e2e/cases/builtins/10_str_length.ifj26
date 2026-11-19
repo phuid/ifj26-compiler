@@ -1,0 +1,17 @@
+// AI-generated test - strLength of empty, plain and escaped strings.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = strLength("")
+  val b = strLength("abc")
+  val c = strLength("a\n")
+  val d = strLength("\\\"")
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)
+  print(" ")
+  print(d)

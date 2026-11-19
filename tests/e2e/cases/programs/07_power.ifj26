@@ -1,0 +1,27 @@
+// AI-generated test - fast exponentiation by recursion.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def power(base: Int, exp: Int): Int =
+  if exp == 0 then
+    return 1
+  else
+    ()
+  val halfExp = exp / 2
+  val half = power(base, halfExp)
+  val sq = half * half
+  if halfExp * 2 == exp then
+    return sq
+  else
+    return sq * base
+
+@main def run(): Unit =
+  val b = readInt()
+  val e = readInt()
+  val r = power(b, e)
+  print(r)
+  print("\n")
+  val r2 = power(3, 13)
+  print(r2)
+  print("\n")

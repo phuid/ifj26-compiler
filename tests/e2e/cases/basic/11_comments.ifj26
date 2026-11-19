@@ -1,0 +1,12 @@
+// AI-generated test - line, inline block, multi-line and nested block comments.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+// a line comment
+@main def run(): Unit = // after the header
+  val x = /* inline */ 1
+  /* a block comment
+     over two lines */
+  /* outer /* nested */ still a comment */
+  print(x) // trailing

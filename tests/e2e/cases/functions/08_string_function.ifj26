@@ -1,0 +1,10 @@
+// AI-generated test - function returning a String.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def greet(name: String): String = "Hi " + name
+
+@main def run(): Unit =
+  val r = greet("Bob")
+  print(r)

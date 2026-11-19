@@ -1,0 +1,10 @@
+// AI-generated test - trailing comma directly before ) on the same line.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with syntax error 2 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+def add(a: Int, b: Int): Int = a + b
+
+@main def run(): Unit =
+  val r = add(1, 2,)
+  print(r)

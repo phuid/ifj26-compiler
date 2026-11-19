@@ -75,21 +75,18 @@ void print_LABEL(const char *name, const int suffix) {
 }
 
 void print_DEFVAR(const InstructionOperand operand) {
-  printf("DEFVAR ");
+  printf("DEFVAR");
   print_operands(operand);
-  printf("\n");
 }
 
 void print_PUSHS(const InstructionOperand operand) {
-  printf("PUSHS ");
+  printf("PUSHS");
   print_operands(operand);
-  printf("\n");
 }
 
 void print_POPS(const InstructionOperand operand) {
-  printf("POPS ");
+  printf("POPS");
   print_operands(operand);
-  printf("\n");
 }
 
 void print_ADDS(void) { printf("ADDS\n"); }
@@ -152,7 +149,7 @@ void print_JUMPIFEQS_bool(const char *label, const int suffix,
 
 void print_NEWARRAY(const InstructionOperand array,
                     const InstructionOperand size) {
-  printf("NEWARRAY ");
+  printf("NEWARRAY");
 
   print_operands(array, size);
 }
@@ -160,7 +157,7 @@ void print_NEWARRAY(const InstructionOperand array,
 void print_ARRAYGET(const InstructionOperand target_var,
                     const InstructionOperand array,
                     const InstructionOperand index) {
-  printf("ARRAYGET ");
+  printf("ARRAYGET");
 
   print_operands(target_var, array, index);
 }
@@ -168,28 +165,28 @@ void print_ARRAYGET(const InstructionOperand target_var,
 void print_ARRAYSET(const InstructionOperand array,
                     const InstructionOperand index,
                     const InstructionOperand value) {
-  printf("ARRAYSET ");
+  printf("ARRAYSET");
 
   print_operands(array, index, value);
 }
 
 void print_ADD(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right) {
-  printf("ADD ");
+  printf("ADD");
 
   print_operands(target, left, right);
 }
 
 void print_SUB(const InstructionOperand target, const InstructionOperand left,
                const InstructionOperand right) {
-  printf("SUB ");
+  printf("SUB");
 
   print_operands(target, left, right);
 }
 
 void print_MOVE(const InstructionOperand target,
                 const InstructionOperand source) {
-  printf("MOVE ");
+  printf("MOVE");
 
   print_operands(target, source);
 }
@@ -213,28 +210,28 @@ void print_ISINTS(void) { printf("ISINTS\n"); }
 
 void print_LT(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
-  printf("LT ");
+  printf("LT");
 
   print_operands(target, left, right);
 }
 
 void print_GT(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
-  printf("GT ");
+  printf("GT");
 
   print_operands(target, left, right);
 }
 
 void print_EQ(const InstructionOperand target, const InstructionOperand left,
               const InstructionOperand right) {
-  printf("EQ ");
+  printf("EQ");
 
   print_operands(target, left, right);
 }
 
 void print_IDIV(const InstructionOperand target, const InstructionOperand left,
                 const InstructionOperand right) {
-  printf("IDIV ");
+  printf("IDIV");
 
   print_operands(target, left, right);
 }
@@ -242,7 +239,7 @@ void print_IDIV(const InstructionOperand target, const InstructionOperand left,
 void print_CONCAT(const InstructionOperand target,
                   const InstructionOperand left,
                   const InstructionOperand right) {
-  printf("CONCAT ");
+  printf("CONCAT");
 
   print_operands(target, left, right);
 }

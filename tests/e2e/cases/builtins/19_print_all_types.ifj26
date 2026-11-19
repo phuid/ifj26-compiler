@@ -1,0 +1,10 @@
+// AI-generated test - print of Int, Double, String and Unit with no separator.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  print(7)
+  print(0.5)
+  print("s")
+  print(())

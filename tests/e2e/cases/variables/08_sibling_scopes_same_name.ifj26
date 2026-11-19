@@ -1,0 +1,19 @@
+// AI-generated test - same name defined independently in then and else.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val c = 5
+  if c > 3 then
+    val y = "then"
+    print(y)
+  else
+    val y = 7
+    print(y)
+  if c > 9 then
+    val y = "then"
+    print(y)
+  else
+    val y = 7
+    print(y)

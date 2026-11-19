@@ -1,0 +1,13 @@
+// AI-generated test - outer var assigned inside both branches.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var r = "none"
+  val n = 4
+  if n > 3 then
+    r = "big"
+  else
+    r = "small"
+  print(r)

@@ -1,0 +1,40 @@
+// AI-generated test - all relational operators on Int, both branches.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = 3
+  val b = 5
+  if a < b then
+    print("T")
+  else
+    print("F")
+  if a <= b then
+    print("T")
+  else
+    print("F")
+  if a > b then
+    print("T")
+  else
+    print("F")
+  if a >= b then
+    print("T")
+  else
+    print("F")
+  if a == b then
+    print("T")
+  else
+    print("F")
+  if a != b then
+    print("T")
+  else
+    print("F")
+  if a <= a then
+    print("T")
+  else
+    print("F")
+  if a >= a then
+    print("T")
+  else
+    print("F")

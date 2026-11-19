@@ -1,0 +1,26 @@
+// AI-generated test - relational operators on Double and mixed Int/Double.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  if 1 < 1.5 then
+    print("T")
+  else
+    print("F")
+  if 2 == 2.0 then
+    print("T")
+  else
+    print("F")
+  if 2.5 > 3 then
+    print("T")
+  else
+    print("F")
+  if 0.1 + 0.2 == 0.3 then
+    print("T")
+  else
+    print("F")
+  if 3 != 3.0 then
+    print("T")
+  else
+    print("F")

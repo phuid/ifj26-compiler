@@ -1,0 +1,34 @@
+// AI-generated test - reverse a line with subStr and strLength.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def chomp(s: String): String =
+  val n = strLength(s)
+  if n == 0 then
+    return s
+  else
+    ()
+  val k = n - 1
+  val last = ord(s, k)
+  if last == 10 then
+    return subStr(s, 0, k)
+  else
+    return s
+
+def reverse(s: String): String =
+  var i = strLength(s)
+  var r = ""
+  while i > 0 do
+    val j = i - 1
+    val c = subStr(s, j, i)
+    r = r + c
+    i = j
+  r
+
+@main def run(): Unit =
+  val line = readLine()
+  val s = chomp(line)
+  val r = reverse(s)
+  print(r)
+  print("\n")

@@ -63,3 +63,6 @@ dkms.conf
 *.dwo
 
 *.zip
+
+# E2E expected outputs (overrides *.out above)
+!tests/e2e/cases/**/*.out

@@ -1,0 +1,7 @@
+// AI-generated test - source file without a final line break.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  print("end")

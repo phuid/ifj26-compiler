@@ -1,0 +1,20 @@
+// AI-generated test - Unit functions that only print.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def stars(n: Int): Unit =
+  var i = 0
+  while i < n do
+    print("*")
+    i = i + 1
+  print("\n")
+
+def triangle(height: Int): Unit =
+  var row = 1
+  while row <= height do
+    stars(row)
+    row = row + 1
+
+@main def run(): Unit =
+  triangle(3)

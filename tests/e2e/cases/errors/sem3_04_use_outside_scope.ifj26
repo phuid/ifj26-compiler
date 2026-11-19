@@ -1,0 +1,13 @@
+// AI-generated test - variable from an if branch used after the if.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with semantic errors 3-7 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+@main def run(): Unit =
+  val c = 1
+  if c < 2 then
+    val inner = 5
+    print(inner)
+  else
+    ()
+  print(inner)

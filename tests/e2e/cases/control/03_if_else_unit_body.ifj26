@@ -1,0 +1,12 @@
+// AI-generated test - else branch whose body is ().
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 5
+  if x < 5 then
+    print("small")
+  else
+    ()
+  print("done")

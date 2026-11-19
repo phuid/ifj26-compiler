@@ -1,0 +1,10 @@
+// AI-generated test - two relational operators chained in one condition.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with syntax error 2 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+@main def run(): Unit =
+  if 1 < 2 < 3 then
+    print("a")
+  else
+    print("b")

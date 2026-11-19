@@ -1,0 +1,18 @@
+// AI-generated test - first N Fibonacci numbers.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val n = readInt()
+  var a = 0
+  var b = 1
+  var i = 0
+  while i < n do
+    print(a)
+    print(" ")
+    val next = a + b
+    a = b
+    b = next
+    i = i + 1
+  print("\n")

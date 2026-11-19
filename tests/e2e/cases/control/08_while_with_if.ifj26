@@ -1,0 +1,14 @@
+// AI-generated test - if inside a while loop decides even or odd.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var i = 0
+  while i < 6 do
+    val half = i / 2
+    if half * 2 == i then
+      print("E")
+    else
+      print("O")
+    i = i + 1

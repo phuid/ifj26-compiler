@@ -1,0 +1,14 @@
+// AI-generated test - program prints, then subStr out of range ends it with 40.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val s = "abc"
+  var i = 0
+  while i < 5 do
+    val j = i + 1
+    val c = subStr(s, i, j)
+    print(c)
+    i = i + 1
+  print("unreachable")
