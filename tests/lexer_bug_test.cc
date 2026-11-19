@@ -13,8 +13,8 @@ extern "C" {
  * Model: claude-opus-5-5 (Claude Code).
  * Prompt:
  *   Write GoogleTest cases for lexer behaviour that contradicts
- *   specifikace-jazyka.pdf section 1.1/1.2: comments are not recognised,
- *   whitespace before the first token is rejected, literals with a leading
+ *   specifikace-jazyka.pdf section 1.1/1.2: whitespace before the first
+ *   token is rejected, literals with a leading
  *   zero are split into several tokens, whitespace-only last lines change
  *   the indentation or fail on a tab, a multiline string ending with more
  *   than three quotes is cut short, and an out-of-range Double literal is
@@ -54,30 +54,6 @@ protected:
 };
 
 } // namespace
-
-TEST_F(LexerBugTest, LineCommentIsIgnoredAndCountsAsNewline) {
-  // Spec 1.1: `//` starts a comment up to the end of the line; it is one EOL.
-  open("a // comment\nb");
-  expect_identifier("a");
-  expect_token(TOKEN_NEWLINE);
-  expect_identifier("b");
-  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
-}
-
-TEST_F(LexerBugTest, NestedBlockCommentIsIgnored) {
-  // Spec 1.1: block comments /* */ may be nested.
-  open("a /* x /* y */ z */ b");
-  expect_identifier("a");
-  expect_identifier("b");
-  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
-}
-
-TEST_F(LexerBugTest, UnterminatedBlockCommentIsLexicalError) {
-  // Spec 1.1: an unterminated (also nested) comment is lexical error 1.
-  open("a /* x /* y */");
-  expect_identifier("a");
-  EXPECT_EQ(lexer_pls(&lexer), LEXER_INVALID_TOKEN);
-}
 
 TEST_F(LexerBugTest, WhitespaceBeforeFirstTokenIsSkipped) {
   // Spec 2: only whitespace and comments may precede the prolog.

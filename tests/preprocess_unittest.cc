@@ -261,6 +261,32 @@ TEST(PreprocessTest, EndOfFileLineComment) {
                                      // newline or EOF
 }
 
+TEST(PreprocessTest, LineCommentIsIgnoredAndCountsAsNewline) {
+  char source_buffer[] = "import ifj26.*\na // comment\nb";
+
+  int result = source_preprocess(source_buffer);
+
+  ASSERT_EQ(result, 0);
+  ASSERT_STREQ(source_buffer, "\na \nb");
+}
+
+TEST(PreprocessTest, NestedBlockCommentIsIgnored) {
+  char source_buffer[] = "import ifj26.*\na /* x /* y */ z */ b";
+
+  int result = source_preprocess(source_buffer);
+
+  ASSERT_EQ(result, 0);
+  ASSERT_STREQ(source_buffer, "\na   b");
+}
+
+TEST(PreprocessTest, UnterminatedBlockCommentIsMalformed) {
+  char source_buffer[] = "import ifj26.*\na /* x /* y */";
+
+  int result = source_preprocess(source_buffer);
+
+  ASSERT_EQ(result, 1);
+}
+
 TEST(PreprocessTest, EndOfFileUnclosedBlockComment) {
   char source_buffer[] = "import ifj26.*\n"
                          "int main() { return 0 } /* abc";

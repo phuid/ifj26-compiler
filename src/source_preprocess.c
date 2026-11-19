@@ -7,8 +7,8 @@
  */
 
 #include "source_preprocess.h"
+#include "error_trace.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -320,7 +320,7 @@ static PreprocessStatus remove_prolog(char *source, size_t *length) {
   }
   /* Reject non-whitespace characters before the required line ending. */
   if (source[position] != '\0' && source[position] != '\n') {
-    return PREPROCESS_MALFORMED;
+    return PREPROCESS_MISSING_PROLOG; // syntax error
   }
   /* Remove the prolog and leading whitespace while retaining the newline. */
   /* Keep same-line indentation but discard whitespace from prior lines. */
@@ -341,31 +341,35 @@ PreprocessStatus source_preprocess(char *source_buffer) {
 
   /* Reject a null input pointer. */
   if (source_buffer == NULL) {
-    fprintf(stderr, "source_preprocess: source buffer is null\n");
+    ERROR_ORIGIN_AT(0U, 0U, NULL, "source buffer is null");
     return PREPROCESS_INTERNAL_ERROR;
   }
   original_length = strlen(source_buffer);
   processed = malloc(original_length + 1);
   /* Report allocation failure without modifying the input buffer. */
   if (processed == NULL) {
-    fprintf(stderr, "source_preprocess: allocation failed\n");
+    ERROR_ORIGIN_AT(0U, 0U, NULL, "allocation failed");
     return PREPROCESS_INTERNAL_ERROR;
   }
   /* Validate and strip comments into temporary storage. */
   if (!strip_comments(source_buffer, original_length, processed,
                       &output_length)) {
+    ERROR_ORIGIN_AT(0U, 0U, NULL,
+                    "unterminated string or malformed block comment");
     free(processed);
     return PREPROCESS_MALFORMED;
   }
   /* Validate and remove the prolog from the temporary result. */
   result = remove_prolog(processed, &output_length);
   if (result != PREPROCESS_OK) {
+    ERROR_ORIGIN_AT(0U, 0U, NULL,
+                    "required import prolog is missing or invalid");
     free(processed);
     return result;
   }
   /* Guard the final copy against an unexpected transformation expansion. */
   if (output_length > original_length) {
-    fprintf(stderr, "source_preprocess: processed string is too long\n");
+    ERROR_ORIGIN_AT(0U, 0U, NULL, "processed string is too long");
     free(processed);
     return PREPROCESS_INTERNAL_ERROR;
   }
