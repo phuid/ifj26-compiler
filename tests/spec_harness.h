@@ -18,6 +18,7 @@
 #include <cstring>
 #include <string>
 
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -28,7 +29,8 @@ extern "C" {
 }
 
 /*
- * Status -> exit code mapping (spec chapter 6), checked against src/*.h:
+ * Status -> exit code mapping (spec chapter 6), checked against the headers in
+ * src/:
  *
  *   ParserStatus (parser.h)        exit code
  *   PARSER_OK                      -> run semantic_check, see below
@@ -53,6 +55,60 @@ extern "C" {
  *   IFJ26_CRASH   (-1)  the compiler was killed by a signal (e.g. SIGSEGV)
  *   IFJ26_TIMEOUT (-2)  the compiler did not finish within the time limit
  */
+
+/*
+ * AI-generated test block — legend of root-cause IDs used by spec_*_test.cc.
+ * Model: claude-opus-5-5 (Claude Code).
+ * Prompt:
+ *   List every RC-* identifier that the "Fails today:" comments of the spec
+ *   conformance tests refer to, one line each: where the cause lives and what
+ *   is wrong compared with the specification.
+ *
+ *   RC-PROLOG       parser.c p_program: `import ifj26.*` is not parsed, every
+ *                   program with the prolog ends with 2 (spec 2).
+ *   RC-NOPROLOG-OK  parser.c p_program: a missing prolog is accepted and an
+ *                   empty source ends with 3 instead of 2 (spec 2).
+ *   RC-EXPR         parser.c p_expression is a stub: it consumes nothing and
+ *                   returns no node, so val/var gives 99 and an if condition
+ *                   or return value gives 2 (spec 2.2, 2.4, 3).
+ *   RC-CRASH,       parser.c p_statement/p_code_block: a statement starting
+ *   RC-STMT-CRASH   with a term (call, literal, identifier) dereferences NULL
+ *                   (SIGSEGV, harness -1) (spec 2.1).
+ *   RC-ASSIGN       parser.c p_statement: no production for `id = expr`
+ *                   (spec 2.2).
+ *   RC-WHILE        parser.c/ast.h/semantic.c: no while production, no loop
+ *                   node and no Unit type for it (spec 2.5, 2.3 rule 2).
+ *   RC-ONELINE      parser.c p_function: a one-line body is not parsed
+ *                   (spec 2.3).
+ *   RC-EMPTYBODY    parser.c p_function: `=` followed by EOF leaves a NULL
+ *                   body and ends with 99 instead of 2 (spec 2.1, ch. 6).
+ *   RC-PSTATUS      parser.h ParserStatus: one PARSER_SEMANTIC_ERROR for
+ *                   codes 3/4/5/6, the harness reports -3 (ch. 6).
+ *   RC-SEMI         parser.c: `;` between statements is rejected (spec 1.2).
+ *   RC-TOPNL        parser.c p_program: blank lines at the top level are not
+ *                   skipped (spec 1.2, 2).
+ *   RC-PSA          psa.c: get_precedence is a stub and there is no PSA
+ *                   driver (spec 3).
+ *   RC-UNARY        psa.h/ast.h/semantic.c: unary minus has no terminal, AST
+ *                   node or typing rule (spec 3).
+ *   RC-PARENNL      psa/parser: NEWLINE/INDENT/DEDENT inside parentheses of
+ *                   an expression are not skipped (spec 1.2).
+ *   RC-ANNOT-USE    parser.c/semantic.c: an annotated variable is usable in
+ *                   or before its own definition, no error 3 (spec 2.2).
+ *   RC-COMMENT      lexer: line comments and nested block comments are not
+ *                   recognised (spec 1.1).
+ *   RC-LEADWS       lexer.c: white space at the start of the file is a
+ *                   lexical error (spec 2).
+ *   RC-WSEOF        lexer.c update_indent_delta: a last line of spaces emits
+ *                   INDENT (spec 1.2).
+ *   RC-LEADZERO     lexer_dfa.c STATE_INT0: `007` and `00.5` split into
+ *                   several tokens instead of one error/one Double (spec 1.1).
+ *   RC-DBLRANGE     lexer.c finish_token: strtod without range check accepts
+ *                   Double literals outside binary64 (spec 1.1).
+ *   RC-EXT-*        extensions (spec 5): RC-EXT-BOOLTHEN, RC-EXT-CONTROL,
+ *                   RC-EXT-VALMEM-LEX, RC-EXT-SYNTAX name the missing lexer,
+ *                   parser and semantic support of the extension.
+ */
 constexpr int IFJ26_CRASH = -1;
 constexpr int IFJ26_TIMEOUT = -2;
 constexpr int IFJ26_PARSER_SEMANTIC = -3;
@@ -67,6 +123,8 @@ constexpr unsigned kIfj26TimeLimitSeconds = 2U;
 constexpr int kIfj26ChildParserSemantic = 100;
 
 /** Maps a parser status (other than PARSER_OK) to a chapter 6 exit code. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Wswitch-enum"
 inline int ifj26_code_from_parser(ParserStatus status) {
   switch (status) {
   case PARSER_OK:
@@ -77,10 +135,14 @@ inline int ifj26_code_from_parser(ParserStatus status) {
     return 2;
   case PARSER_SEMANTIC_ERROR:
     return IFJ26_PARSER_SEMANTIC;
+  case PARSER_INVALID_ARGUMENT:
+  case PARSER_INTERNAL_ERROR:
+    return 99;
   default:
     return 99;
   }
 }
+#pragma GCC diagnostic pop
 
 /** Maps a semantic status to a chapter 6 exit code. */
 inline int ifj26_code_from_semantic(SemanticStatus status) {
@@ -123,6 +185,23 @@ inline int ifj26_code_from_wait(int wait_status) {
 }
 
 /**
+ * Resets what the child inherits from the test process: default actions and
+ * no blocking for the signals the harness reports, and no core dumps.
+ */
+inline void ifj26_prepare_child() {
+  struct rlimit no_core = {0, 0};
+  setrlimit(RLIMIT_CORE, &no_core);
+  const int reported[] = {SIGALRM, SIGSEGV, SIGABRT, SIGBUS, SIGFPE};
+  sigset_t unblocked;
+  sigemptyset(&unblocked);
+  for (int sig : reported) {
+    signal(sig, SIG_DFL);
+    sigaddset(&unblocked, sig);
+  }
+  sigprocmask(SIG_UNBLOCK, &unblocked, nullptr);
+}
+
+/**
  * Compiles @p source exactly as given (no prolog is added) in a forked child
  * and returns the exit code of spec chapter 6 or a harness-only result.
  */
@@ -134,6 +213,7 @@ inline int ifj26_exit_code_raw(const char *source) {
     return 99;
   }
   if (child == 0) {
+    ifj26_prepare_child();
     alarm(kIfj26TimeLimitSeconds);
     int code = ifj26_exit_code_in_process(source);
     exit(code == IFJ26_PARSER_SEMANTIC ? kIfj26ChildParserSemantic : code);
