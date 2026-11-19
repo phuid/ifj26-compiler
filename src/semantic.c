@@ -275,20 +275,51 @@ static bool is_numeric(DataType type) {
 }
 
 /**
- * @brief Tells whether @p node is an empty list literal `List()`.
- * @details Its element type cannot be inferred from the elements; it takes
- * the type expected by the context.
+ * @brief Tells whether @p node is a list expression whose element type is not
+ * known at compile time.
+ * @details This is a static property, not a runtime one: `List(1).drop(5)` is
+ * empty at runtime but has the known type List[Int]. Only a literal `List()`
+ * lacks an element type; the list-preserving builtins (`drop`, `tail`, `slice`
+ * and `take`) retain this property of their receiver. The element type is
+ * supplied later by the context where the expression is used.
  */
-static bool is_empty_list(const ASTNode *node) {
-  return node->kind == AST_LIST_CONSTRUCTOR &&
-         node->data.call.argument_count == 0U;
+static bool has_unknown_element_type(const ASTNode *node) {
+
+  /// Null node is not a list
+  if (node == NULL) {
+    return false;
+  }
+
+  /// If the node is a list constructor with no arguments, it has an unknown
+  /// element type.
+  if (node->kind == AST_LIST_CONSTRUCTOR) {
+    return node->data.call.argument_count == 0U;
+  }
+
+  /// Apart from `List()`, only a call can carry an unknown element type: a
+  /// list-preserving builtin (drop, take, slice, tail) applied to such a
+  /// receiver. Method calls are parsed as calls with the receiver passed as
+  /// arguments[0]. Any other node kind has a known type (or is an error
+  /// reported elsewhere).
+  /// The argument_count check guards the arguments[0] access below; calls
+  /// without arguments (e.g. readLine()) get here before the callee is checked.
+  if (node->kind != AST_FUNCTION_CALL || node->data.call.argument_count == 0U) {
+    return false;
+  }
+
+  const FunctionSymbol *callee = node->data.call.function;
+  bool callee_returns_list =
+      callee != NULL && callee->is_builtin &&
+      type_is_scalar(callee->return_type.type, TYPE_ANY_LIST);
+  return callee_returns_list &&
+         has_unknown_element_type(node->data.call.arguments[0]);
 }
 
 /**
  * @brief Makes the expression in @p slot usable where @p to is expected.
  * @details Same type is accepted as is; Int is widened to Double by wrapping
  * the expression in an AST_IMPLICIT_INT_TO_REAL node (the only implicit
- * conversion of IFJ26). An empty `List()` takes any expected list type.
+ * conversion of IFJ26). An empty-list expression takes any expected list type.
  * Anything else yields @p mismatch.
  * @param slot Slot holding the expression; rewritten when a conversion is
  * inserted.
@@ -314,7 +345,7 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
     *slot = conversion;
     return SEMANTIC_OK;
   }
-  if (is_empty_list(*slot) && type_is_list(to)) {
+  if (has_unknown_element_type(*slot) && type_is_list(to)) {
     (*slot)->inferred_type.type = to;
     return SEMANTIC_OK;
   }
@@ -464,9 +495,20 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
       return status;
     }
 
+    //// A TYPE_ANY_LIST parameter takes any list (inferable) value without
+    /// conversion.
+    if (type_is_scalar(parameter_type, TYPE_ANY_LIST)) {
+      if (!type_is_list(argument_type) &&
+          !has_unknown_element_type(node->data.call.arguments[index])) {
+        return SEMANTIC_TYPE_ERROR; /// e.g. head(42)
+      }
+      continue;
+    }
+
     /// A TYPE_ANY parameter takes any (inferable) value without conversion.
     if (type_is_scalar(parameter_type, TYPE_ANY)) {
-      if (type_is_unknown(argument_type)) {
+      if (type_is_unknown(argument_type) &&
+          !has_unknown_element_type(node->data.call.arguments[index])) {
         return SEMANTIC_TYPE_ERROR; /// e.g. print(List())
       }
       continue;
@@ -486,7 +528,38 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
       return status;
     }
   }
-  *out_type = callee->return_type.type;
+
+  if (type_is_scalar(callee->return_type.type, TYPE_ANY_LIST)) {
+    if (!callee->is_builtin) {
+      return SEMANTIC_INTERNAL_ERROR; /// Only builtins can have TYPE_ANY_LIST.
+    }
+
+    /// The result is a list of the same type as the first argument passed
+    /// to the builtin. Empty-list expressions remain unknown here;
+    /// has_unknown_element_type() follows these calls so their context can
+    /// supply the element type.
+    *out_type = node->data.call.arguments[0]->inferred_type.type;
+  } else if (type_is_scalar(callee->return_type.type, TYPE_ANY)) {
+    /// if the functions return type is TYPE_ANY and its first argument is a
+    /// list, the return type is the element type of that list
+
+    if (!callee->is_builtin) {
+      return SEMANTIC_INTERNAL_ERROR; /// Only builtins can return TYPE_ANY.
+    }
+
+    /// The result is the element type of the first argument passed to the
+    /// builtin.
+    DataType element_type;
+    if (!type_element_type(node->data.call.arguments[0]->inferred_type.type,
+                           &element_type)) {
+      /// Return SEMANTIC_ERROR if the first argument is not a list or an empty
+      /// untyped list
+      return SEMANTIC_TYPE_ERROR;
+    }
+    *out_type = element_type;
+  } else {
+    *out_type = callee->return_type.type;
+  }
   return SEMANTIC_OK;
 }
 
@@ -584,11 +657,12 @@ static SemanticStatus check_binary(SemanticContext *ctx,
 
   case AST_LIST_CONCAT:
     /// `++` joins two lists of the same type; `List()` takes the other's type.
-    if (type_is_list(left) && is_empty_list(node->data.binary_op.right)) {
+    if (type_is_list(left) &&
+        has_unknown_element_type(node->data.binary_op.right)) {
       right = left;
       node->data.binary_op.right->inferred_type.type = left;
     } else if (type_is_list(right) &&
-               is_empty_list(node->data.binary_op.left)) {
+               has_unknown_element_type(node->data.binary_op.left)) {
       left = right;
       node->data.binary_op.left->inferred_type.type = right;
     }
@@ -781,7 +855,7 @@ static SemanticStatus if_result(ASTNode *node, BodyResult *out_result) {
  * @param function Function containing the expression.
  * @param slot Slot holding the expression to check.
  * @param out_type Receives the computed type on success; unknown only for an
- * empty `List()`.
+ * empty-list expression whose element type has not been supplied by context.
  * @return SEMANTIC_OK, SEMANTIC_UNDEFINED for a variable used in its own
  * initialization, SEMANTIC_INTERNAL_ERROR for a statement node, or an error
  * from a nested check.

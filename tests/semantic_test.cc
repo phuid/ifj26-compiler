@@ -441,6 +441,25 @@ TEST_F(SemanticTest, EmptyListTakesAnnotatedType) {
   EXPECT_EQ(check(), SEMANTIC_OK);
 }
 
+TEST_F(SemanticTest, EmptyListPropagatesThroughListPreservingBuiltins) {
+  // val e: List[String] = List().drop(1).tail().take(2).slice(0, 1)
+  FunctionSymbol *m = def_main();
+  Symbol *e = nullptr;
+  symbol_table_define(m->local_scope, "e", type_list(type_scalar(TYPE_STRING)),
+                      true, true, &e);
+
+  ASTNode *value = call(ref("list$drop"),
+                        {ast_node_create_list_constructor(1, 1), integer(1)});
+  value = call(ref("list$tail"), {value});
+  value = call(ref("list$take"), {value, integer(2)});
+  value = call(ref("list$slice"), {value, integer(0), integer(1)});
+  add(m, define(e, value));
+
+  ASSERT_EQ(check(), SEMANTIC_OK);
+  EXPECT_TRUE(type_equal(value->inferred_type.type,
+                         type_list(type_scalar(TYPE_STRING))));
+}
+
 namespace {
 /// Last statement of a block.
 ASTNode *last(ASTNode *block) {

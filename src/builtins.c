@@ -260,9 +260,54 @@ static const BuiltinSignature chr = {.name = "chr",
                                          "POPFRAME\n"
                                          "RETURN\n"};
 
+static const BuiltinSignature listDrop = {
+    .name = "list$drop",
+    .return_type = TYPE_ANY_LIST,
+    .parameter_count = 2U,
+    .parameters = {TYPE_ANY_LIST, TYPE_INT},
+    .assembler_code = ""};
+
+static const BuiltinSignature listTake = {
+    .name = "list$take",
+    .return_type = TYPE_ANY_LIST,
+    .parameter_count = 2U,
+    .parameters = {TYPE_ANY_LIST, TYPE_INT},
+    .assembler_code = ""};
+
+static const BuiltinSignature listSlice = {
+    .name = "list$slice",
+    .return_type = TYPE_ANY_LIST,
+    .parameter_count = 3U,
+    .parameters = {TYPE_ANY_LIST, TYPE_INT, TYPE_INT},
+    .assembler_code = ""};
+
+static const BuiltinSignature listHead = {.name = "list$head",
+                                          .return_type = TYPE_ANY,
+                                          .parameter_count = 1U,
+                                          .parameters = {TYPE_ANY_LIST},
+                                          .assembler_code = ""};
+
+static const BuiltinSignature listTail = {.name = "list$tail",
+                                          .return_type = TYPE_ANY_LIST,
+                                          .parameter_count = 1U,
+                                          .parameters = {TYPE_ANY_LIST},
+                                          .assembler_code = ""};
+
+static const BuiltinSignature listToString = {.name = "list$toString",
+                                              .return_type = TYPE_STRING,
+                                              .parameter_count = 1U,
+                                              .parameters = {TYPE_ANY_LIST},
+                                              .assembler_code = ""};
+
+static const BuiltinSignature listToList = {.name = "list$toList",
+                                            .return_type = TYPE_ANY_LIST,
+                                            .parameter_count = 1U,
+                                            .parameters = {TYPE_ANY_LIST},
+                                            .assembler_code = ""};
+
 const BuiltinSignature BUILTINS[] = {
-    print, readLine,  readInt, readDouble, readBoolean, toStr,
-    toInt, strLength, subStr,  ord,        chr,
-};
+    print,    readLine,  readInt,  readDouble, readBoolean,  toStr,
+    toInt,    strLength, subStr,   ord,        chr,          listDrop,
+    listTake, listSlice, listHead, listTail,   listToString, listToList};
 
 const size_t BUILTIN_COUNT = sizeof(BUILTINS) / sizeof(BUILTINS[0]);
