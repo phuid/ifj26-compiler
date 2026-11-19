@@ -1,0 +1,12 @@
+// AI-generated test - var reassigned with a literal and with itself.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var x = 1
+  print(x)
+  x = 2
+  print(x)
+  x = x + 1
+  print(x)

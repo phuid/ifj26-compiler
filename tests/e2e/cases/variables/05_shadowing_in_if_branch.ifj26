@@ -1,0 +1,13 @@
+// AI-generated test - shadowing inside an if branch ends with the branch.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 1
+  if x < 2 then
+    val x = "inner"
+    print(x)
+  else
+    ()
+  print(x)

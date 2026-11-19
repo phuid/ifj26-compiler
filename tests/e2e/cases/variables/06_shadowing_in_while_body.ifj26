@@ -1,0 +1,13 @@
+// AI-generated test - shadowing inside a while body.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var i = 0
+  val x = 10
+  while i < 2 do
+    val x = i
+    print(x)
+    i = i + 1
+  print(x)
