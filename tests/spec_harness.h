@@ -37,12 +37,12 @@ extern "C" {
  *   PARSER_LEXER_ERROR             -> 1   (every LexerStatus error is folded
  *                                          into this one by the parser)
  *   PARSER_SYNTAX_ERROR            -> 2
- *   PARSER_SEMANTIC_ERROR          -> IFJ26_PARSER_SEMANTIC (-3): the parser
- *                                     uses one status for an undefined
- *                                     variable (3), a redefinition (4), a
- *                                     parameter of @main (5) and a type
- *                                     conflict (6), so no single code of
- *                                     chapter 6 can be derived from it
+ *   PARSER_UNDEFINED_ERROR         -> 3
+ *   PARSER_REDEFINITION_ERROR      -> 4
+ *   PARSER_BAD_CALL_ERROR          -> 5
+ *   PARSER_TYPE_ERROR              -> 6
+ *   (IFJ26_PARSER_SEMANTIC (-3) is kept only for the old single
+ *    PARSER_SEMANTIC_ERROR status; the parser no longer produces it)
  *   PARSER_INVALID_ARGUMENT        -> 99
  *   PARSER_INTERNAL_ERROR          -> 99
  *
@@ -133,8 +133,14 @@ inline int ifj26_code_from_parser(ParserStatus status) {
     return 1;
   case PARSER_SYNTAX_ERROR:
     return 2;
-  case PARSER_SEMANTIC_ERROR:
-    return IFJ26_PARSER_SEMANTIC;
+  case PARSER_UNDEFINED_ERROR:
+    return 3;
+  case PARSER_REDEFINITION_ERROR:
+    return 4;
+  case PARSER_BAD_CALL_ERROR:
+    return 5;
+  case PARSER_TYPE_ERROR:
+    return 6;
   case PARSER_INVALID_ARGUMENT:
   case PARSER_INTERNAL_ERROR:
     return 99;
