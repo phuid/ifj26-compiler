@@ -1,0 +1,11 @@
+// AI-generated test - true condition runs only the then branch.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 1
+  if x < 2 then
+    print("then")
+  else
+    print("else")

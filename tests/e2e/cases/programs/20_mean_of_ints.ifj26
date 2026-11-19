@@ -1,0 +1,18 @@
+// AI-generated test - Int sum widened to Double for an average.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val n = readInt()
+  var i = 0
+  var sum = 0
+  while i < n do
+    val x = readInt()
+    sum = sum + x
+    i = i + 1
+  val total: Double = sum
+  val mean = total / n
+  val s = toStr(mean)
+  print(s)
+  print("\n")

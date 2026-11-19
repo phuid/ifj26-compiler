@@ -1,0 +1,13 @@
+// AI-generated test - subStr with valid bounds, including an empty result.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val s = "abcdef"
+  val a = subStr(s, 1, 4)
+  val b = subStr(s, 2, 2)
+  val c = subStr(s, 0, 6)
+  val d = subStr(s, 5, 6)
+  val all = "[" + a + "][" + b + "][" + c + "][" + d + "]"
+  print(all)

@@ -1,0 +1,35 @@
+// AI-generated test - Caesar shift by 3 with ord and chr.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def shift(code: Int, first: Int): Int =
+  val offset = code - first + 3
+  val wrapped = offset - (offset / 26) * 26
+  first + wrapped
+
+@main def run(): Unit =
+  val s = "Hello, xyz!"
+  val n = strLength(s)
+  var i = 0
+  var r = ""
+  while i < n do
+    var c = ord(s, i)
+    if c >= 97 then
+      if c <= 122 then
+        c = shift(c, 97)
+      else
+        ()
+    else
+      if c >= 65 then
+        if c <= 90 then
+          c = shift(c, 65)
+        else
+          ()
+      else
+        ()
+    val ch = chr(c)
+    r = r + ch
+    i = i + 1
+  print(r)
+  print("\n")

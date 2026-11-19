@@ -1,0 +1,31 @@
+// AI-generated test - primes up to N with nested loops.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def isPrime(n: Int): Int =
+  if n < 2 then
+    return 0
+  else
+    ()
+  var d = 2
+  while d * d <= n do
+    if n - (n / d) * d == 0 then
+      return 0
+    else
+      ()
+    d = d + 1
+  1
+
+@main def run(): Unit =
+  val limit = readInt()
+  var n = 2
+  while n <= limit do
+    val p = isPrime(n)
+    if p == 1 then
+      print(n)
+      print(" ")
+    else
+      ()
+    n = n + 1
+  print("\n")

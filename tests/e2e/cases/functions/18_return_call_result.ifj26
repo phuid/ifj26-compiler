@@ -1,0 +1,13 @@
+// AI-generated test - return with a call as its value.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def base(x: Int): Int = x * 3
+
+def wrap(x: Int): Int =
+  return base(x)
+
+@main def run(): Unit =
+  val r = wrap(4)
+  print(r)

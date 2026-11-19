@@ -1,0 +1,18 @@
+// AI-generated test - readLine in a loop until it returns an empty String.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var count = 0
+  var chars = 0
+  var line = readLine()
+  while line != "" do
+    count = count + 1
+    val n = strLength(line)
+    chars = chars + n
+    line = readLine()
+  print(count)
+  print(" ")
+  print(chars)
+  print("\n")

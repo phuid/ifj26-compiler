@@ -1,0 +1,11 @@
+// AI-generated test - variable from a while body used after the loop.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with semantic errors 3-7 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+@main def run(): Unit =
+  var i = 0
+  while i < 2 do
+    val last = i
+    i = i + 1
+  print(last)

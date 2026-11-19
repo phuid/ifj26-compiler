@@ -1,0 +1,16 @@
+// AI-generated test - readDouble in a loop and toStr of the total.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val n = readInt()
+  var i = 0
+  var total = 0.0
+  while i < n do
+    val d = readDouble()
+    total = total + d
+    i = i + 1
+  val s = toStr(total)
+  print(s)
+  print("\n")

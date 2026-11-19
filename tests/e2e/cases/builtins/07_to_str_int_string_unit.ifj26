@@ -1,0 +1,13 @@
+// AI-generated test - toStr of Int, String and Unit.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = toStr(5)
+  val b = toStr("a")
+  val c = toStr(())
+  val n = -12
+  val d = toStr(n)
+  val all = a + "|" + b + "|" + c + "|" + d
+  print(all)

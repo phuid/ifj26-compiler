@@ -1,0 +1,17 @@
+// AI-generated test - Double +, / and toStr formatting.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = 1.5 + 2.25
+  val b = 1 / 2.0
+  val c = 7.0 / 2
+  val sa = toStr(a)
+  val sb = toStr(b)
+  val sc = toStr(c)
+  print(sa)
+  print(" ")
+  print(sb)
+  print(" ")
+  print(sc)

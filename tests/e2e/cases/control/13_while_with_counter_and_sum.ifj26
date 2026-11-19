@@ -1,0 +1,12 @@
+// AI-generated test - loop accumulating a sum of 1 to 100.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var i = 1
+  var sum = 0
+  while i <= 100 do
+    sum = sum + i
+    i = i + 1
+  print(sum)

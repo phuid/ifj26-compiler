@@ -1,0 +1,12 @@
+// AI-generated test - while condition sees changes made in the body.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var n = 100
+  var steps = 0
+  while n > 1 do
+    n = n / 3
+    steps = steps + 1
+  print(steps)

@@ -1,0 +1,28 @@
+// AI-generated test - ord and chr, including ord out of range returning -1.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about built-in functions for plan-e2e.md 3.6 with their exact stdin, expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val m = -1
+  val a = ord("A", 0)
+  val b = chr(66)
+  val c = ord("", 0)
+  val d = ord("abc", 3)
+  val e = ord("abc", m)
+  val f = ord("abc", 2)
+  val g = chr(0)
+  val h = strLength(g)
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)
+  print(" ")
+  print(d)
+  print(" ")
+  print(e)
+  print(" ")
+  print(f)
+  print(" ")
+  print(h)

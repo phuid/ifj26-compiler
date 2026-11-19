@@ -1,0 +1,15 @@
+// AI-generated test - assignment after shadowing touches only the inner variable.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var x = 1
+  var i = 0
+  while i < 1 do
+    var x = 50
+    x = x + 1
+    print(x)
+    i = i + 1
+  print(" ")
+  print(x)

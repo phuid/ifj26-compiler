@@ -1,0 +1,16 @@
+// AI-generated test - trailing comma followed by a line break before ).
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+def add(
+    a: Int,
+    b: Int,
+  ): Int = a + b
+
+@main def run(): Unit =
+  val r = add(
+    2,
+    3,
+    )
+  print(r)

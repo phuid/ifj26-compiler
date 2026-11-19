@@ -1,0 +1,13 @@
+// AI-generated test - String concatenation with literals, variables and empty strings.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val s = "c"
+  val e = ""
+  val r = "a" + "b" + s + e
+  print(r)
+  val t = e + e
+  val n = strLength(t)
+  print(n)

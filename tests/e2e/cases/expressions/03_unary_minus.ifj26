@@ -1,0 +1,18 @@
+// AI-generated test - unary minus on a variable, a parenthesis and a right operand.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 4
+  val a = -x
+  val b = -(1 + 2)
+  val c = 2 * -3
+  val d = -(-x)
+  print(a)
+  print(" ")
+  print(b)
+  print(" ")
+  print(c)
+  print(" ")
+  print(d)

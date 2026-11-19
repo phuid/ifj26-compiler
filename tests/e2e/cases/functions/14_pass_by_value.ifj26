@@ -1,0 +1,16 @@
+// AI-generated test - callee locals do not touch the caller variable of the same name.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def g(n: Int): Int =
+  var a = 100
+  a = a + n
+  a
+
+@main def run(): Unit =
+  var a = 1
+  val r = g(a)
+  print(a)
+  print(" ")
+  print(r)

@@ -1,0 +1,15 @@
+// AI-generated test - arithmetic on both sides of a relational operator.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about expressions for plan-e2e.md 3.3 with their exact expected stdout and exit code.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = 3
+  if a * 2 + 1 == 10 - a then
+    print("T")
+  else
+    print("F")
+  if a - 4 >= -1 then
+    print("T")
+  else
+    print("F")

@@ -1,0 +1,21 @@
+// AI-generated test - five levels of nested blocks.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about if and while for plan-e2e.md 3.4 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  var a = 0
+  while a < 2 do
+    if a == 1 then
+      var b = 0
+      while b < 2 do
+        if b == 1 then
+          val deep = a + b
+          print(deep)
+        else
+          print("-")
+        b = b + 1
+    else
+      print("x")
+    a = a + 1
+  print("!")

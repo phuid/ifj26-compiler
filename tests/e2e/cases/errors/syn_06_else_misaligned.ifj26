@@ -1,0 +1,11 @@
+// AI-generated test - else indented deeper than its if.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with syntax error 2 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+@main def run(): Unit =
+  val x = 0
+  if x < 1 then
+    print("a")
+    else
+    print("b")

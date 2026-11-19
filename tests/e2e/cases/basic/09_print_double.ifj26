@@ -1,0 +1,17 @@
+// AI-generated test - print of Double literals uses %a.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write the smallest valid IFJ26 programs for plan-e2e.md 3.1 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  print(1.5)
+  print(" ")
+  print(2.0)
+  print(" ")
+  print(1e3)
+  print(" ")
+  print(.5)
+  print(" ")
+  print(2.5d)
+  print(" ")
+  print(25E-1)

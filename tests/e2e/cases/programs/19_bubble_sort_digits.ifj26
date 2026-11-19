@@ -1,0 +1,37 @@
+// AI-generated test - sort the digits of a String with repeated passes.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write complete valid IFJ26 programs for plan-e2e.md 3.8 (base language only, call arguments are terms) with their stdin and exact expected stdout.
+import ifj26.*
+
+def sortDigits(input: String): String =
+  var s = input
+  val n = strLength(s)
+  var changed = 1
+  while changed == 1 do
+    changed = 0
+    var i = 0
+    while i < n - 1 do
+      val j = i + 1
+      val a = ord(s, i)
+      val b = ord(s, j)
+      if a > b then
+        val k = j + 1
+        val head = subStr(s, 0, i)
+        val ca = chr(a)
+        val cb = chr(b)
+        var tail = ""
+        if k < n then
+          tail = subStr(s, k, n)
+        else
+          ()
+        s = head + cb + ca + tail
+        changed = 1
+      else
+        ()
+      i = i + 1
+  s
+
+@main def run(): Unit =
+  val r = sortDigits("5291830")
+  print(r)
+  print("\n")

@@ -1,0 +1,8 @@
+// AI-generated test - variable of type Unit.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about variables and scopes for plan-e2e.md 3.2 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val u: Unit = ()
+  print(u)

@@ -1,0 +1,13 @@
+// AI-generated test - arguments bind to parameters in order.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def sub(a: Int, b: Int) = a - b
+
+@main def run(): Unit =
+  val x = sub(10, 3)
+  val y = sub(3, 10)
+  print(x)
+  print(" ")
+  print(y)

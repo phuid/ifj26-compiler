@@ -1,0 +1,12 @@
+// AI-generated test - block body whose last expression is the result.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def area(w: Int, h: Int): Int =
+  val a = w * h
+  a + 0
+
+@main def run(): Unit =
+  val r = area(3, 4)
+  print(r)

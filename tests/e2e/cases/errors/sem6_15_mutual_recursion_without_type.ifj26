@@ -1,0 +1,15 @@
+// AI-generated test - mutually recursive functions without return types.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with semantic errors 3-7 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+def ping(n: Int) =
+  val m = n - 1
+  pong(m)
+
+def pong(n: Int) =
+  val m = n - 1
+  ping(m)
+
+@main def run(): Unit =
+  print("a")
