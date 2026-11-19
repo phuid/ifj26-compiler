@@ -11,7 +11,9 @@ ROOT_DIR := $(CURDIR)
 PACK_DIR_NAME := .
 PACK_ARCHIVE := $(ROOT_DIR)/compiler.zip
 
-configure:
+configure: $(BUILD_DIR)/CMakeCache.txt
+
+$(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt
 	cmake -S . -B $(BUILD_DIR)
 
 build: $(SOURCES)
