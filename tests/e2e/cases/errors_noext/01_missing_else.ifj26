@@ -1,9 +1,0 @@
-// AI-generated test - if without else (valid with BOOLTHEN).
-// Model: claude-opus-5-5 (Claude Code).
-// Prompt: Write IFJ26 programs that are errors only in the base language and become valid with FUNEXP, BOOLTHEN or CONTROL (plan-e2e.md 3.7).
-import ifj26.*
-
-@main def run(): Unit =
-  val x = 0
-  if x < 1 then
-    print("a")
