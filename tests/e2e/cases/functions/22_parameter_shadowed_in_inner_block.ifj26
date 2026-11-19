@@ -1,0 +1,17 @@
+// AI-generated test - parameter shadowed inside a nested block.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def f(x: Int): Int =
+  if x > 0 then
+    val x = 99
+    print(x)
+  else
+    ()
+  x
+
+@main def run(): Unit =
+  val r = f(5)
+  print(" ")
+  print(r)

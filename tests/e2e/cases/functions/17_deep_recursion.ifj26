@@ -1,0 +1,16 @@
+// AI-generated test - recursion 1000 calls deep.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def sum(n: Int): Int =
+  if n == 0 then
+    return 0
+  else
+    val m = n - 1
+    val r = sum(m)
+    return n + r
+
+@main def run(): Unit =
+  val r = sum(1000)
+  print(r)

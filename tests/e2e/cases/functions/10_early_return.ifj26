@@ -1,0 +1,35 @@
+// AI-generated test - return in the middle of a body skips the rest.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def f(): Int =
+  print("a")
+  return 1
+  print("never")
+  2
+
+def sign(x: Int): Int =
+  if x < 0 then
+    return -1
+  else
+    ()
+  if x == 0 then
+    return 0
+  else
+    ()
+  1
+
+@main def run(): Unit =
+  val r = f()
+  print(r)
+  val a = -5
+  val b = 0
+  val c = 9
+  val sa = sign(a)
+  val sb = sign(b)
+  val sc = sign(c)
+  print(" ")
+  print(sa)
+  print(sb)
+  print(sc)

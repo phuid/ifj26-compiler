@@ -1,0 +1,15 @@
+// AI-generated test - function declared Unit returns () even with an Int body.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def f(): Unit = 42
+
+def g(): Unit =
+  return 7
+
+@main def run(): Unit =
+  val u = f()
+  val v = g()
+  print(u)
+  print(v)

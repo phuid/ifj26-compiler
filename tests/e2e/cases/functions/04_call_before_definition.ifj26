@@ -1,0 +1,10 @@
+// AI-generated test - main calls a function defined below it.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+@main def run(): Unit =
+  val r = later(5)
+  print(r)
+
+def later(x: Int): Int = x + 100

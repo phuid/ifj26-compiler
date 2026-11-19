@@ -1,0 +1,11 @@
+// AI-generated test - Int argument widened for a Double parameter.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def half(x: Double): Double = x / 2
+
+@main def run(): Unit =
+  val r = half(3)
+  val s = toStr(r)
+  print(s)

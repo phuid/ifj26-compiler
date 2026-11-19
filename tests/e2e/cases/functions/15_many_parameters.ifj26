@@ -1,0 +1,15 @@
+// AI-generated test - six parameters of different types.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write valid IFJ26 programs about user functions for plan-e2e.md 3.5 with their exact expected stdout.
+import ifj26.*
+
+def join(a: Int, b: Double, c: String, d: Unit, e: Int, f: String): String =
+  val sa = toStr(a)
+  val sb = toStr(b)
+  val sd = toStr(d)
+  val se = toStr(e)
+  sa + "," + sb + "," + c + "," + sd + "," + se + "," + f
+
+@main def run(): Unit =
+  val r = join(1, 2.5, "c", (), -4, "f")
+  print(r)
