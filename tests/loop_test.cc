@@ -291,6 +291,7 @@ TEST_F(LoopTest, ForMultilineHeaderWithGuards) {
             0);
 
   ASTNode *body = body_of("foo");
+  /// The semantic pass appends the implicit `return` at the end of the body.
   ASSERT_EQ(body->data.block.statement_count, 4U);
   ASTNode *loop = body->data.block.statements[1];
   ASSERT_EQ(loop->kind, AST_FOR);
@@ -298,6 +299,7 @@ TEST_F(LoopTest, ForMultilineHeaderWithGuards) {
   ASSERT_NE(loop->data.for_loop.guard, nullptr);
   EXPECT_EQ(loop->data.for_loop.guard->kind, AST_AND);
   EXPECT_EQ(body->data.block.statements[2]->kind, AST_FUNCTION_CALL);
+  EXPECT_EQ(body->data.block.statements[3]->kind, AST_RETURN);
 }
 
 TEST_F(LoopTest, ForMultilineHeaderWithOneLineBody) {

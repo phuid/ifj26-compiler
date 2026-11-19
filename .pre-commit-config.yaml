@@ -55,7 +55,7 @@ repos:
         name: cppcheck
         description: runs cppcheck on changed files
         language: system
-        entry: cppcheck . --error-exitcode=1 -ibuild --check-level=exhaustive
+        entry: cppcheck . --error-exitcode=1 -ibuild --check-level=exhaustive --library=googletest -D__has_feature(x)=0
         types_or: [c++, c, 'c#', cuda, proto]
       # - id: clang-tidy
       #   name: clang-tidy
