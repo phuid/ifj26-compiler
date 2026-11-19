@@ -33,7 +33,7 @@ static ASTNode *ast_node_create(ASTNodeKind kind, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned integer literal with a concrete integer type.
  * @param value Literal value.
  * @param line One-based source line.
@@ -50,7 +50,7 @@ ASTNode *ast_node_create_int(long long value, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned real literal with a concrete real type.
  * @param value Literal value.
  * @param line One-based source line.
@@ -67,7 +67,7 @@ ASTNode *ast_node_create_real(double value, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned string literal holding a copy of @p value.
  * @details The caller keeps ownership of @p value; the node owns its copy.
  * @param value Non-null null-terminated string to copy.
@@ -99,7 +99,7 @@ ASTNode *ast_node_create_string(const char *value, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned boolean literal.
  * @param value Literal value.
  * @param line One-based source line.
@@ -116,7 +116,7 @@ ASTNode *ast_node_create_bool(bool value, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned unit literal.
  * @param line One-based source line.
  * @param column One-based source column.
@@ -131,7 +131,7 @@ ASTNode *ast_node_create_unit(size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned reference to a borrowed resolved symbol.
  * @param symbol Non-null semantic binding borrowed by the new node.
  * @param line One-based source line.
@@ -152,7 +152,7 @@ ASTNode *ast_node_create_variable_ref(Symbol *symbol, size_t line,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned call node for a borrowed resolved function.
  * @param function Non-null function record borrowed by the new node.
  * @param line One-based source line.
@@ -173,7 +173,7 @@ ASTNode *ast_node_create_function_call(FunctionSymbol *function, size_t line,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned list-constructor node.
  * @param line One-based source line of the call.
  * @param column One-based source column of the call.
@@ -185,7 +185,7 @@ ASTNode *ast_node_create_list_constructor(size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned list-indexing node.
  * @param list Non-null node representing the list.
  * @param index Non-null node representing the index.
@@ -208,7 +208,7 @@ ASTNode *ast_node_create_list_indexing(ASTNode *list, ASTNode *index,
   return node;
 }
 
-/**
+/*
  * @brief Transfers an argument node into a function-call node.
  * @details On failure, @p argument remains owned by the caller.
  * @param call Non-null AST_FUNCTION_CALL or AST_LIST_CONSTRUCTOR node receiving
@@ -233,7 +233,7 @@ ASTStatus ast_node_call_append_argument(ASTNode *call, ASTNode *argument) {
   return AST_OK;
 }
 
-/**
+/*
  * @brief Constructs an empty owned statement block.
  * @param line One-based source line.
  * @param column One-based source column.
@@ -243,7 +243,7 @@ ASTNode *ast_node_create_block(size_t line, size_t column) {
   return ast_node_create(AST_BLOCK, line, column);
 }
 
-/**
+/*
  * @brief Transfers a statement node into a block node.
  * @details On failure, @p statement remains owned by the caller.
  * @param block Non-null AST_BLOCK node receiving the statement.
@@ -266,7 +266,7 @@ ASTStatus ast_node_block_append_statement(ASTNode *block, ASTNode *statement) {
   return AST_OK;
 }
 
-/**
+/*
  * @brief Constructs an owned assignment to a borrowed resolved symbol.
  * @details On failure, @p value remains owned by the caller.
  * @param target Non-null symbol borrowed by the new node.
@@ -290,7 +290,7 @@ ASTNode *ast_node_create_assign(Symbol *target, ASTNode *value, size_t line,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned return statement.
  * @details On failure, @p value remains owned by the caller.
  * @param value Owned expression to transfer on success, or null.
@@ -307,7 +307,7 @@ ASTNode *ast_node_create_return(ASTNode *value, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned conditional node.
  * @details On failure, all children remain owned by the caller.
  * @param condition Non-null owned condition.
@@ -333,7 +333,7 @@ ASTNode *ast_node_create_if(ASTNode *condition, ASTNode *then_branch,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned while-loop node.
  * @details On failure, ownership of both children stays with the caller.
  * @param condition Non-null condition expression.
@@ -357,7 +357,7 @@ ASTNode *ast_node_create_while(ASTNode *condition, ASTNode *body, size_t line,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned for-loop node.
  * @details On failure, ownership of all children stays with the caller.
  * @param variable Non-null borrowed control variable.
@@ -386,7 +386,7 @@ ASTNode *ast_node_create_for(Symbol *variable, ASTNode *iterable,
   return node;
 }
 
-/**
+/*
  * @brief Constructs an owned binary arithmetic node.
  * @details Ownership of both operands transfers on success only.
  * @param kind Binary op node kind, one of: AST_ADD, AST_SUBTRACT, AST_MULTIPLY,
@@ -440,7 +440,7 @@ ASTNode *ast_node_create_binary_op(ASTNodeKind kind, ASTNode *left,
   return node;
 }
 
-/**
+/*
  * @brief Creates a logical NOT node.
  * @details Ownership of the operand transfers on success only.
  * @param operand Non-null operand whose ownership transfers on success only.
@@ -463,7 +463,7 @@ ASTNode *ast_node_create_not(ASTNode *operand, size_t line, size_t column) {
   return node;
 }
 
-/**
+/*
  * @brief Wraps an owned expression in an implicit Int-to-Double conversion.
  * @details On failure, @p operand remains owned by the caller.
  * @param operand Non-null owned expression to transfer on success.
@@ -484,7 +484,7 @@ ASTNode *ast_node_create_implicit_int_to_real(ASTNode *operand) {
   return node;
 }
 
-/**
+/*
  * @brief Recursively destroys one AST-owned subtree.
  * @details Semantic records referenced by nodes are borrowed and never freed.
  * @param node Owned subtree root; null is a no-op.
