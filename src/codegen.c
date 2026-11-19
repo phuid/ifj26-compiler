@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "builtins.h"
 #include "codegen_globals.h"
+#include "error_trace.h"
 #include "instructions.h"
 #include "parser.h"
 #include "symtable.h"
@@ -58,11 +59,48 @@ static const InstructionOperand INT_ONE_OPERAND = {.type = INT_TYPE,
 static const InstructionOperand BOOL_TRUE_OPERAND = {
     .type = BOOL_TYPE, .value = {.boolean = true}};
 
+/** Function whose code is being generated; null outside of a function. */
+static const FunctionSymbol *current_function = NULL;
+
+/**
+ * @brief Adds the current function as a context frame, prints the error trace
+ * and exits with the internal error code.
+ */
+static _Noreturn void codegen_abort(void) {
+  if (current_function != NULL) {
+    ERROR_TRACE("while generating code for function '%s'",
+                current_function->name);
+  }
+  ERROR_TRACE("while generating code");
+  exit(99);
+}
+
+/**
+ * @brief Returns the code generation handler of @p node, or reports an
+ * internal error and exits if the node kind has none.
+ */
+static ASTNodeHandler ast_handler_for(const ASTNode *node) {
+  if (node == NULL) {
+    ERROR_INTERNAL("missing AST node");
+    codegen_abort();
+  }
+
+  /// If the node kind is out of bounds or has no handler, report an internal
+  /// error.
+  if ((size_t)node->kind >= sizeof(ast_handlers) / sizeof(ast_handlers[0]) ||
+      ast_handlers[node->kind] == NULL) {
+    ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                    "internal error: no code generator for AST node kind %d",
+                    (int)node->kind);
+    codegen_abort();
+  }
+  return ast_handlers[node->kind];
+}
+
 void pair_real_var(Symbol *symbol) {
   if (symbol->assembler_suffix != -1) {
-    fprintf(stderr,
-            "pair_real_var error: symbol already has a real variable\n");
-    exit(99);
+    ERROR_INTERNAL("symbol '%s' already has a real variable", symbol->name);
+    codegen_abort();
   }
 
   symbol->assembler_suffix = variable_suffix_counter;
@@ -92,14 +130,14 @@ void trash_return_value(void) { print_POPS(TRASH_GLOBAL); }
 void handle_block(const ASTNode *node, bool discard_return_value) {
   for (size_t i = 0; i < node->data.block.statement_count - 1; i++) {
     ASTNode *statement = node->data.block.statements[i];
-    ASTNodeHandler handler = ast_handlers[statement->kind];
+    ASTNodeHandler handler = ast_handler_for(statement);
     handler(statement, true);
   }
 
   // keep the last statemen return value on the data stack
   ASTNode *statement =
       node->data.block.statements[node->data.block.statement_count - 1];
-  ASTNodeHandler handler = ast_handlers[statement->kind];
+  ASTNodeHandler handler = ast_handler_for(statement);
   handler(statement, discard_return_value);
 }
 
@@ -111,7 +149,7 @@ void handle_asign(const ASTNode *node, bool discard_return_value) {
       .type = REAL_VARIABLE_TYPE,
       .value = {.real_variable = {.frame = LF, .symbol = target}}};
 
-  ASTNodeHandler handler = ast_handlers[value->kind];
+  ASTNodeHandler handler = ast_handler_for(value);
   handler(value, false);
 
   print_POPS(variable);
@@ -186,8 +224,8 @@ void handle_unit(const ASTNode *node, bool discard_return_value) {
 void resolve_binary_operands(const ASTNode *node) {
   ASTNode *left = node->data.binary_op.left;
   ASTNode *right = node->data.binary_op.right;
-  ASTNodeHandler handlerLeft = ast_handlers[left->kind];
-  ASTNodeHandler handlerRight = ast_handlers[right->kind];
+  ASTNodeHandler handlerLeft = ast_handler_for(left);
+  ASTNodeHandler handlerRight = ast_handler_for(right);
 
   handlerLeft(left, false);
   handlerRight(right, false);
@@ -238,10 +276,10 @@ void handle_divide(const ASTNode *node, bool discard_return_value) {
     print_IDIVS();
     break;
   default:
-    fprintf(stderr, "handle_divide - division of invalid types - parser error, "
-                    "shouldn happen\n");
-    exit(99);
-    break;
+    ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                    "internal error: division of operands that are neither Int "
+                    "nor Double");
+    codegen_abort();
   }
 
   if (discard_return_value) {
@@ -314,13 +352,13 @@ void short_circuit(const ASTNode *node, bool short_value,
                                 .value = {.boolean = short_value}};
 
   const ASTNode *left = node->data.binary_op.left;
-  const ASTNodeHandler handlerLeft = ast_handlers[left->kind];
+  const ASTNodeHandler handlerLeft = ast_handler_for(left);
   handlerLeft(left, false);
 
   print_JUMPIFEQS_bool(short_name, id, short_value);
 
   const ASTNode *right = node->data.binary_op.right;
-  const ASTNodeHandler handlerRight = ast_handlers[right->kind];
+  const ASTNodeHandler handlerRight = ast_handler_for(right);
   handlerRight(right, false);
 
   print_JUMP(end_name, id);
@@ -359,7 +397,7 @@ void handle_implicit_int_to_real(const ASTNode *node,
                                  bool discard_return_value) {
   ASTNode *operand = node->data.conversion.operand;
 
-  ASTNodeHandler handler = ast_handlers[operand->kind];
+  ASTNodeHandler handler = ast_handler_for(operand);
   handler(operand, false);
 
   print_INT2FLOATS();
@@ -372,7 +410,7 @@ void handle_implicit_int_to_real(const ASTNode *node,
 void handle_call(const ASTNode *node, bool discard_return_value) {
   for (size_t i = 0; i < node->data.call.argument_count; i++) {
     const ASTNode *argument = node->data.call.arguments[i];
-    ASTNodeHandler handler = ast_handlers[argument->kind];
+    ASTNodeHandler handler = ast_handler_for(argument);
     handler(argument, false);
   }
 
@@ -386,13 +424,14 @@ void handle_call(const ASTNode *node, bool discard_return_value) {
 void handle_return(const ASTNode *node, bool discard_return_value) {
   (void)discard_return_value;
   const ASTNode *return_expression = node->data.return_statement.value;
-  ASTNodeHandler handler = ast_handlers[return_expression->kind];
+  ASTNodeHandler handler = ast_handler_for(return_expression);
   handler(return_expression, false);
   print_POPFRAME();
   print_RETURN();
 }
 
 void handle_function_definition(const FunctionSymbol *function) {
+  current_function = function;
   printf("\n");
   print_LABEL(function->name, 0);
 
@@ -402,7 +441,12 @@ void handle_function_definition(const FunctionSymbol *function) {
   // Hoist local variables definitions to the start of the function to avoid
   // issues with redeclaration
   SymbolArray hoisted_symbols;
-  symbol_table_get_scope_symbol_list(function->local_scope, &hoisted_symbols);
+  if (symbol_table_get_scope_symbol_list(function->local_scope,
+                                         &hoisted_symbols) != SYMTABLE_OK) {
+    ERROR_INTERNAL("failed to list the local variables of function '%s'",
+                   function->name);
+    codegen_abort();
+  }
   for (size_t i = 0; i < hoisted_symbols.capacity; i++) {
     pair_real_var(hoisted_symbols.data[i]);
   }
@@ -418,6 +462,7 @@ void handle_function_definition(const FunctionSymbol *function) {
   }
 
   handle_block(function->ast_root, false);
+  current_function = NULL;
 }
 
 void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
@@ -445,7 +490,7 @@ void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
                                     .integer = i + 1,
                                 }};
     const ASTNode *element = node->data.call.arguments[i];
-    const ASTNodeHandler element_handler = ast_handlers[element->kind];
+    const ASTNodeHandler element_handler = ast_handler_for(element);
 
     // Save the list, the nested evaluation may overwrite the global
     print_PUSHS(LIST_GLOBAL_A);
@@ -640,7 +685,7 @@ static void load_range_data(const ASTNode *range, const ASTNode *step) {
   resolve_binary_operands(range);
 
   if (step != NULL) {
-    ast_handlers[step->kind](step, false);
+    ast_handler_for(step)(step, false);
     print_POPS(BY_GLOBAL);
   } else {
     print_MOVE(BY_GLOBAL, INT_ONE_OPERAND);
@@ -757,19 +802,19 @@ void handle_if(const ASTNode *node, bool discard_return_value) {
 
   int id = reserve_label_id();
 
-  const ASTNodeHandler handlerCondition = ast_handlers[condition->kind];
+  const ASTNodeHandler handlerCondition = ast_handler_for(condition);
   handlerCondition(condition, false);
   print_JUMPIFEQS_bool("IF_ELSE", id, false);
 
   if (then_branch != NULL) {
-    const ASTNodeHandler handlerThen = ast_handlers[then_branch->kind];
+    const ASTNodeHandler handlerThen = ast_handler_for(then_branch);
     handlerThen(then_branch, !is_expression);
   }
   print_JUMP("IF_END", id);
 
   print_LABEL("IF_ELSE", id);
   if (else_branch != NULL) {
-    const ASTNodeHandler handlerElse = ast_handlers[else_branch->kind];
+    const ASTNodeHandler handlerElse = ast_handler_for(else_branch);
     handlerElse(else_branch, !is_expression);
   }
 
@@ -788,7 +833,7 @@ void handle_while(const ASTNode *node, bool discard_return_value) {
   int id = reserve_label_id();
 
   const ASTNode *condition = node->data.while_loop.condition;
-  const ASTNodeHandler condition_handler = ast_handlers[condition->kind];
+  const ASTNodeHandler condition_handler = ast_handler_for(condition);
 
   print_LABEL("WHILE_START", id);
   condition_handler(condition, false);
@@ -796,7 +841,7 @@ void handle_while(const ASTNode *node, bool discard_return_value) {
   print_JUMPIFEQS_bool("WHILE_END", id, false);
 
   const ASTNode *body = node->data.while_loop.body;
-  const ASTNodeHandler body_handler = ast_handlers[body->kind];
+  const ASTNodeHandler body_handler = ast_handler_for(body);
   body_handler(body, true);
 
   print_JUMP("WHILE_START", id);
@@ -813,7 +858,7 @@ void handle_for(const ASTNode *node, bool discard_return_value) {
 
   // Load the list
   const ASTNode *list = node->data.for_loop.iterable;
-  ast_handlers[list->kind](list, false);
+  ast_handler_for(list)(list, false);
   // Push starting index
   print_PUSHS(INT_ONE_OPERAND);
 
@@ -839,13 +884,13 @@ void handle_for(const ASTNode *node, bool discard_return_value) {
   // If a guard exists, evaluate it
   const ASTNode *guard = node->data.for_loop.guard;
   if (guard != NULL) {
-    ast_handlers[guard->kind](guard, false);
+    ast_handler_for(guard)(guard, false);
     print_JUMPIFEQS_bool("FOR_START", id, false);
   }
 
   // Evaluate the body
   const ASTNode *body = node->data.for_loop.body;
-  ast_handlers[body->kind](body, true);
+  ast_handler_for(body)(body, true);
 
   print_JUMP("FOR_START", id);
   print_LABEL("FOR_END", id);
@@ -871,8 +916,8 @@ void convert_AST_to_assembler(Program *program) {
     }
   }
   if (main == NULL) {
-    fprintf(stderr, "no main function presesnt\n");
-    exit(99);
+    ERROR_INTERNAL("no main function present");
+    codegen_abort();
   }
 
   print_CALL(main->name);

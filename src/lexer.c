@@ -9,6 +9,7 @@
 
 #include "lexer.h"
 #include "dynamic_array.h"
+#include "error_trace.h"
 #include "keyword.h"
 #include "lexer_dfa.h"
 
@@ -74,6 +75,7 @@ static LexerStatus token_builder_init(TokenBuilder *builder, Lexer *lexer,
 
   if (dynamic_array_reserve((void **)&text, &capacity, 16U, sizeof(*text)) !=
       DYNAMIC_ARRAY_OK) {
+    ERROR_INTERNAL("failed to allocate a token buffer");
     return LEXER_OUT_OF_MEMORY;
   }
 
@@ -107,6 +109,7 @@ static LexerStatus append_char(TokenBuilder *builder, int character) {
   if (dynamic_array_reserve((void **)&builder->text, &builder->capacity,
                             builder->length + 2U,
                             sizeof(*builder->text)) != DYNAMIC_ARRAY_OK) {
+    ERROR_INTERNAL("failed to grow a token buffer");
     return LEXER_OUT_OF_MEMORY;
   }
 
@@ -235,6 +238,8 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
 
     /// Verify the whole text was converted
     if (*end != '\0') {
+      ERROR_ORIGIN_AT(token->line, token->column, builder->text,
+                      "invalid numeric literal");
       return LEXER_INVALID_TOKEN;
     }
 
@@ -256,6 +261,7 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
  */
 LexerStatus lexer_init(Lexer *lexer, char *input_str) {
   if (lexer == NULL || input_str == NULL) {
+    ERROR_INTERNAL("invalid argument");
     return LEXER_INVALID_ARGUMENT;
   }
 
@@ -282,6 +288,7 @@ LexerStatus lexer_init(Lexer *lexer, char *input_str) {
  */
 LexerStatus lexer_change_current_indent(Lexer *lexer, ptrdiff_t indent_delta) {
   if (lexer == NULL) {
+    ERROR_INTERNAL("invalid argument");
     return LEXER_INVALID_ARGUMENT;
   }
 
@@ -289,12 +296,15 @@ LexerStatus lexer_change_current_indent(Lexer *lexer, ptrdiff_t indent_delta) {
     // Prevent underflow when converting to size_t
     size_t decrease = (size_t)(-(indent_delta + 1)) + 1U;
     if (decrease > lexer->current_indent) {
+      ERROR_ORIGIN_AT(lexer->line, lexer->column, NULL,
+                      "indentation decreased below zero");
       return LEXER_INVALID_ARGUMENT;
     }
     lexer->current_indent -= decrease;
   } else {
     size_t increase = (size_t)indent_delta;
     if (increase > SIZE_MAX - lexer->current_indent) {
+      ERROR_INTERNAL("indentation level overflow");
       return LEXER_INVALID_ARGUMENT;
     }
     lexer->current_indent += increase;
@@ -375,6 +385,7 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
   LexerStatus status;
 
   if (lexer == NULL || token == NULL || lexer->input_str == NULL) {
+    ERROR_INTERNAL("invalid argument");
     return LEXER_INVALID_ARGUMENT;
   }
   if (lexer->lookahead == EOF) {
@@ -398,6 +409,19 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
 
   /// If the state is not final return invalid token
   if (!lexer_dfa_final_token(state, &token_type)) {
+    if (lexer->lookahead == EOF || lexer->lookahead == '\0') {
+      ERROR_ORIGIN_AT(token->line, token->column, builder.text,
+                      "invalid token: unexpected end of input");
+    } else if (lexer->lookahead >= 0x20 && lexer->lookahead < 0x7f) {
+      /// If the lookahead is a printable ASCII character, report it directly.
+      ERROR_ORIGIN_AT(token->line, token->column, builder.text,
+                      "invalid token: unexpected character '%c'",
+                      lexer->lookahead);
+    } else {
+      ERROR_ORIGIN_AT(token->line, token->column, builder.text,
+                      "invalid token: unexpected character 0x%02x",
+                      (unsigned)(unsigned char)lexer->lookahead);
+    }
     token_builder_destroy(&builder);
     return LEXER_INVALID_TOKEN;
   }
@@ -417,6 +441,7 @@ LexerStatus lexer_pls(Lexer *lexer) {
   LexerStatus status;
 
   if (lexer == NULL || lexer->input_str == NULL) {
+    ERROR_INTERNAL("invalid argument");
     return LEXER_INVALID_ARGUMENT;
   }
 

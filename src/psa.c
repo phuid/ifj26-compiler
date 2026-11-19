@@ -10,6 +10,7 @@
 
 #include "ast.h"
 #include "dynamic_array.h"
+#include "error_trace.h"
 #include "lexer.h"
 
 #include <stdint.h>
@@ -129,6 +130,7 @@ peek was later replaced by terminal_stack_get_top_terminal, by hand
 
 PsaStatus terminal_stack_init(TerminalStack *stack) {
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
 
@@ -140,6 +142,7 @@ PsaStatus terminal_stack_init(TerminalStack *stack) {
 
 static PsaStatus terminal_stack_destroy(TerminalStack *stack) {
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
 
@@ -152,14 +155,17 @@ static PsaStatus terminal_stack_destroy(TerminalStack *stack) {
 
 PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
   if (stack->size == SIZE_MAX) {
+    ERROR_INTERNAL("terminal stack size overflow");
     return PSA_INTERNAL_ERROR;
   }
   if (dynamic_array_reserve((void **)&stack->data, &stack->capacity,
                             stack->size + 1U,
                             sizeof(*stack->data)) != DYNAMIC_ARRAY_OK) {
+    ERROR_INTERNAL("failed to grow the terminal stack");
     return PSA_INTERNAL_ERROR;
   }
 
@@ -170,6 +176,7 @@ PsaStatus terminal_stack_push(TerminalStack *stack, Terminal terminal) {
 
 PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
   if (stack == NULL || terminal == NULL || stack->size == 0U) {
+    ERROR_INTERNAL("null or empty terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
   for (size_t i = stack->size; i > 0U; i--) {
@@ -179,20 +186,24 @@ PsaStatus stack_get_top_terminal(TerminalStack *stack, Terminal *terminal) {
       return PSA_OK;
     }
   }
+  ERROR_INTERNAL("no terminal on the PSA stack");
   return PSA_INVALID_ARGUMENT;
 }
 
 PsaStatus terminal_stack_insert_at(TerminalStack *stack, size_t index,
                                    Terminal terminal) {
   if (stack == NULL || index > stack->size) {
+    ERROR_INTERNAL("invalid terminal stack insert position");
     return PSA_INVALID_ARGUMENT;
   }
   if (stack->size == SIZE_MAX) {
+    ERROR_INTERNAL("terminal stack size overflow");
     return PSA_INTERNAL_ERROR;
   }
   if (dynamic_array_reserve((void **)&stack->data, &stack->capacity,
                             stack->size + 1U,
                             sizeof(*stack->data)) != DYNAMIC_ARRAY_OK) {
+    ERROR_INTERNAL("failed to grow the terminal stack");
     return PSA_INTERNAL_ERROR;
   }
 
@@ -210,6 +221,7 @@ PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
   size_t idx;
 
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
 
@@ -222,6 +234,9 @@ PsaStatus stack_insert_handle_after_top_terminal(TerminalStack *stack) {
     }
   }
   if (idx == stack->size) {
+    ERROR_ORIGIN_AT(
+        0U, 0U, NULL,
+        "syntax error: no operator to take on the expression stack");
     return PSA_SYNTAX_ERROR;
   }
 
@@ -242,6 +257,7 @@ PRECEDENCE get_precedence(TerminalType stack, TerminalType input) {
 static PsaStatus terminal_to_binary_op(Terminal terminal,
                                        ASTNodeKind *return_kind) {
   if (return_kind == NULL || terminal.type >= TERMINAL_COUNT) {
+    ERROR_INTERNAL("null terminal or output");
     return PSA_INVALID_ARGUMENT;
   }
 
@@ -308,9 +324,12 @@ static PsaStatus terminal_to_binary_op(Terminal terminal,
 PsaStatus psa_reduce(TerminalStack *stack) {
   // Reduction pattern must be exactly 4 items: '<' OPERAND op OPERAND
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
   if (stack->size < 4U) {
+    ERROR_ORIGIN_AT(0U, 0U, NULL,
+                    "syntax error: missing operand of a binary operator");
     return PSA_SYNTAX_ERROR;
   }
 
@@ -322,21 +341,27 @@ PsaStatus psa_reduce(TerminalStack *stack) {
 
   if (handle.type != TERMINAL_HANDLE || left.type != TERMINAL_OPERAND ||
       op.type == TERMINAL_OPERAND || right.type != TERMINAL_OPERAND) {
+    ERROR_ORIGIN_AT(op.token.line, op.token.column, NULL,
+                    "syntax error: binary operator is missing an operand");
     return PSA_SYNTAX_ERROR;
   }
 
   if (left.node == NULL || right.node == NULL) {
+    ERROR_INTERNAL("operand of a binary operator has no AST node");
     return PSA_INTERNAL_ERROR;
   }
 
   ASTNodeKind op_kind;
   if (terminal_to_binary_op(op, &op_kind) != PSA_OK) {
+    ERROR_ORIGIN_AT(op.token.line, op.token.column, NULL,
+                    "syntax error: not a binary operator");
     return PSA_SYNTAX_ERROR;
   }
 
   ASTNode *bin_node = ast_node_create_binary_op(op_kind, left.node, right.node,
                                                 op.token.line, op.token.column);
   if (bin_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a binary operator node");
     return PSA_INTERNAL_ERROR;
   }
 
@@ -358,6 +383,7 @@ PsaStatus psa_reduce(TerminalStack *stack) {
 
 PsaStatus terminal_stack_cleanup_nodes(TerminalStack *stack) {
   if (stack == NULL) {
+    ERROR_INTERNAL("null terminal stack");
     return PSA_INVALID_ARGUMENT;
   }
   for (size_t i = 0; i < stack->size; i++) {
