@@ -52,8 +52,14 @@ const char *ParserStatusName(ParserStatus status) {
     return "PARSER_OK";
   case PARSER_SYNTAX_ERROR:
     return "PARSER_SYNTAX_ERROR";
-  case PARSER_SEMANTIC_ERROR:
-    return "PARSER_SEMANTIC_ERROR";
+  case PARSER_UNDEFINED_ERROR:
+    return "PARSER_UNDEFINED_ERROR";
+  case PARSER_REDEFINITION_ERROR:
+    return "PARSER_REDEFINITION_ERROR";
+  case PARSER_BAD_CALL_ERROR:
+    return "PARSER_BAD_CALL_ERROR";
+  case PARSER_TYPE_ERROR:
+    return "PARSER_TYPE_ERROR";
   case PARSER_LEXER_ERROR:
     return "PARSER_LEXER_ERROR";
   case PARSER_INVALID_ARGUMENT:
@@ -359,11 +365,11 @@ const char *const kBranchesThenParent = "def f(a: Int): Unit =\n"
                                         "  val y = 2.0\n";
 
 /** Asserts one parser-made symbol y: its constant flag and type. */
-void ExpectY(const SymbolTable *scope, bool constant, DataType type) {
+void ExpectY(const SymbolTable *scope, bool constant, BaseType type) {
   Symbol *y = Local(scope, "y");
   ASSERT_NE(y, nullptr);
   EXPECT_EQ(y->constant, constant);
-  EXPECT_EQ(y->type.type, type);
+  EXPECT_TRUE(type_is_scalar(y->type.type, type)) << y->type.type.base;
 }
 
 } // namespace
@@ -371,8 +377,8 @@ void ExpectY(const SymbolTable *scope, bool constant, DataType type) {
 // §2.2: a sub-block may shadow, val is immutable and var mutable; §2.4: both
 // branches are separate scopes, so their `y` does not block a later `y` in
 // the enclosing block (A2-100).
-// Fails today: RC-PROLOG (status SYNTAX at `import`); without the prolog
-// RC-EXPR (stub condition is NULL -> SYNTAX).
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxDefinitionTest,
      ParentDefinitionAfterBranchDefinitionsIsAllowed) {
   // Arrange
@@ -395,8 +401,8 @@ TEST(SpecParserWhiteboxDefinitionTest,
 // §2.2: "Opakovaná definice ve stejném bloku vede na chybu 4" - a second
 // `y` in the enclosing block is a redefinition even after the branch ones;
 // the spec does not say which pass reports it (A2-100).
-// Fails today: RC-PROLOG (status SYNTAX at `import`); without the prolog
-// RC-EXPR (stub condition is NULL -> SYNTAX).
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxDefinitionTest,
      SecondParentDefinitionAfterBranchesIsRedefinition) {
   // Arrange
@@ -409,7 +415,7 @@ TEST(SpecParserWhiteboxDefinitionTest,
   // Assert
   ASSERT_TRUE(p.io_ok() || p.died()) << "tmpfile/fputs failed";
   ASSERT_FALSE(p.died()) << p.source();
-  bool by_parser = p.status() == PARSER_SEMANTIC_ERROR;
+  bool by_parser = p.status() == PARSER_REDEFINITION_ERROR;
   bool by_semantic =
       p.status() == PARSER_OK && p.semantic() == SEMANTIC_REDEFINITION;
   EXPECT_TRUE(by_parser || by_semantic)
@@ -430,8 +436,8 @@ TEST(SpecParserWhiteboxDefinitionTest,
 
 // §2.4: "Obě větve vytvářejí samostatné rozsahy platnosti" - each branch
 // gets its own child scope, so `x` may be defined in both (A4-140).
-// Fails today: RC-PROLOG (status SYNTAX at `import`); without the prolog
-// RC-EXPR (stub condition is NULL -> SYNTAX).
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxScopeTest, IfBranchesGetSeparateChildScopes) {
   // Arrange
   std::string body = "def f(a: Int): Unit =\n  if a < 1 then\n    val x = 1\n"
@@ -456,8 +462,8 @@ TEST(SpecParserWhiteboxScopeTest, IfBranchesGetSeparateChildScopes) {
 
 // §2.4: a nested if inside the then branch opens scopes nested in the
 // then-scope of the outer if (A4-141).
-// Fails today: RC-PROLOG (status SYNTAX at `import`); without the prolog
-// RC-EXPR (stub condition is NULL -> SYNTAX).
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxScopeTest, NestedIfScopesAreNested) {
   // Arrange
   std::string body = "def f(a: Int): Unit =\n  if a < 1 then\n"
@@ -482,9 +488,8 @@ TEST(SpecParserWhiteboxScopeTest, NestedIfScopesAreNested) {
 
 // §2.5: "Tělo tvoří samostatný rozsah platnosti" - the while body is one
 // child scope and its `x` is not visible in the enclosing block (A4-142).
-// Fails today: RC-PROLOG (status SYNTAX at `import`); without the prolog
-// RC-WHILE (`while` has no production in p_statement -> SYNTAX), then
-// RC-EXPR.
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxScopeTest, WhileBodyGetsChildScope) {
   // Arrange
   std::string body =
@@ -525,7 +530,7 @@ struct ShapeCase {
   Place place;
   const char *expression;
   const char *shape;
-  DataType type;
+  BaseType type;
 };
 
 /** Prints a row as its name instead of a byte dump in failure messages. */
@@ -549,50 +554,56 @@ class SpecParserWhiteboxConversionShapeTest
 const ShapeCase kShapeCases[] = {
     // §3: `/` (priority 2) binds before `+` (3); §1.3: the conversion wraps
     // the whole Int quotient, so 1 / 2 stays integer division (A5-W30).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR (val -> INTERNAL),
-    // then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"QuotientIsWidenedAfterIntegerDivision", Place::kDoubleInitializer,
      "1 / 2 + 0.5", "(d((1 / 2)) + 0.5)", TYPE_REAL},
     // §3: `*` binds before `+`; (1 + 2) * 3.0 would print
     // (d((1 + 2)) * 3.0) (A5-W31).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"ProductBindsBeforeWideningSum", Place::kDoubleInitializer, "1 + 2 * 3.0",
      "(d(1) + (d(2) * 3.0))", TYPE_REAL},
     // §3: `/` is left associative; the right grouping 1 / (2 / 2.0) would
     // print (d(1) / (d(2) / 2.0)) (A5-W32).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"DivisionChainWidensLeftQuotient", Place::kInitializer, "1 / 2 / 2.0",
      "(d((1 / 2)) / 2.0)", TYPE_REAL},
     // §3: `*` and `/` share priority 2 and associate left; every Int leaf
     // next to a Double is widened on its own (A5-W33).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"MixedProductQuotientWidensEachIntLeaf", Place::kInitializer,
      "2.0 * 3 / 2", "((2.0 * d(3)) / d(2))", TYPE_REAL},
     // §3: `+` (3) binds before `<` (4); the Int sum is widened as a whole
     // (A5-W34).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR (NULL condition ->
-    // SYNTAX), then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"RelationWidensWholeIntSum", Place::kCondition, "a + b < x",
      "(d((a + b)) < x)", TYPE_BOOL},
     // §3: `a < b + x` is a < (b + x); a is widened, b inside the sum
     // (A5-W35).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR (NULL condition ->
-    // SYNTAX), then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"RelationWidensLeftLeafAndRightSumLeaf", Place::kCondition, "a < b + x",
      "(d(a) < (d(b) + x))", TYPE_BOOL},
     // §3: `-` is left associative; the Int difference a - b is widened as a
     // whole (A5-W39).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"SubtractionChainWidensLeftDifference", Place::kDoubleInitializer,
      "a - b - x", "(d((a - b)) - x)", TYPE_REAL},
     // §1.3 + §2.2: an Int value is compatible with a declared Double; the
     // whole Int difference is widened once, at the top (check of the file).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"DoubleTargetWidensWholeIntDifference", Place::kDoubleInitializer, "a - b",
      "d((a - b))", TYPE_REAL},
     // §3: + - * over two Int values give Int; no conversion anywhere
     // (control row, check of the file).
-    // Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA.
+    // Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+    // the prolog (IFJ26_HARNESS_NO_PROLOG=1).
     {"IntOnlyExpressionHasNoConversion", Place::kInitializer, "a + b * 2",
      "(a + (b * 2))", TYPE_INT},
 };
@@ -615,7 +626,8 @@ TEST_P(SpecParserWhiteboxConversionShapeTest, ConversionsFollowGrouping) {
   const ASTNode *expression = ShapedExpression(row, p);
   ASSERT_NE(expression, nullptr) << p.source();
   EXPECT_EQ(Sexpr(expression), row.shape) << p.source();
-  EXPECT_EQ(expression->inferred_type.type, row.type) << p.source();
+  EXPECT_TRUE(type_is_scalar(expression->inferred_type.type, row.type))
+      << p.source();
 }
 
 INSTANTIATE_TEST_SUITE_P(SpecParserWhitebox,
@@ -648,8 +660,8 @@ void ExpectNegationKept(const ASTNode *negation, const char *operand) {
 
 // §3: unary operators apply to numbers only and do not change the type:
 // -x is Double, -a is Int (A5-W36).
-// Fails today: RC-PROLOG; without the prolog RC-EXPR (val -> INTERNAL), then
-// RC-PSA and RC-UNARY (no terminal, AST node or type rule for unary minus).
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusKeepsOperandType) {
   // Arrange
   std::string body = "def f(a: Int, b: Int, x: Double, s: String) =\n"
@@ -666,15 +678,16 @@ TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusKeepsOperandType) {
   Symbol *q = Local(f->local_scope, "q");
   ASSERT_NE(r, nullptr);
   ASSERT_NE(q, nullptr);
-  EXPECT_EQ(r->type.type, TYPE_REAL);
-  EXPECT_EQ(q->type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(r->type.type, TYPE_REAL));
+  EXPECT_TRUE(type_is_scalar(q->type.type, TYPE_INT));
   ExpectNegationKept(p.Initializer(0U), "x");
   ExpectNegationKept(p.Initializer(1U), "a");
 }
 
 // §3 + §1.3: -a stays Int, so a Double target widens the negation as a
 // whole: the conversion is above the unary node (A5-W37).
-// Fails today: RC-PROLOG; without the prolog RC-EXPR, then RC-PSA, RC-UNARY.
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxUnaryMinusTest, NegatedIntIsWidenedAsWhole) {
   // Arrange
   std::string source = InitializerSource("-a", true);
@@ -690,13 +703,13 @@ TEST(SpecParserWhiteboxUnaryMinusTest, NegatedIntIsWidenedAsWhole) {
   const ASTNode *negation = value->data.conversion.operand;
   ExpectNegationKept(negation, "a");
   ASSERT_NE(negation, nullptr);
-  EXPECT_EQ(negation->inferred_type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(negation->inferred_type.type, TYPE_INT));
 }
 
 // §3: unary `-` (priority 1) binds before `<` (4); the Int negation is the
 // widened left operand (A5-W38).
-// Fails today: RC-PROLOG; without the prolog RC-EXPR (NULL condition ->
-// SYNTAX), then RC-PSA, RC-UNARY.
+// Fails today: RC-PROLOG (status SYNTAX at `import`); passes without
+// the prolog (IFJ26_HARNESS_NO_PROLOG=1).
 TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusOperandOfRelationIsWidened) {
   // Arrange
   std::string source = ConditionSource("-a < x");
@@ -715,5 +728,5 @@ TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusOperandOfRelationIsWidened) {
   const ASTNode *negation = left->data.conversion.operand;
   ExpectNegationKept(negation, "a");
   ASSERT_NE(negation, nullptr);
-  EXPECT_EQ(negation->inferred_type.type, TYPE_INT);
+  EXPECT_TRUE(type_is_scalar(negation->inferred_type.type, TYPE_INT));
 }

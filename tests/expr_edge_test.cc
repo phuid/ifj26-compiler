@@ -6,10 +6,28 @@
 
 extern "C" {
 #include "../src/parser.h"
+#include "../src/psa.h"
 #include "../src/semantic.h"
 }
-// psa.h has no include guard and is force-included (C linkage) by the build,
-// so it must not be included here a second time.
+
+namespace {
+
+Terminal MakeTerminal(TerminalType type) {
+  Terminal terminal = {};
+  terminal.type = type;
+  terminal.token.type = TOKEN_INVALID;
+  terminal.node = nullptr;
+  return terminal;
+}
+
+/** Relation of stack top @p top and the terminal of input token @p next. */
+PRECEDENCE PrecedenceOf(TerminalType top, TokenType next) {
+  Token token = {};
+  token.type = next;
+  return get_precedence(top, token_to_terminal(token));
+}
+
+} // namespace
 
 /*
  * AI-generated test block — TerminalStack descriptor reset and status codes.
@@ -20,46 +38,44 @@ extern "C" {
  *   that already holds values (deterministically, not on stack garbage),
  *   and a drained stack must keep rejecting pop/peek without underflow.
  */
+// Ported to the psa.h of ee9d509: pop was removed without a replacement, peek
+// became stack_get_top_terminal and a stack is drained by
+// terminal_stack_cleanup_nodes.
 TEST(ExprEdgeTest, InitResetsEveryFieldOfAUsedDescriptor) {
-  Terminal storage[2] = {{TERMINAL_PLUS, nullptr}, {TERMINAL_MUL, nullptr}};
+  Terminal storage[2] = {MakeTerminal(TERMINAL_PLUS),
+                         MakeTerminal(TERMINAL_MUL)};
   TerminalStack stack = {storage, 2U, 2U};
 
-  ASSERT_EQ(terminal_stack_init(&stack), PARSER_OK);
+  ASSERT_EQ(terminal_stack_init(&stack), PSA_OK);
 
   EXPECT_EQ(stack.data, nullptr);
-  ASSERT_EQ(stack.size, 0U); // peek/pop below must not index old storage
+  ASSERT_EQ(stack.size, 0U); // the lookup below must not index old storage
   EXPECT_EQ(stack.capacity, 0U);
   EXPECT_EQ(storage[0].type, TERMINAL_PLUS); // old storage is not touched
   EXPECT_EQ(storage[1].type, TERMINAL_MUL);
-  Terminal out = {TERMINAL_INVALID, nullptr};
-  EXPECT_EQ(terminal_stack_peek(&stack, &out), PARSER_INVALID_ARGUMENT);
-  EXPECT_EQ(terminal_stack_pop(&stack, &out), PARSER_INVALID_ARGUMENT);
+  Terminal out = MakeTerminal(TERMINAL_INVALID);
+  EXPECT_EQ(stack_get_top_terminal(&stack, &out), PSA_INVALID_ARGUMENT);
   EXPECT_EQ(out.type, TERMINAL_INVALID);
 }
 
-TEST(ExprEdgeTest, DrainedStackKeepsRejectingPopAndPeek) {
+TEST(ExprEdgeTest, DrainedStackKeepsRejectingTopLookup) {
   TerminalStack stack;
-  ASSERT_EQ(terminal_stack_init(&stack), PARSER_OK);
-  ASSERT_EQ(terminal_stack_push(&stack, {TERMINAL_DOLLAR, nullptr}),
-            PARSER_OK);
-  Terminal out = {TERMINAL_INVALID, nullptr};
-  ASSERT_EQ(terminal_stack_pop(&stack, &out), PARSER_OK);
-  const size_t capacity = stack.capacity;
+  ASSERT_EQ(terminal_stack_init(&stack), PSA_OK);
+  ASSERT_EQ(terminal_stack_push(&stack, MakeTerminal(TERMINAL_DOLLAR)), PSA_OK);
+  ASSERT_EQ(terminal_stack_cleanup_nodes(&stack), PSA_OK);
+  Terminal out = MakeTerminal(TERMINAL_INVALID);
 
   for (int attempt = 0; attempt < 3; ++attempt) {
     SCOPED_TRACE(attempt);
-    out = {TERMINAL_INVALID, nullptr};
-    EXPECT_EQ(terminal_stack_pop(&stack, &out), PARSER_INVALID_ARGUMENT);
-    EXPECT_EQ(terminal_stack_peek(&stack, &out), PARSER_INVALID_ARGUMENT);
+    out = MakeTerminal(TERMINAL_INVALID);
+    EXPECT_EQ(stack_get_top_terminal(&stack, &out), PSA_INVALID_ARGUMENT);
     EXPECT_EQ(out.type, TERMINAL_INVALID);
     EXPECT_EQ(stack.size, 0U);
   }
-  EXPECT_EQ(stack.capacity, capacity); // pop never shrinks the storage
-  ASSERT_EQ(terminal_stack_push(&stack, {TERMINAL_LPAREN, nullptr}),
-            PARSER_OK);
-  ASSERT_EQ(terminal_stack_peek(&stack, &out), PARSER_OK);
-  EXPECT_EQ(out.type, TERMINAL_LPAREN);
-  free(stack.data);
+  ASSERT_EQ(terminal_stack_push(&stack, MakeTerminal(TERMINAL_OR)), PSA_OK);
+  ASSERT_EQ(stack_get_top_terminal(&stack, &out), PSA_OK);
+  EXPECT_EQ(out.type, TERMINAL_OR);
+  EXPECT_EQ(terminal_stack_cleanup_nodes(&stack), PSA_OK);
 }
 
 /*
@@ -79,28 +95,35 @@ struct TokenGroup {
 };
 
 const TokenType kMulTokens[] = {TOKEN_MULTIPLY, TOKEN_DIVIDE};
-// Binary `-` only; unary minus needs its own terminal or driver handling.
+// Binary `-` only; unary minus is handled by the driver (p_expression).
 const TokenType kAddTokens[] = {TOKEN_PLUS, TOKEN_MINUS, TOKEN_LIST_CONCAT};
-const TokenType kRelTokens[] = {TOKEN_LESS,  TOKEN_LESS_EQUAL,
-                                TOKEN_GREATER, TOKEN_GREATER_EQUAL,
-                                TOKEN_EQUAL, TOKEN_NOT_EQUAL};
+// Spec 3 level 4 (TERMINAL_REL) and level 5 (TERMINAL_EQUAL).
+const TokenType kRelTokens[] = {TOKEN_LESS, TOKEN_LESS_EQUAL, TOKEN_GREATER,
+                                TOKEN_GREATER_EQUAL};
+const TokenType kEqTokens[] = {TOKEN_EQUAL, TOKEN_NOT_EQUAL};
+// Tokens that start an operand are no table terminals (TERMINAL_INVALID);
+// `(` opens a parenthesised operand, which the driver parses as a whole.
 const TokenType kOperandTokens[] = {TOKEN_INT, TOKEN_DOUBLE, TOKEN_STRING,
-                                    TOKEN_IDENTIFIER};
-const TokenType kLeftParen[] = {TOKEN_LEFT_PAREN};
-const TokenType kRightParen[] = {TOKEN_RIGHT_PAREN};
-// Tokens psa.c maps to TERMINAL_DOLLAR (end of the expression).
+                                    TOKEN_IDENTIFIER, TOKEN_LEFT_PAREN};
+// Tokens psa.c maps to TERMINAL_DOLLAR (end of the expression); `)` ends a
+// parenthesised operand.
 const TokenType kEndTokens[] = {
-    TOKEN_EOF,   TOKEN_NEWLINE,       TOKEN_SEMICOLON, TOKEN_COMMA,
-    TOKEN_COLON, TOKEN_RIGHT_BRACKET, TOKEN_DEDENT,    TOKEN_KW_THEN,
+    TOKEN_EOF,   TOKEN_RIGHT_PAREN, TOKEN_NEWLINE, TOKEN_SEMICOLON,
+    TOKEN_COMMA, TOKEN_COLON,       TOKEN_DEDENT,  TOKEN_KW_THEN,
     TOKEN_KW_DO, TOKEN_KW_ELSE};
+// Table rows (stack tops) plus the stack-only operand marker.
+const TerminalType kTableTops[] = {
+    TERMINAL_MUL, TERMINAL_DIV,    TERMINAL_PLUS,  TERMINAL_MINUS,
+    TERMINAL_CONCAT, TERMINAL_REL, TERMINAL_EQUAL, TERMINAL_AND,
+    TERMINAL_OR,  TERMINAL_TO,     TERMINAL_UNTIL, TERMINAL_BY,
+    TERMINAL_DOLLAR, TERMINAL_OPERAND};
 
 #define EXPR_EDGE_GROUP(array) {#array, array, sizeof(array) / sizeof(array[0])}
 const TokenGroup kMul = EXPR_EDGE_GROUP(kMulTokens);
 const TokenGroup kAdd = EXPR_EDGE_GROUP(kAddTokens);
 const TokenGroup kRel = EXPR_EDGE_GROUP(kRelTokens);
+const TokenGroup kEq = EXPR_EDGE_GROUP(kEqTokens);
 const TokenGroup kOperand = EXPR_EDGE_GROUP(kOperandTokens);
-const TokenGroup kLParen = EXPR_EDGE_GROUP(kLeftParen);
-const TokenGroup kRParen = EXPR_EDGE_GROUP(kRightParen);
 const TokenGroup kEnd = EXPR_EDGE_GROUP(kEndTokens);
 #undef EXPR_EDGE_GROUP
 
@@ -109,13 +132,13 @@ struct RowCell {
   PRECEDENCE expected;
 };
 
-/** Checks get_precedence(top, t) == cell.expected for every t in a group. */
+/** Checks the relation of (top, t) == cell.expected for every t in a group. */
 template <size_t N>
 void ExpectRow(TerminalType top, const RowCell (&cells)[N]) {
   for (const RowCell &cell : cells) {
     for (size_t i = 0; i < cell.group->count; ++i) {
       const TokenType next = cell.group->tokens[i];
-      EXPECT_EQ(get_precedence(top, next), cell.expected)
+      EXPECT_EQ(PrecedenceOf(top, next), cell.expected)
           << "top " << top << ", " << cell.group->name << " token " << next;
     }
   }
@@ -133,35 +156,28 @@ void ExpectRow(TerminalType top, const RowCell (&cells)[N]) {
  *   markers that are not terminals (HANDLE, INVALID) on the stack top.
  *   Statement-only tokens never relate to any stack top.
  */
-// Guard tests: with today's stub (always PREC_INVALID) they pass trivially;
-// they keep the empty cells empty once the table is implemented. Cells
-// already pinned by psa_test.cc / psa_cov_test.cc are left out.
-TEST(ExprEdgeTest, OperandOrRightParenThenOperandHasNoRelation) {
-  const TokenType after_operand[] = {TOKEN_DOUBLE, TOKEN_STRING,
-                                     TOKEN_LEFT_PAREN};
-  for (const TokenType next : after_operand) {
-    EXPECT_EQ(get_precedence(TERMINAL_OPERAND, next), PREC_INVALID) << next;
-  }
-  for (const TokenType next : kOperandTokens) {
-    EXPECT_EQ(get_precedence(TERMINAL_RPAREN, next), PREC_INVALID) << next;
-  }
-}
-
-TEST(ExprEdgeTest, UnclosedLeftParenAtExpressionEndHasNoRelation) {
-  const TokenType ends[] = {TOKEN_SEMICOLON, TOKEN_COLON, TOKEN_RIGHT_BRACKET,
-                            TOKEN_KW_THEN,   TOKEN_KW_DO, TOKEN_KW_ELSE};
-  for (const TokenType next : ends) {
-    EXPECT_EQ(get_precedence(TERMINAL_LPAREN, next), PREC_INVALID) << next;
+// Ported to the psa.h of ee9d509: parentheses are no table terminals any more
+// (TERMINAL_LPAREN/RPAREN and PREC_EQUAL were removed), so operand tokens and
+// `(` have no relation with any top, and the unclosed `(` is checked through
+// p_program in ExprEdgeTest.UnclosedLeftParenAtExpressionEndIsSyntaxError.
+// Cells already pinned by psa_test.cc / psa_cov_test.cc are left out.
+TEST(ExprEdgeTest, OperandTokensHaveNoRelationWithAnyTop) {
+  for (const TerminalType top : kTableTops) {
+    for (const TokenType next : kOperandTokens) {
+      EXPECT_EQ(PrecedenceOf(top, next), PREC_INVALID)
+          << "top " << top << ", next " << next;
+    }
   }
 }
 
 TEST(ExprEdgeTest, MarkersOnStackTopHaveNoRelationWithAnyToken) {
-  const TokenGroup *groups[] = {&kMul,    &kAdd,    &kRel, &kOperand,
-                                &kLParen, &kRParen, &kEnd};
-  for (const TerminalType top : {TERMINAL_HANDLE, TERMINAL_INVALID}) {
+  const TokenGroup *groups[] = {&kMul, &kAdd,     &kRel,
+                                &kEq,  &kOperand, &kEnd};
+  for (const TerminalType top :
+       {TERMINAL_HANDLE, TERMINAL_INVALID, TERMINAL_OPERAND}) {
     for (const TokenGroup *group : groups) {
       for (size_t i = 0; i < group->count; ++i) {
-        EXPECT_EQ(get_precedence(top, group->tokens[i]), PREC_INVALID)
+        EXPECT_EQ(PrecedenceOf(top, group->tokens[i]), PREC_INVALID)
             << "top " << top << ", token " << group->tokens[i];
       }
     }
@@ -173,14 +189,9 @@ TEST(ExprEdgeTest, StatementOnlyTokensHaveNoRelation) {
       TOKEN_KW_VAL,    TOKEN_KW_VAR,    TOKEN_KW_WHILE,  TOKEN_KW_RETURN,
       TOKEN_KW_INT,    TOKEN_KW_DOUBLE, TOKEN_KW_STRING, TOKEN_KW_UNIT,
       TOKEN_KW_BOOLEAN, TOKEN_UNION,    TOKEN_FOR_GENERATOR};
-  const TerminalType tops[] = {TERMINAL_PLUS,   TERMINAL_MINUS,
-                               TERMINAL_MUL,    TERMINAL_DIV,
-                               TERMINAL_CONCAT, TERMINAL_REL,
-                               TERMINAL_LPAREN, TERMINAL_RPAREN,
-                               TERMINAL_OPERAND, TERMINAL_DOLLAR};
-  for (const TerminalType top : tops) {
+  for (const TerminalType top : kTableTops) {
     for (const TokenType next : foreign) {
-      EXPECT_EQ(get_precedence(top, next), PREC_INVALID)
+      EXPECT_EQ(PrecedenceOf(top, next), PREC_INVALID)
           << "top " << top << ", next " << next;
     }
   }
@@ -198,19 +209,16 @@ TEST(ExprEdgeTest, StatementOnlyTokensHaveNoRelation) {
 // What must hold (spec 3, table "od nejvyšší priority"; 5.8 for `++`):
 //  * top of higher or equal level than the input operator -> REDUCE (left
 //    associativity for equal levels), lower level -> TAKE;
-//  * operands and `(` are always shifted after an operator, `(` or $;
-//  * `)` and every end token reduce everything except `(` / $;
-//  * `(` x `)` -> EQUAL.
-// Deliberately absent (open design, see map-expr.md): TERMINAL_REL x
-// relational token (TERMINAL_REL lumps spec levels 4 `< <= > >=` and 5
-// `== !=`, so one cell would need two answers), $ x `)` and $ x end token
-// (accept / driver decision), `(` x NEWLINE/DEDENT (layout inside
-// parentheses is skipped by the driver), unary minus (TOKEN_MINUS is read as
-// the binary operator here, as in psa_test.cc).
+//  * every end token (also `)`) reduces every operator; $ takes every one.
+// Ported to the psa.h of ee9d509: the rows of `(`, `)` and operands were
+// removed with their terminals (operands and parentheses are parsed by the
+// driver, not looked up in the table); REL x REL/EQUAL, the logical and range
+// operators are pinned by psa_cov_test.cc; unary minus is the driver's.
 TEST(ExprEdgeKnownGapTest, DISABLED_MultiplicativeRowsReduceEveryOperator) {
-  const RowCell row[] = {{&kMul, PREC_REDUCE},    {&kAdd, PREC_REDUCE},
-                         {&kRel, PREC_REDUCE},    {&kLParen, PREC_TAKE},
-                         {&kRParen, PREC_REDUCE}, {&kOperand, PREC_TAKE},
+  const RowCell row[] = {{&kMul, PREC_REDUCE},
+                         {&kAdd, PREC_REDUCE},
+                         {&kRel, PREC_REDUCE},
+                         {&kEq, PREC_REDUCE},
                          {&kEnd, PREC_REDUCE}};
   ExpectRow(TERMINAL_MUL, row);
   ExpectRow(TERMINAL_DIV, row);
@@ -218,9 +226,10 @@ TEST(ExprEdgeKnownGapTest, DISABLED_MultiplicativeRowsReduceEveryOperator) {
 
 TEST(ExprEdgeKnownGapTest, DISABLED_AdditiveRowsShiftOnlyMultiplicative) {
   // `++` (TERMINAL_CONCAT) shares the row of `+` (spec 5.8).
-  const RowCell row[] = {{&kMul, PREC_TAKE},      {&kAdd, PREC_REDUCE},
-                         {&kRel, PREC_REDUCE},    {&kLParen, PREC_TAKE},
-                         {&kRParen, PREC_REDUCE}, {&kOperand, PREC_TAKE},
+  const RowCell row[] = {{&kMul, PREC_TAKE},
+                         {&kAdd, PREC_REDUCE},
+                         {&kRel, PREC_REDUCE},
+                         {&kEq, PREC_REDUCE},
                          {&kEnd, PREC_REDUCE}};
   ExpectRow(TERMINAL_PLUS, row);
   ExpectRow(TERMINAL_MINUS, row);
@@ -228,37 +237,19 @@ TEST(ExprEdgeKnownGapTest, DISABLED_AdditiveRowsShiftOnlyMultiplicative) {
 }
 
 TEST(ExprEdgeKnownGapTest, DISABLED_RelationalRowShiftsArithmetic) {
-  const RowCell row[] = {{&kMul, PREC_TAKE},      {&kAdd, PREC_TAKE},
-                         {&kLParen, PREC_TAKE},   {&kOperand, PREC_TAKE},
-                         {&kRParen, PREC_REDUCE}, {&kEnd, PREC_REDUCE}};
+  const RowCell row[] = {
+      {&kMul, PREC_TAKE}, {&kAdd, PREC_TAKE}, {&kEnd, PREC_REDUCE}};
   ExpectRow(TERMINAL_REL, row);
-}
-
-TEST(ExprEdgeKnownGapTest, DISABLED_LeftParenRowShiftsAndMatchesRightParen) {
-  const RowCell row[] = {{&kMul, PREC_TAKE},     {&kAdd, PREC_TAKE},
-                         {&kRel, PREC_TAKE},     {&kLParen, PREC_TAKE},
-                         {&kOperand, PREC_TAKE}, {&kRParen, PREC_EQUAL}};
-  ExpectRow(TERMINAL_LPAREN, row);
-}
-
-TEST(ExprEdgeKnownGapTest, DISABLED_OperandAndRightParenRowsReduce) {
-  const RowCell row[] = {{&kMul, PREC_REDUCE},
-                         {&kAdd, PREC_REDUCE},
-                         {&kRel, PREC_REDUCE},
-                         {&kRParen, PREC_REDUCE},
-                         {&kEnd, PREC_REDUCE}};
-  ExpectRow(TERMINAL_OPERAND, row);
-  ExpectRow(TERMINAL_RPAREN, row);
+  ExpectRow(TERMINAL_EQUAL, row);
 }
 
 TEST(ExprEdgeKnownGapTest, DISABLED_DollarRowShiftsEveryExpressionStart) {
   // $E with any operator shifts: the top terminal is $ even after the first
-  // operand was reduced; a leading operator fails later, at reduction.
+  // operand was pushed; a leading operator is rejected by the driver.
   const RowCell row[] = {{&kMul, PREC_TAKE},
                          {&kAdd, PREC_TAKE},
                          {&kRel, PREC_TAKE},
-                         {&kLParen, PREC_TAKE},
-                         {&kOperand, PREC_TAKE}};
+                         {&kEq, PREC_TAKE}};
   ExpectRow(TERMINAL_DOLLAR, row);
 }
 
@@ -276,18 +267,28 @@ namespace {
 // parser test: p_program does not parse it yet (ParserBugTest.
 // ProgramWithPrologIsAccepted). Set this to "import ifj26.*\n" after that fix.
 const char *const kProlog = "";
+// The parser itself reports a missing @main (code 3, spec 2), so every
+// program starts with this entry function (kEntryLines lines) before f.
+const char *const kEntry = "@main\ndef entry(): Unit =\n  ()\n";
+constexpr size_t kEntryLines = 3U;
 const char *const kHeader =
     "def f(a: Int, b: Int, c: Int, d: Int, x: Double, s: String) =\n";
 const char *const kUnitHeader =
     "def f(a: Int, b: Int, c: Int, d: Int, x: Double, s: String): Unit =\n";
 
+/** Prolog and entry function followed by @p functions. */
+std::string ProgramSource(const std::string &functions) {
+  return std::string(kProlog) + kEntry + functions;
+}
+
 std::string InitializerSource(const std::string &expression) {
-  return std::string(kProlog) + kHeader + "  val r = " + expression + "\n";
+  return ProgramSource(kHeader + std::string("  val r = ") + expression +
+                       "\n");
 }
 
 std::string ConditionSource(const std::string &expression) {
-  return std::string(kProlog) + kUnitHeader + "  if " + expression +
-         " then\n    ()\n  else\n    ()\n";
+  return ProgramSource(kUnitHeader + std::string("  if ") + expression +
+                       " then\n    ()\n  else\n    ()\n");
 }
 
 ParserStatus ParseInto(const std::string &source, Program *program) {
@@ -384,8 +385,11 @@ std::string LeafSexpr(const ASTNode *node) {
   case AST_CONSTANT_REAL:
     snprintf(buffer, sizeof(buffer), "%g", node->data.real_value);
     return buffer;
-  case AST_CONSTANT_STRING:
-    return "\"" + std::string(node->data.string_value) + "\"";
+  case AST_CONSTANT_STRING: {
+    // The lexer keeps the quotes of the literal (LexerTest pins it).
+    const std::string text = node->data.string_value;
+    return !text.empty() && text[0] == '"' ? text : "\"" + text + "\"";
+  }
   case AST_CONSTANT_UNIT: return "()";
   case AST_VARIABLE_REF:
     return node->data.variable.symbol != nullptr
@@ -501,12 +505,12 @@ TEST(ExprEdgeKnownGapTest, DISABLED_OperatorNodeCarriesOperatorPosition) {
   const ASTNode *root = p.Initializer();
   ASSERT_NE(root, nullptr);
   ASSERT_EQ(root->kind, AST_ADD);
-  EXPECT_EQ(root->line, 2U);
+  EXPECT_EQ(root->line, 2U + kEntryLines);
   EXPECT_EQ(root->column, 17U);
   const ASTNode *left = root->data.binary_op.left;
   ASSERT_NE(left, nullptr);
   ASSERT_EQ(left->kind, AST_MULTIPLY);
-  EXPECT_EQ(left->line, 2U);
+  EXPECT_EQ(left->line, 2U + kEntryLines);
   EXPECT_EQ(left->column, 13U);
 }
 
@@ -550,16 +554,15 @@ TEST(ExprEdgeKnownGapTest, DISABLED_SameLevelRelationalChainIsSyntaxError) {
 // The exit code of a mixed-level chain is open (spec Nejasnosti 6: 2 or 6),
 // but the program must not be accepted by the parser + semantic pipeline.
 TEST(ExprEdgeKnownGapTest, DISABLED_MixedLevelRelationalChainIsRejected) {
-  const std::string main_fn = "@main\ndef main(): Unit =\n  ()\n";
   const char *const chains[] = {"a < b == c", "a == b < c", "a != b >= c"};
   {
-    ParsedProgram control(ConditionSource("a < b") + main_fn);
+    ParsedProgram control(ConditionSource("a < b"));
     ASSERT_EQ(control.status(), PARSER_OK);
     ASSERT_EQ(semantic_check(control.program()), SEMANTIC_OK);
   }
   for (const char *chain : chains) {
     SCOPED_TRACE(chain);
-    ParsedProgram p(ConditionSource(chain) + main_fn);
+    ParsedProgram p(ConditionSource(chain));
     if (p.status() == PARSER_OK) {
       EXPECT_NE(semantic_check(p.program()), SEMANTIC_OK);
     }
@@ -630,6 +633,24 @@ TEST(ExprEdgeKnownGapTest, DISABLED_UnbalancedParenthesesAreSyntaxError) {
   ExpectStatus(expressions, InitializerSource, PARSER_SYNTAX_ERROR);
 }
 
+// Replaces the get_precedence cells `(` x end token, whose terminal was
+// removed in ee9d509: a `(` still open when the expression ends at `then`,
+// `do`, `;` or the end of the line is a syntax error.
+TEST(ExprEdgeTest, UnclosedLeftParenAtExpressionEndIsSyntaxError) {
+  const char *const conditions[] = {"(a < b", "((a < b)", "(a + b < c"};
+  ExpectStatus(conditions, ConditionSource, PARSER_SYNTAX_ERROR);
+  const char *const sources[] = {
+      "def f(a: Int): Unit =\n  while (a < 1 do\n    ()\n",
+      "def f(a: Int): Unit =\n  val r = (a + 1; val q = a\n",
+      "def f(a: Int): Unit =\n  val r = (a\n  val q = a\n",
+  };
+  for (const char *source : sources) {
+    SCOPED_TRACE(source);
+    EXPECT_EQ(ParsedProgram(ProgramSource(source)).status(),
+              PARSER_SYNTAX_ERROR);
+  }
+}
+
 TEST(ExprEdgeKnownGapTest, DISABLED_EmptyParenthesesAreTheUnitLiteral) {
   const char *const sources[] = {
       "def f() =\n  val u: Unit = ()\n",
@@ -637,20 +658,22 @@ TEST(ExprEdgeKnownGapTest, DISABLED_EmptyParenthesesAreTheUnitLiteral) {
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
-    ParsedProgram p(std::string(kProlog) + source);
+    ParsedProgram p(ProgramSource(source));
     ASSERT_EQ(p.status(), PARSER_OK);
     EXPECT_EQ(Sexpr(p.Initializer()), "()");
   }
-  ParsedProgram statement(std::string(kProlog) + "def f(): Unit =\n  ()\n");
+  ParsedProgram statement(ProgramSource("def f(): Unit =\n  ()\n"));
   ASSERT_EQ(statement.status(), PARSER_OK);
   ASSERT_NE(statement.FirstStatement(), nullptr);
   EXPECT_EQ(statement.FirstStatement()->kind, AST_CONSTANT_UNIT);
 }
 
+// `(a) (b)` is left out: LISTS (spec 5.8) indexes with call syntax, so it is
+// the indexing of `(a)` by `b`, a syntactically valid expression.
 TEST(ExprEdgeKnownGapTest, DISABLED_AdjacentOperandsAreSyntaxError) {
-  const char *const expressions[] = {"a b",    "1 2",       "a 1",
-                                     "\"t\" s", "1.5 x",    "(a) b",
-                                     "a + b c", "(a) (b)",  "a b + c"};
+  const char *const expressions[] = {"a b",    "1 2",   "a 1",
+                                     "\"t\" s", "1.5 x", "(a) b",
+                                     "a + b c", "a b + c"};
   ExpectStatus(expressions, InitializerSource, PARSER_SYNTAX_ERROR);
 }
 
@@ -702,11 +725,10 @@ TEST(ExprEdgeKnownGapTest, DISABLED_ExpressionStopsAtEveryTerminator) {
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
-    EXPECT_EQ(ParsedProgram(std::string(kProlog) + source).status(),
-              PARSER_OK);
+    EXPECT_EQ(ParsedProgram(ProgramSource(source)).status(), PARSER_OK);
   }
-  ParsedProgram call(std::string(kProlog) +
-                     "def f(a: Int) =\n  g(a + 1, a * 2)\n");
+  ParsedProgram call(ProgramSource("def f(a: Int) =\n  g(a + 1, a * 2)\n"
+                                   "def g(x: Int, y: Int) =\n  x\n"));
   ASSERT_EQ(call.status(), PARSER_OK);
   EXPECT_EQ(Sexpr(call.FirstStatement()), "g((a + 1), (a * 2))");
 }
@@ -822,7 +844,7 @@ TEST(ExprEdgeTest, BinaryOperatorCannotStartStatement) {
   for (const char *line : lines) {
     SCOPED_TRACE(line);
     const std::string source =
-        std::string(kProlog) + "def f(a: Int) =\n  " + line + "\n";
+        ProgramSource("def f(a: Int) =\n  " + std::string(line) + "\n");
     EXPECT_EQ(ParsedProgram(source).status(), PARSER_SYNTAX_ERROR);
   }
 }

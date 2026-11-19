@@ -69,14 +69,25 @@ ParserStatus parse(const std::string &source) {
   return Parsed(source).status;
 }
 
-/** Returns the body block of the only function, or null. */
-const ASTNode *only_body(const Parsed &p) {
-  if (p.status != PARSER_OK || p.count() != 1U) {
+/** Returns the body block of function `f`, or null. */
+const ASTNode *f_body(const Parsed &p) {
+  const FunctionSymbol *f = p.status == PARSER_OK ? p.function("f") : nullptr;
+  if (f == nullptr) {
     return nullptr;
   }
-  const ASTNode *root = p.at(0)->ast_root;
+  const ASTNode *root = f->ast_root;
   return root != nullptr && root->kind == AST_BLOCK ? root : nullptr;
 }
+
+/**
+ * Entry function for sources that must parse: the parser itself reports a
+ * missing @main (code 3, spec 2). Placed after a source with with_entry(), or
+ * before it (kEntryLines lines) where the source must end the input.
+ */
+constexpr const char *kEntry = "@main\ndef entry(): Unit =\n  return\n";
+constexpr size_t kEntryLines = 3U;
+
+std::string with_entry(const std::string &source) { return source + kEntry; }
 
 /** Valid two-parameter function used as the base of the token tables. */
 constexpr const char *kHeader = "def f(a: Int, b: String): Unit =";
@@ -201,7 +212,7 @@ TEST(ParserEdgeTest, LexicalErrorAfterEveryTokenIsLexerError) {
     EXPECT_EQ(parse(source), PARSER_LEXER_ERROR);
   }
   const char *const tails[] = {
-      "\n  $", "\n  return\n  $", "\n  ;$", "\n  ; $\n",
+      "\n  $", "\n  return\n  $", "\n  return;$", "\n  return; $\n",
       "\n  return\n$", "\n  return\n@main $", "\n  return\n@main def $",
   };
   for (const char *tail : tails) {
@@ -269,7 +280,7 @@ TEST(ParserEdgeTest, NamesContainingKeywordsAreIdentifiers) {
   for (const char *name : names) {
     SCOPED_TRACE(name);
     const std::string n = name;
-    Parsed p("def " + n + "(" + n + ": Int) =\n  return\n");
+    Parsed p(with_entry("def " + n + "(" + n + ": Int) =\n  return\n"));
     ASSERT_EQ(p.status, PARSER_OK);
     FunctionSymbol *f = p.function(name);
     ASSERT_NE(f, nullptr);
@@ -300,8 +311,6 @@ TEST(ParserEdgeLayoutTest, AcceptedLayoutsKeepStatementsAndBlockPosition) {
       {"def f() =\n  return\n \n  return\n", 2, 2, 3},
       {"def f() =\n  return   ", 1, 2, 3}, // end of input, no NEWLINE
       {"def f() =\n  return\n\n\n\n", 1, 2, 3},
-      {"def f() =\n  ;return\n", 1, 2, 3},
-      {"def f() =\n  ; ; ;return\n", 1, 2, 3},
       {"def f (a: Int) =\n  return\n", 1, 2, 3},
       {"def f(a: Int\n  , b: Int) =\n  return\n", 1, 3, 3},
       {"def f(\n\n\n  a: Int\n\n  ) =\n  return\n", 1, 7, 3},
@@ -311,11 +320,11 @@ TEST(ParserEdgeLayoutTest, AcceptedLayoutsKeepStatementsAndBlockPosition) {
   };
   for (const Case &c : cases) {
     SCOPED_TRACE(c.source);
-    Parsed p(c.source);
-    const ASTNode *body = only_body(p);
+    Parsed p(kEntry + std::string(c.source));
+    const ASTNode *body = f_body(p);
     ASSERT_NE(body, nullptr);
     EXPECT_EQ(body->data.block.statement_count, c.statements);
-    EXPECT_EQ(body->line, c.line);
+    EXPECT_EQ(body->line, c.line + kEntryLines);
     EXPECT_EQ(body->column, c.column);
   }
 }
@@ -329,6 +338,9 @@ TEST(ParserEdgeLayoutTest, RejectedLayoutsAreSyntaxErrors) {
       "def f() =\n  return\n;\n",
       "def f() =\n  @main\n",
       "def f() =\n  ;return return\n",
+      // `;` only separates statements (spec 1.2), so it cannot lead a line.
+      "def f() =\n  ;return\n",
+      "def f() =\n  ; ; ;return\n",
       "def f() =\n  return\n  def g() =\n    return\n",
       "def f() =\n    return\n  def g() =\n    return\n",
       "@main\n@main\ndef m(): Unit =\n  return\n",
@@ -351,18 +363,20 @@ TEST(ParserEdgeLayoutTest, RejectedLayoutsAreSyntaxErrors) {
 TEST(ParserEdgeLimitTest, ManyParametersKeepSourceOrder) {
   constexpr size_t kParameters = 70U;
   const char *const types[] = {"Int", "Double", "String", "Unit"};
-  const DataType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT};
+  const BaseType expected[] = {TYPE_INT, TYPE_REAL, TYPE_STRING, TYPE_UNIT};
   std::string source = "def f(";
   for (size_t i = 0; i < kParameters; ++i) {
     source += (i == 0 ? "p" : ",\n  p") + std::to_string(i) + ": " +
               types[i % 4U];
   }
-  Parsed p(source + ") =\n  return\n");
+  Parsed p(with_entry(source + ") =\n  return\n"));
   ASSERT_EQ(p.status, PARSER_OK);
-  ASSERT_EQ(p.count(), 1U);
+  ASSERT_EQ(p.count(), 2U);
   ASSERT_EQ(p.at(0)->argument_count, kParameters);
   for (size_t i = 0; i < kParameters; ++i) {
-    EXPECT_EQ(p.at(0)->parameter_types[i], expected[i % 4U]) << i;
+    EXPECT_TRUE(
+        type_is_scalar(p.at(0)->parameters[i]->type.type, expected[i % 4U]))
+        << i;
   }
 }
 
@@ -398,8 +412,8 @@ TEST(ParserEdgeLimitTest, LongBlocksAndDeepIndentationAreAccepted) {
       {"def f() =\n" + std::string(1000, ' ') + "return", 1U, 1001U},
   };
   for (const Case &c : cases) {
-    Parsed p(c.source);
-    const ASTNode *body = only_body(p);
+    Parsed p(kEntry + c.source);
+    const ASTNode *body = f_body(p);
     ASSERT_NE(body, nullptr);
     EXPECT_EQ(body->data.block.statement_count, c.statements);
     EXPECT_EQ(body->column, c.column);
@@ -442,23 +456,19 @@ INSTANTIATE_TEST_SUITE_P(
  *   program without an entry function, error 3.
  */
 TEST(ParserEdgePipelineTest, EntryFunctionIsChosenByAnnotationOnly) {
-  struct Case {
-    const char *source;
-    SemanticStatus expected;
+  // The parser itself reports the missing entry function (code 3).
+  const char *const without_entry[] = {
+      "def main(): Unit =\n  return\n",
+      "def f(): Unit =\n  return\ndef g(): Unit =\n  return\n",
   };
-  const Case cases[] = {
-      {"def main(): Unit =\n  return\n", SEMANTIC_UNDEFINED},
-      {"def f(): Unit =\n  return\ndef g(): Unit =\n  return\n",
-       SEMANTIC_UNDEFINED},
-      {"def main(): Unit =\n  return\n@main\ndef runFoo(): Unit =\n  return\n",
-       SEMANTIC_OK},
-  };
-  for (const Case &c : cases) {
-    SCOPED_TRACE(c.source);
-    Parsed p(c.source);
-    ASSERT_EQ(p.status, PARSER_OK);
-    EXPECT_EQ(semantic_check(&p.program), c.expected);
+  for (const char *source : without_entry) {
+    SCOPED_TRACE(source);
+    EXPECT_EQ(parse(source), PARSER_UNDEFINED_ERROR);
   }
+  Parsed p("def main(): Unit =\n  return\n@main\ndef runFoo(): Unit =\n"
+           "  return\n");
+  ASSERT_EQ(p.status, PARSER_OK);
+  EXPECT_EQ(semantic_check(&p.program), SEMANTIC_OK);
 }
 
 /*
@@ -506,16 +516,16 @@ TEST(ParserEdgeKnownGapTest, DISABLED_DefinitionAsOneLineBodyIsSyntaxError) {
 // Needs p_expression (the `if` condition is never parsed). A DEDENT of two
 // levels closes the innermost branch and one of three levels the function.
 TEST(ParserEdgeKnownGapTest, DISABLED_NestedIfClosesSeveralLevelsAtOnce) {
-  Parsed p("def g(a: Int): Unit =\n"
+  Parsed p(with_entry("def g(a: Int): Unit =\n"
            "  if a < 1 then\n    return\n"
            "  else\n"
            "    if a < 2 then\n"
            "      if a < 3 then\n        return\n"
            "      else\n        return\n"
            "    else\n      return\n"
-           "def h(): Unit =\n  return\n");
+           "def h(): Unit =\n  return\n"));
   ASSERT_EQ(p.status, PARSER_OK);
-  ASSERT_EQ(p.count(), 2U);
+  ASSERT_EQ(p.count(), 3U);
   const ASTNode *outer = single_statement(p.at(0)->ast_root);
   ASSERT_NE(outer, nullptr);
   ASSERT_EQ(outer->kind, AST_IF);
@@ -529,9 +539,10 @@ TEST(ParserEdgeKnownGapTest, DISABLED_NestedIfClosesSeveralLevelsAtOnce) {
 }
 
 // Needs p_expression. Spec 2.4: `else` lies on its own logical line with the
-// indentation of `if`; spec 1.2: blocks cannot be empty.
+// indentation of `if`; spec 1.2: blocks cannot be empty. `else return` on one
+// line is left out: CONTROL (spec 5.3) allows one-line bodies of all branches.
 TEST(ParserEdgeKnownGapTest, DISABLED_MisplacedElseIsSyntaxError) {
-  ASSERT_EQ(parse(kIfElse), PARSER_OK);
+  ASSERT_EQ(parse(with_entry(kIfElse)), PARSER_OK);
   const char *const sources[] = {
       "def f(a: Int): Unit =\n  if a < 1 then\n    return\n"
       "    else\n    return\n",
@@ -540,19 +551,18 @@ TEST(ParserEdgeKnownGapTest, DISABLED_MisplacedElseIsSyntaxError) {
       "def f(a: Int): Unit =\n  if a < 1 then\n    return else\n    return\n",
       "def f(a: Int): Unit =\n  if a < 1 then\n  else\n    return\n",
       "def f(a: Int): Unit =\n  if a < 1 then\n    return\n  else\n  return\n",
-      "def f(a: Int): Unit =\n  if a < 1 then\n    return\n  else return\n",
       "def f(a: Int): Unit =\n  if a < 1 then\n    return\n  else\n",
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
-    EXPECT_EQ(parse(source), PARSER_SYNTAX_ERROR);
+    EXPECT_EQ(parse(with_entry(source)), PARSER_SYNTAX_ERROR);
   }
 }
 
 // Needs p_expression. parser.c:642 keeps the `if` position for the node.
 TEST(ParserEdgeKnownGapTest, DISABLED_IfNodeHasPositionOfIfKeyword) {
-  Parsed p(kIfElse);
-  const ASTNode *node = single_statement(only_body(p));
+  Parsed p(with_entry(kIfElse));
+  const ASTNode *node = single_statement(f_body(p));
   ASSERT_NE(node, nullptr);
   ASSERT_EQ(node->kind, AST_IF);
   EXPECT_EQ(node->line, 2U);
@@ -561,8 +571,8 @@ TEST(ParserEdgeKnownGapTest, DISABLED_IfNodeHasPositionOfIfKeyword) {
 
 // Needs a while production (p_statement, parser.c:758) and p_expression.
 TEST(ParserEdgeKnownGapTest, DISABLED_MalformedWhileIsSyntaxError) {
-  ASSERT_EQ(parse("def f(a: Int): Unit =\n  while a < 1 do\n    return\n"
-                  "  return\n"),
+  ASSERT_EQ(parse(with_entry("def f(a: Int): Unit =\n"
+                             "  while a < 1 do\n    return\n  return\n")),
             PARSER_OK);
   const char *const sources[] = {
       "def f(a: Int): Unit =\n  while a < 1\n    return\n",
@@ -573,7 +583,7 @@ TEST(ParserEdgeKnownGapTest, DISABLED_MalformedWhileIsSyntaxError) {
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
-    EXPECT_EQ(parse(source), PARSER_SYNTAX_ERROR);
+    EXPECT_EQ(parse(with_entry(source)), PARSER_SYNTAX_ERROR);
   }
 }
 
@@ -584,7 +594,7 @@ TEST(ParserEdgeKnownGapTest, DISABLED_MalformedWhileIsSyntaxError) {
 TEST(ParserEdgeKnownGapTest, DISABLED_StatementsStartingWithTermsAreAccepted) {
   const char *const sources[] = {
       "def f(): Unit =\n  var x = 1\n  x = 2\n", // assignment
-      "def f(): Unit =\n  g()\n",                // call before definition
+      "def f(): Unit =\n  g()\ndef g(): Unit =\n  return\n", // call first
       "def f(): Unit =\n  ()\n",                 // Unit literal body
       "def f() =\n  -1\n",
       "def f() =\n  1.5\n",
@@ -593,7 +603,7 @@ TEST(ParserEdgeKnownGapTest, DISABLED_StatementsStartingWithTermsAreAccepted) {
   };
   for (const char *source : sources) {
     SCOPED_TRACE(source);
-    EXPECT_EXIT(std::exit(parse(source) == PARSER_OK ? 0 : 1),
+    EXPECT_EXIT(std::exit(parse(with_entry(source)) == PARSER_OK ? 0 : 1),
                 ::testing::ExitedWithCode(0), "");
   }
 }
@@ -617,15 +627,16 @@ TEST(ParserEdgeKnownGapTest,
 // Needs p_expression. Spec 2.2/2.4: each branch is its own scope; a name may
 // be defined in both and may shadow a parameter, but is gone after the if.
 TEST(ParserEdgeKnownGapTest, DISABLED_BranchesHaveSeparateScopes) {
-  EXPECT_EQ(parse("def f(a: Int): Unit =\n  if a < 1 then\n    val x = 1\n"
-                  "  else\n    val x = 2\n"),
+  EXPECT_EQ(parse(with_entry("def f(a: Int): Unit =\n  if a < 1 then\n"
+                             "    val x = 1\n  else\n    val x = 2\n")),
             PARSER_OK);
-  EXPECT_EQ(parse("def f(a: Int): Unit =\n  if a < 1 then\n    val a = 1\n"
-                  "  else\n    ()\n"),
+  EXPECT_EQ(parse(with_entry("def f(a: Int): Unit =\n  if a < 1 then\n"
+                             "    val a = 1\n  else\n    ()\n")),
             PARSER_OK);
-  EXPECT_EQ(parse("def f(a: Int): Int =\n  if a < 1 then\n    val x = 1\n"
-                  "  else\n    val y = 1\n  return x\n"),
-            PARSER_SEMANTIC_ERROR);
+  EXPECT_EQ(parse(with_entry("def f(a: Int): Int =\n  if a < 1 then\n"
+                             "    val x = 1\n  else\n    val y = 1\n"
+                             "  return x\n")),
+            PARSER_UNDEFINED_ERROR); // spec 6: undefined variable -> 3
 }
 
 // Prolog not parsed (reported by ParserBugTest.ProgramWithPrologIsAccepted);
