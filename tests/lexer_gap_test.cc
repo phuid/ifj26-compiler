@@ -106,8 +106,9 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
     std::vector<Expected> tokens;
   } cases[] = {
       {"", {}},
-      {"01", {I(0), I(1)}},
-      {"007", {I(0), I(0), I(7)}},
+      {"01.5", {D(1.5)}},
+      {"0_1.5", {D(1.5)}},
+      {"007e1", {D(70.0)}},
       {"1__0", {I(10)}},
       {"0.5", {D(0.5)}},
       {"1.5__5", {D(1.55)}},
@@ -119,7 +120,6 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
       {".5e3", {D(500.0)}},
       {".5_5", {D(0.55)}},
       {".5d", {D(0.5)}},
-      {"0_1", {I(0), id("_1")}},
       {"9223372036854775807", {I(LLONG_MAX)}},
       {"5d", {I(5), id("d")}},
       {"1.5dx", {D(1.5), id("x")}},
@@ -166,6 +166,11 @@ TEST(LexerGapTest, AcceptedInputsProduceExpectedTokens) {
  */
 TEST(LexerGapTest, RejectedInputsEndInInvalidToken) {
   static const char *const inputs[] = {
+      "01",
+      "007",
+      "0_1",
+      "0_",
+      "00_",
       "1.e5",
       "1._5",
       "0.",
