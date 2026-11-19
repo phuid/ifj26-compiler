@@ -24,18 +24,9 @@ if(BUILD_TESTING)
     list(REMOVE_ITEM SRC_LIBRARY_SOURCES
          "${CMAKE_CURRENT_SOURCE_DIR}/src/main.c")
 
-    file(GLOB SRC_LIBRARY_HEADERS CONFIGURE_DEPENDS
-         "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
-    set(C_LINKAGE_HEADER
-        "${CMAKE_CURRENT_BINARY_DIR}/c_linkage_headers.h")
-    file(WRITE "${C_LINKAGE_HEADER}"
-         "#ifdef __cplusplus\nextern \"C\" {\n#endif\n")
-    foreach(SRC_LIBRARY_HEADER IN LISTS SRC_LIBRARY_HEADERS)
-        file(APPEND "${C_LINKAGE_HEADER}"
-             "#include \"${SRC_LIBRARY_HEADER}\"\n")
-    endforeach()
-    file(APPEND "${C_LINKAGE_HEADER}"
-         "#ifdef __cplusplus\n}\n#endif\n")
+    add_library(ifj26-test-core SHARED ${SRC_LIBRARY_SOURCES})
+    target_include_directories(ifj26-test-core PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
     file(GLOB TEST_SOURCES CONFIGURE_DEPENDS
          "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cc"
@@ -43,10 +34,11 @@ if(BUILD_TESTING)
 
     foreach(TEST_SOURCE IN LISTS TEST_SOURCES)
         get_filename_component(TEST_NAME "${TEST_SOURCE}" NAME_WE)
-        add_executable("${TEST_NAME}" "${TEST_SOURCE}" ${SRC_LIBRARY_SOURCES})
-        target_compile_options("${TEST_NAME}" PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:-include${C_LINKAGE_HEADER}>")
-        target_link_libraries("${TEST_NAME}" PRIVATE GTest::gtest_main)
+        add_executable("${TEST_NAME}" "${TEST_SOURCE}")
+        target_link_libraries("${TEST_NAME}" PRIVATE
+            GTest::gtest_main
+            ifj26-test-core)
+        set_property(TARGET "${TEST_NAME}" PROPERTY LINK_DEPENDS_NO_SHARED TRUE)
         target_include_directories("${TEST_NAME}" PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/src")
         gtest_discover_tests("${TEST_NAME}"
