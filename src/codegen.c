@@ -461,7 +461,8 @@ void handle_function_definition(const FunctionSymbol *function) {
     print_POPS(operand);
   }
 
-  handle_block(function->ast_root, false);
+  ASTNodeHandler handler = ast_handler_for(function->ast_root);
+  handler(function->ast_root, false);
   current_function = NULL;
 }
 
