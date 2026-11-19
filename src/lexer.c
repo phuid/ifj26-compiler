@@ -196,8 +196,8 @@ static void apply_keyword(Token *token) {
 /**
  * @brief Converts a string literal spelling to its value in place.
  * @details The surrounding delimiters (one or three double quotes) are removed.
- * In single-line literals the escapes allowed by IFJ26 (\\, \", \n, \r,
- * \t) are translated to the characters they denote. Multi-line literals keep
+ * In single-line literals the escapes allowed by IFJ26 (`\\`, `\"`, `\n`, `\r`,
+ * `\t`) are translated to the characters they denote. Multi-line literals keep
  * their content verbatim because escape sequences are not evaluated in them.
  * @param builder Completed spelling of a @ref TOKEN_STRING token.
  * @return True on success, false for an unsupported escape sequence.
@@ -318,7 +318,7 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
   return LEXER_OK;
 }
 
-/**
+/*
  * @brief Initializes a lexer over a caller-owned input stream.
  * @param lexer Storage to initialize.
  * @param input Open stream borrowed for the lexer lifetime.
@@ -342,7 +342,7 @@ LexerStatus lexer_init(Lexer *lexer, char *input_str) {
   return LEXER_OK;
 }
 
-/**
+/*
  * @brief Adjusts the current indentation level.
  * @details A negative delta is rejected when it would make
  * @c current_indent negative. Positive overflow of the @c size_t counter is
@@ -496,7 +496,7 @@ static LexerStatus lexer_next_raw(Lexer *lexer, Token *token) {
   return status;
 }
 
-/**
+/*
  * @brief Replaces @c lexer->token with the next raw or layout token.
  * @details The previous lookahead token is released before scanning.
  * @return LEXER_OK, LEXER_EOF, LEXER_INVALID_TOKEN, or an argument/allocation
@@ -555,7 +555,7 @@ LexerStatus lexer_pls(Lexer *lexer) {
   return LEXER_OK;
 }
 
-/**
+/*
  * @brief Invalidates a lexer without closing its borrowed stream.
  * @param lexer Lexer to invalidate; null is accepted.
  */
@@ -570,7 +570,7 @@ void lexer_destroy(Lexer *lexer) {
   lexer->column = 0U;
 }
 
-/**
+/*
  * @brief Releases text owned by a successfully returned non-numeric token.
  * @param token Token to clean up; null is accepted.
  */

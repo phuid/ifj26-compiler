@@ -94,6 +94,7 @@ FunctionTableStatus function_symbol_set_ast_root(FunctionSymbol *function,
 
 /**
  * Appends one declared parameter to the function signature.
+ * @param function Function whose signature receives the parameter.
  * @param symbol Borrowed binding of the parameter in the function's local
  * scope; its type is the parameter's declared type.
  */

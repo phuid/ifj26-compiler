@@ -1742,7 +1742,7 @@ SemanticStatus semantic_check(Program *program) {
     return status;
   }
 
-  /// 1. Every referenced function exists; exactly one @main exists.
+  /// 1. Every referenced function exists; exactly one `@main` exists.
   for (index = 0U; index < table->function_count; index += 1U) {
     FunctionSymbol *function = table->functions[index];
     if (!function->is_defined) {

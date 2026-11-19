@@ -61,7 +61,7 @@ static ParserStatus parser_status_from_lexer(LexerStatus status) {
   return PARSER_LEXER_ERROR;
 }
 
-/** Maps every status to its exit code; API misuse is an internal error. */
+/* Maps every status to its exit code; API misuse is an internal error. */
 int parser_status_exit_code(ParserStatus status) {
   if (status == PARSER_INVALID_ARGUMENT) {
     return PARSER_INTERNAL_ERROR;
@@ -103,7 +103,7 @@ static ParserStatus parser_status_from_psa(PsaStatus status) {
   }
 }
 
-/** Initializes the owned FunctionTable that anchors every parsed function. */
+/* Initializes the owned FunctionTable that anchors every parsed function. */
 ParserStatus program_init(Program *program) {
   if (program == NULL) {
     ERROR_INTERNAL("invalid argument");
@@ -117,7 +117,7 @@ ParserStatus program_init(Program *program) {
   return PARSER_OK;
 }
 
-/** Releases the complete semantic output without touching the borrowed lexer.
+/* Releases the complete semantic output without touching the borrowed lexer.
  */
 void program_destroy(Program *program) {
   if (program == NULL || !program->initialized) {
@@ -1772,6 +1772,7 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
  * ownership.
  * @param lexer Initialized lexer with its current lookahead token loaded.
  * @param program Program owning functions referenced by the expression.
+ * @param function Function whose body contains the expression.
  * @param scope Lexical scope used to resolve variable references.
  * @param return_node Output receiving the owned expression AST on success.
  * @param consume_newlines_indents Whether multiline expression layout may be
@@ -3156,7 +3157,7 @@ static ParserStatus parser_consume_dedents(Lexer *lexer, size_t indent_delta) {
  * function definition.
  * @param lexer Initialized lexer.
  * @param program Program receiving the function.
- * @param function Output pointer to the parsed function.
+ * @param return_function Output pointer to the parsed function.
  * @return PARSER_OK or the first syntax, semantic, internal or lexer error.
  */
 static ParserStatus p_function(Lexer *lexer, Program *program,
@@ -3293,9 +3294,9 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
 }
 
 /**
- * @brief Parses an @c main function.
+ * @brief Parses the `@main` function.
  * @details Grammar: `@main def id () [: Unit] = ...`.
- * Entry: @c lexer->token is @c @main. Exit: the token after the main
+ * Entry: @c lexer->token is `@main`. Exit: the token after the main
  * function.
  * @param lexer Initialized lexer.
  * @param program Program receiving the function.
@@ -3351,7 +3352,7 @@ static ParserStatus p_main_function(Lexer *lexer, Program *program) {
   return PARSER_OK;
 }
 
-/**
+/*
  * @brief Consumes a program directly from its lexer.
  * @details Loads the first lookahead token and dispatches top-level
  * productions until @ref TOKEN_EOF. Every production leaves the next
