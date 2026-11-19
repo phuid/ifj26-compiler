@@ -194,10 +194,69 @@ static void apply_keyword(Token *token) {
 }
 
 /**
+ * @brief Replaces escape sequences of a single-line string literal in place.
+ * @details Only the escapes allowed (\\, \", \n, \r, \t) are
+ * translated to the characters they denote; the surrounding double quotes are
+ * kept. Multi-line literals (delimited by three double quotes) are left
+ * untouched because escape sequences are not evaluated in them.
+ * @param builder Completed spelling of a @ref TOKEN_STRING token.
+ * @return True on success, false for an unsupported escape sequence.
+ */
+static bool decode_string_escapes(TokenBuilder *builder) {
+  char *text = builder->text;
+  size_t read_index;
+  size_t write_index = 0U;
+
+  /// Multi-line literals are not processed for escapes. (does not include """)
+  if (builder->length >= 6U && strncmp(text, "\"\"\"", 3U) == 0) {
+    return true;
+  }
+
+  for (read_index = 0U; read_index < builder->length; read_index += 1U) {
+    char c = text[read_index];
+
+    /// If a backslash is found, check the next character for a valid escape
+    /// sequence
+    if (c == '\\' && read_index + 1U < builder->length) {
+
+      /// move read_index so that the final string will be shorter by one
+      /// character
+      read_index += 1U;
+      switch (text[read_index]) {
+      case '\\':
+        c = '\\';
+        break;
+      case '"':
+        c = '"';
+        break;
+      case 'n':
+        c = '\n';
+        break;
+      case 'r':
+        c = '\r';
+        break;
+      case 't':
+        c = '\t';
+        break;
+      default:
+        return false;
+      }
+    }
+
+    text[write_index] = c;
+    write_index += 1U;
+  }
+  text[write_index] = '\0';
+  builder->length = write_index;
+  return true;
+}
+
+/**
  * @brief Transfers a completed builder into a public token.
  * @details Numeric spellings are normalized by removing separators and a final
- * d/D suffix before conversion. All other token types take ownership of the
- * preserved source spelling.
+ * d/D suffix before conversion. Single-line string literals have their escape
+ * sequences replaced by the denoted characters (quotes are kept). All other
+ * token types take ownership of the preserved source spelling.
  * @param builder Completed token spelling.
  * @param token Output token.
  * @param type Token type obtained from the final-state table.
@@ -246,6 +305,12 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
     free(builder->text);
     builder->text = NULL;
     return LEXER_OK;
+  }
+
+  if (type == TOKEN_STRING && !decode_string_escapes(builder)) {
+    ERROR_ORIGIN_AT(token->line, token->column, builder->text,
+                    "invalid escape sequence in string literal");
+    return LEXER_INVALID_TOKEN;
   }
 
   token->value.string_value = builder->text;
