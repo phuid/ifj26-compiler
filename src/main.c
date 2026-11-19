@@ -57,52 +57,53 @@ int main(void) {
 
   PreprocessStatus preprocess_status = source_preprocess(source_code);
   if (preprocess_status != PREPROCESS_OK) {
-  PreprocessStatus preprocess_status = source_preprocess(source_code);
-  if (preprocess_status != PREPROCESS_OK) {
-    free(source_code);
-    fprintf(stderr, "error preprocessing source code\n");
-    // PreprocessStatus values equal the exit codes (1, 2 or 99).
-    return (int)preprocess_status;
-  }
+    PreprocessStatus preprocess_status = source_preprocess(source_code);
+    if (preprocess_status != PREPROCESS_OK) {
+      free(source_code);
+      fprintf(stderr, "error preprocessing source code\n");
+      // PreprocessStatus values equal the exit codes (1, 2 or 99).
+      return (int)preprocess_status;
+    }
 
-  Lexer lexer;
-  if (lexer_init(&lexer, source_code) != LEXER_OK) {
-    free(source_code);
-    fprintf(stderr, "lexer init error\n");
-    return EXIT_INTERNAL_ERROR;
-  }
+    Lexer lexer;
+    if (lexer_init(&lexer, source_code) != LEXER_OK) {
+      free(source_code);
+      fprintf(stderr, "lexer init error\n");
+      return EXIT_INTERNAL_ERROR;
+    }
 
-  Program program;
-  ParserStatus parser_status = program_init(&program);
-  if (parser_status != PARSER_OK) {
-    free(source_code);
-    lexer_destroy(&lexer);
-    fprintf(stderr, "program init error %i\n", parser_status);
-    return parser_status_exit_code(parser_status);
-  }
+    Program program;
+    ParserStatus parser_status = program_init(&program);
+    if (parser_status != PARSER_OK) {
+      free(source_code);
+      lexer_destroy(&lexer);
+      fprintf(stderr, "program init error %i\n", parser_status);
+      return parser_status_exit_code(parser_status);
+    }
 
-  parser_status = p_program(&lexer, &program);
-  if (parser_status != PARSER_OK) {
+    parser_status = p_program(&lexer, &program);
+    if (parser_status != PARSER_OK) {
+      free(source_code);
+      lexer_destroy(&lexer);
+      program_destroy(&program);
+      fprintf(stderr, "program parse error %i\n", parser_status);
+      return parser_status_exit_code(parser_status);
+    }
+
+    SemanticStatus semantic_status = semantic_check(&program);
+
+    if (semantic_status != SEMANTIC_OK) {
+      free(source_code);
+      lexer_destroy(&lexer);
+      program_destroy(&program);
+      fprintf(stderr, "semantic error %i\n", semantic_status);
+      return semantic_status;
+    }
+
     free(source_code);
+    convert_AST_to_assembler(&program);
     lexer_destroy(&lexer);
     program_destroy(&program);
-    fprintf(stderr, "program parse error %i\n", parser_status);
-    return parser_status_exit_code(parser_status);
+    return EXIT_OK;
   }
-
-  SemanticStatus semantic_status = semantic_check(&program);
-
-  if (semantic_status != SEMANTIC_OK) {
-    free(source_code);
-    lexer_destroy(&lexer);
-    program_destroy(&program);
-    fprintf(stderr, "semantic error %i\n", semantic_status);
-    return semantic_status;
-  }
-
-  free(source_code);
-  convert_AST_to_assembler(&program);
-  lexer_destroy(&lexer);
-  program_destroy(&program);
-  return EXIT_OK;
 }
