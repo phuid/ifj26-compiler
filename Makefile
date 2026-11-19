@@ -2,7 +2,7 @@ BUILD_DIR ?= build
 ITESTS ?= ""
 ETESTS ?= ""
 
-.PHONY: all configure build test e2e clean check doc run
+.PHONY: all configure build test unit-test e2e clean check doc run
 
 all: build
 
@@ -23,12 +23,14 @@ run: build
 	./ifj26-compiler < prog.ifj26 > prg.code
 	./ic26int prg.code < prg.in > prg.out
 
-test: build configure
+test: unit-test e2e
+
+unit-test: build configure
 	cmake --build $(BUILD_DIR)
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -L $(ITESTS) -E $(ETESTS)
 
 e2e: build
-	IFJ26_COMPILER=./ifj26-compiler ./tests/e2e/run_e2e.sh $(E2E_ARGS)
+	IC26INT=./ic26int IFJ26_COMPILER=./ifj26-compiler ./tests/e2e/run_e2e.sh $(E2E_ARGS)
 
 check: build
 	pre-commit run --files $$(git ls-files -m)
