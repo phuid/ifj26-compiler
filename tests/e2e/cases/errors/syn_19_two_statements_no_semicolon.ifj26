@@ -1,0 +1,8 @@
+// AI-generated test - two statements on one line without ;.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with syntax error 2 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+@main def run(): Unit =
+  val a = 1 val b = 2
+  print(a)

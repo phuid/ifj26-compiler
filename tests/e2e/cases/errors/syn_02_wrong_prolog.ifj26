@@ -1,0 +1,7 @@
+// AI-generated test - prolog importing a different package.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with syntax error 2 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj25.*
+
+@main def run(): Unit =
+  print("a")
