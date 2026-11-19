@@ -2413,9 +2413,9 @@ const LexCase kExtLexerCases[] = {
     // string with `\$` is also in lexer_edge_test EscapeDollar).
     {"InterpolatedStringLexemes",
      {{"s\"\"\"He said \"hello\", $name.\"\"\"",
-       {Id("s"), T(TOKEN_STRING, "\"\"\"He said \"hello\", $name.\"\"\"")},
+       {Id("s"), T(TOKEN_STRING, "He said \"hello\", $name.")},
        kEof},
-      {"s\"a\\\"b $n\"", {Id("s"), T(TOKEN_STRING, "\"a\"b $n\"")}, kEof},
+      {"s\"a\\\"b $n\"", {Id("s"), T(TOKEN_STRING, "a\"b $n")}, kEof},
       {"s\"a\\$b\"", {Id("s")}, LEXER_INVALID_TOKEN}}},
     // §5.7 (A7-135): function types and lambdas.
     {"LambdaAndFunctionTypeLines",

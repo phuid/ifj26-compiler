@@ -1342,7 +1342,7 @@ TEST_F(SpecLexicalLexerTest, MultilineLexemeKeepsRawTextAndPositions) {
   EXPECT_EQ(string.token.type, TOKEN_STRING);
   EXPECT_EQ(string.token.line, 1U);
   EXPECT_EQ(string.token.column, 9U);
-  EXPECT_EQ(string.text, "\"\"\"A\n       hoj s\\nvete\n        \"\"\"");
+  EXPECT_EQ(string.text, "A\n       hoj s\\nvete\n        ");
   EXPECT_EQ(result.tokens[4].token.type, TOKEN_NEWLINE);
   EXPECT_EQ(result.tokens[4].token.line, 3U);
   EXPECT_EQ(result.tokens[4].token.column, 12U);

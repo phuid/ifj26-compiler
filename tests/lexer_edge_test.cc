@@ -215,30 +215,30 @@ const AcceptedCase kNumberCases[] = {
 };
 
 const AcceptedCase kStringCases[] = {
-    {"EmptyThenIdentifier", "\"\"x", {T(TOKEN_STRING, "\"\""), Id("x")}},
+    {"EmptyThenIdentifier", "\"\"x", {T(TOKEN_STRING, ""), Id("x")}},
     {"AdjacentStrings",
      "\"a\"\"b\"",
-     {T(TOKEN_STRING, "\"a\""), T(TOKEN_STRING, "\"b\"")}},
-    {"EscapedBackslashCloses", "\"\\\\\"", {T(TOKEN_STRING, "\"\\\"")}},
-    {"EscapedQuoteInside", "\"\\\"\"", {T(TOKEN_STRING, "\"\"\"")}},
+     {T(TOKEN_STRING, "a"), T(TOKEN_STRING, "b")}},
+    {"EscapedBackslashCloses", "\"\\\\\"", {T(TOKEN_STRING, "\\")}},
+    {"EscapedQuoteInside", "\"\\\"\"", {T(TOKEN_STRING, "\"")}},
     {"ControlCharsAndDel",
      "\"\x01\x1f\x7f\"",
-     {T(TOKEN_STRING, "\"\x01\x1f\x7f\"")}},
+     {T(TOKEN_STRING, "\x01\x1f\x7f")}},
     {"CommentMarkersInString",
      "\"/* x */ // y\"",
-     {T(TOKEN_STRING, "\"/* x */ // y\"")}},
+     {T(TOKEN_STRING, "/* x */ // y")}},
     {"CommentMarkersInMultiline",
      "\"\"\"//x\n/*\"\"\"",
-     {T(TOKEN_STRING, "\"\"\"//x\n/*\"\"\"")}},
+     {T(TOKEN_STRING, "//x\n/*")}},
     {"InterpolatedString",
      "s\"$a${n + 1} $$0\"",
-     {Id("s"), T(TOKEN_STRING, "\"$a${n + 1} $$0\"")}},
+     {Id("s"), T(TOKEN_STRING, "$a${n + 1} $$0")}},
     {"MultilineBackslashBeforeEnd",
      "\"\"\"a\\\"\"\"",
-     {T(TOKEN_STRING, "\"\"\"a\\\"\"\"")}},
+     {T(TOKEN_STRING, "a\\")}},
     {"MultilineTabAtLineStart",
      "\"\"\"\n\tx\"\"\"",
-     {T(TOKEN_STRING, "\"\"\"\n\tx\"\"\"")}},
+     {T(TOKEN_STRING, "\n\tx")}},
 };
 
 const AcceptedCase kWordCases[] = {
@@ -506,9 +506,9 @@ TEST_F(LexerEdgeTest, KeywordsEndAtNonIdentifierCharacter) {
   expect_tokens(lex_all("if(x)then\"s\"val=1\nInt)do:"),
                 {T(TOKEN_KW_IF, "if"), T(TOKEN_LEFT_PAREN), Id("x"),
                  T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_THEN, "then"),
-                 T(TOKEN_STRING, "\"s\""), T(TOKEN_KW_VAL, "val"),
-                 T(TOKEN_ASSIGN), I(1), kNl, T(TOKEN_KW_INT, "Int"),
-                 T(TOKEN_RIGHT_PAREN), T(TOKEN_KW_DO, "do"), T(TOKEN_COLON)});
+                 T(TOKEN_STRING, "s"), T(TOKEN_KW_VAL, "val"), T(TOKEN_ASSIGN),
+                 I(1), kNl, T(TOKEN_KW_INT, "Int"), T(TOKEN_RIGHT_PAREN),
+                 T(TOKEN_KW_DO, "do"), T(TOKEN_COLON)});
 }
 
 /*
@@ -561,10 +561,9 @@ TEST_F(LexerEdgeTest, IndentAdjustmentChangesBaseForNextNewline) {
 
 TEST_F(LexerEdgeTest, MultilineStringDoesNotChangeIndentation) {
   const LexResult result = lex_all("a\n  x = \"\"\"p\n        q\"\"\"\n  y");
-  expect_tokens(result,
-                {Id("a"), kNl, kIndent, kIndent, Id("x"), T(TOKEN_ASSIGN),
-                 T(TOKEN_STRING, "\"\"\"p\n        q\"\"\""),
-                 T(TOKEN_NEWLINE, "\n  "), Id("y")});
+  expect_tokens(result, {Id("a"), kNl, kIndent, kIndent, Id("x"),
+                         T(TOKEN_ASSIGN), T(TOKEN_STRING, "p\n        q"),
+                         T(TOKEN_NEWLINE, "\n  "), Id("y")});
   EXPECT_EQ(result.final_indent, 2U);
 }
 

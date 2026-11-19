@@ -194,25 +194,26 @@ static void apply_keyword(Token *token) {
 }
 
 /**
- * @brief Replaces escape sequences of a single-line string literal in place.
- * @details Only the escapes allowed (\\, \", \n, \r, \t) are
- * translated to the characters they denote; the surrounding double quotes are
- * kept. Multi-line literals (delimited by three double quotes) are left
- * untouched because escape sequences are not evaluated in them.
+ * @brief Converts a string literal spelling to its value in place.
+ * @details The surrounding delimiters (one or three double quotes) are removed.
+ * In single-line literals the escapes allowed by IFJ26 (\\, \", \n, \r,
+ * \t) are translated to the characters they denote. Multi-line literals keep
+ * their content verbatim because escape sequences are not evaluated in them.
  * @param builder Completed spelling of a @ref TOKEN_STRING token.
  * @return True on success, false for an unsupported escape sequence.
  */
-static bool decode_string_escapes(TokenBuilder *builder) {
+static bool decode_string_literal(TokenBuilder *builder) {
   char *text = builder->text;
+  /// Multi-line literals are delimited by three double quotes
+  bool multiline = builder->length >= 6U && strncmp(text, "\"\"\"", 3U) == 0;
+
+  size_t delimiter = multiline ? 3U : 1U;
+  size_t content_end = builder->length - delimiter;
   size_t read_index;
   size_t write_index = 0U;
 
-  /// Multi-line literals are not processed for escapes. (does not include """)
-  if (builder->length >= 6U && strncmp(text, "\"\"\"", 3U) == 0) {
-    return true;
-  }
-
-  for (read_index = 0U; read_index < builder->length; read_index += 1U) {
+  /// Remove the delimiters and decode escapes in single-line literals
+  for (read_index = delimiter; read_index < content_end; read_index += 1U) {
     char c = text[read_index];
 
     /// If a backslash is found, check the next character for a valid escape
@@ -242,7 +243,6 @@ static bool decode_string_escapes(TokenBuilder *builder) {
         return false;
       }
     }
-
     text[write_index] = c;
     write_index += 1U;
   }
@@ -254,8 +254,8 @@ static bool decode_string_escapes(TokenBuilder *builder) {
 /**
  * @brief Transfers a completed builder into a public token.
  * @details Numeric spellings are normalized by removing separators and a final
- * d/D suffix before conversion. Single-line string literals have their escape
- * sequences replaced by the denoted characters (quotes are kept). All other
+ * d/D suffix before conversion. String literals lose their delimiters and,
+ * when single-line, have their escape sequences decoded. All other
  * token types take ownership of the preserved source spelling.
  * @param builder Completed token spelling.
  * @param token Output token.
@@ -307,7 +307,7 @@ static LexerStatus finish_token(TokenBuilder *builder, Token *token,
     return LEXER_OK;
   }
 
-  if (type == TOKEN_STRING && !decode_string_escapes(builder)) {
+  if (type == TOKEN_STRING && !decode_string_literal(builder)) {
     ERROR_ORIGIN_AT(token->line, token->column, builder->text,
                     "invalid escape sequence in string literal");
     return LEXER_INVALID_TOKEN;
