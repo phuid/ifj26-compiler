@@ -29,6 +29,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 /** Records an error origin at the start of the body of @p function. */
 #define ERROR_ORIGIN_FUNCTION(function, ...)                                   \
@@ -1191,6 +1192,84 @@ static SemanticStatus check_expression(SemanticContext *ctx,
 }
 
 /**
+ * @brief Moves the value of a return in a Unit function in front of it.
+ * @details The return in @p slot keeps its node, but its value is replaced by
+ * a Unit constant; the original value becomes a separate statement:
+ *
+ * @code
+ *   RETURN             BLOCK
+ *     value     ->       value
+ *                        RETURN
+ *                          UNIT
+ * @endcode
+ *
+ * The new block replaces the return in @p slot. When the return was a
+ * statement of a block, the caller splices the new block into it
+ * (@ref splice_hoisted_return).
+ * @param slot Slot holding an already checked AST_RETURN with a value.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus hoist_return_value(ASTNode **slot) {
+  ASTNode *ret = *slot;
+  ASTNode *value = ret->data.return_statement.value;
+  ASTNode *unit = ast_node_create_unit(ret->line, ret->column);
+  ASTNode *block = ast_node_create_block(ret->line, ret->column);
+
+  if (unit == NULL || block == NULL ||
+      ast_node_block_append_statement(block, value) != AST_OK) {
+    ast_node_destroy(unit);
+    ast_node_destroy(block);
+    ERROR_INTERNAL("cannot allocate the discarded value of a 'return'");
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  /// The block owns the value from now on.
+  ret->data.return_statement.value = unit;
+  ret->inferred_type.type = type_scalar(TYPE_UNIT);
+  if (ast_node_block_append_statement(block, ret) != AST_OK) {
+    /// Undo: give the value back to the return so nothing is freed twice.
+    ret->data.return_statement.value = value;
+    block->data.block.statement_count = 0U;
+    ast_node_destroy(block);
+    ast_node_destroy(unit);
+    ERROR_INTERNAL("cannot allocate the discarded value of a 'return'");
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  block->inferred_type.type = type_scalar(TYPE_UNIT);
+  *slot = block;
+  return SEMANTIC_OK;
+}
+
+/**
+ * @brief Replaces the `{ value; return () }` block made by
+ * @ref hoist_return_value with its two statements.
+ * @param block Block whose statement @p index is the hoisted block.
+ * @param index Index of the hoisted block in @p block.
+ * @return SEMANTIC_OK or SEMANTIC_INTERNAL_ERROR on OOM.
+ */
+static SemanticStatus splice_hoisted_return(ASTNode *block, size_t index) {
+  ASTNode *hoisted = block->data.block.statements[index];
+  ASTNode *ret = hoisted->data.block.statements[1];
+  size_t count;
+
+  /// Make room for one more statement (the slot itself is overwritten below).
+  if (ast_node_block_append_statement(block, ret) != AST_OK) {
+    ERROR_INTERNAL("cannot splice the discarded value of a 'return'");
+    return SEMANTIC_INTERNAL_ERROR;
+  }
+  count = block->data.block.statement_count;
+  memmove(&block->data.block.statements[index + 2U],
+          &block->data.block.statements[index + 1U],
+          (count - index - 2U) * sizeof(*block->data.block.statements));
+  block->data.block.statements[index] = hoisted->data.block.statements[0];
+  block->data.block.statements[index + 1U] = ret;
+
+  /// The statements now belong to @p block; free only the empty wrapper.
+  hoisted->data.block.statement_count = 0U;
+  ast_node_destroy(hoisted);
+  return SEMANTIC_OK;
+}
+
+/**
  * @brief Type-checks one statement (recursively for nested blocks).
  * @param ctx State of the semantic pass.
  * @param function Function containing the statement; used by `return`.
@@ -1212,10 +1291,19 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     for (index = 0U;
          status == SEMANTIC_OK && index < node->data.block.statement_count;
          index += 1U) {
+      bool was_return = node->data.block.statements[index]->kind == AST_RETURN;
+
       status =
           check_statement(ctx, function, &node->data.block.statements[index]);
       if (status != SEMANTIC_OK) {
         ERROR_TRACE("while checking statement %zu of a block", index + 1U);
+      } else if (was_return &&
+                 node->data.block.statements[index]->kind == AST_BLOCK) {
+        /// The value of a return in a Unit function was hoisted into a new
+        /// `{ value; return () }` block; splice it into this block.
+        status = splice_hoisted_return(node, index);
+        /// Skip the `return ()`, it is already checked.
+        index += 1U;
       }
     }
 
@@ -1307,7 +1395,15 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     node->inferred_type.type = type;
     if (type_is_scalar(function->return_type.type, TYPE_UNIT)) {
       /// The value is evaluated and discarded (rule 4).
-      return SEMANTIC_OK;
+      if (!type_is_scalar(type, TYPE_UNIT)) {
+        status = hoist_return_value(slot);
+        if (status != SEMANTIC_OK) {
+          ERROR_TRACE("while discarding the value returned from Unit "
+                      "function '%s'",
+                      function->name);
+        }
+      }
+      return status;
     }
     status = coerce(&node->data.return_statement.value, type,
                     function->return_type.type, SEMANTIC_TYPE_ERROR);
