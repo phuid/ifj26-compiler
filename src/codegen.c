@@ -406,6 +406,7 @@ void handle_function_definition(const FunctionSymbol *function) {
   for (size_t i = 0; i < hoisted_symbols.capacity; i++) {
     pair_real_var(hoisted_symbols.data[i]);
   }
+  free(hoisted_symbols.data);
 
   for (size_t i = 0; i < function->argument_count; i++) {
     Symbol *parameter = function->parameters[function->argument_count - 1 - i];

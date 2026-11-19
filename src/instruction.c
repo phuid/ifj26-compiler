@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// TODO make print_operand variadic
-
 static void _print_operand(const InstructionOperand operand) {
   switch (operand.type) {
   case INT_TYPE:
