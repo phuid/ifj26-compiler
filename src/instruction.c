@@ -20,7 +20,7 @@ static void _print_operand(const InstructionOperand operand) {
   case STRING_TYPE:
     printf("string@");
     const char *str = operand.value.string;
-    for (size_t i = 1; i < strlen(str) - 1; i++) {
+    for (size_t i = 0; i < strlen(str); i++) {
       unsigned char c = (unsigned char)str[i];
       if (c <= 32 || c == 35 || c == 92) {
         printf("\\%03u", c);

@@ -102,6 +102,7 @@ std::vector<KaEdge> ka_edges() {
       {STATE_IN_MULTILINE, ch('"'), STATE_Q1_MULTI},
       {STATE_Q1_MULTI, ch('"'), STATE_Q2_MULTI},
       {STATE_Q2_MULTI, ch('"'), STATE_STR_MULTILINE},
+      {STATE_STR_MULTILINE, ch('"'), STATE_STR_MULTILINE},
       {STATE_Q1_MULTI, M, STATE_IN_MULTILINE},
       {STATE_Q2_MULTI, M, STATE_IN_MULTILINE},
       // Identifiers

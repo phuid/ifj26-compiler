@@ -137,6 +137,7 @@ InMultiline -> Q1Multi ["]
 
 Q1Multi -> Q2Multi ["]
 Q2Multi -> StrMultiline ["]
+StrMultiline -> StrMultiline ["]
 
 Q1Multi -> InMultiline [M]
 Q2Multi -> InMultiline [M]
