@@ -1,6 +1,6 @@
 #ifndef CODEGEN_GLOBALS_H
 #define CODEGEN_GLOBALS_H
-#include "codegen.h"
+#include "instructions.h"
 
 extern const InstructionOperand TRASH_GLOBAL;
 

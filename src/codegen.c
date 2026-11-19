@@ -14,6 +14,47 @@ static int variable_suffix_counter = 0;
 
 static int label_suffix_counter = 0;
 
+typedef void (*ASTNodeHandler)(const ASTNode *node, bool discard_return_value);
+
+static void handle_block(const ASTNode *node, bool discard_return_value);
+static void handle_asign(const ASTNode *node, bool discard_return_value);
+static void handle_variable_ref(const ASTNode *node, bool discard_return_value);
+static void handle_int(const ASTNode *node, bool discard_return_value);
+static void handle_real(const ASTNode *node, bool discard_return_value);
+static void handle_string(const ASTNode *node, bool discard_return_value);
+static void handle_bool(const ASTNode *node, bool discard_return_value);
+static void handle_unit(const ASTNode *node, bool discard_return_value);
+static void handle_add(const ASTNode *node, bool discard_return_value);
+static void handle_subtract(const ASTNode *node, bool discard_return_value);
+static void handle_multiply(const ASTNode *node, bool discard_return_value);
+static void handle_divide(const ASTNode *node, bool discard_return_value);
+static void handle_equal(const ASTNode *node, bool discard_return_value);
+static void handle_not_equal(const ASTNode *node, bool discard_return_value);
+static void handle_less(const ASTNode *node, bool discard_return_value);
+static void handle_less_equal(const ASTNode *node, bool discard_return_value);
+static void handle_greater(const ASTNode *node, bool discard_return_value);
+static void handle_greater_equal(const ASTNode *node,
+                                 bool discard_return_value);
+static void handle_and(const ASTNode *node, bool discard_return_value);
+static void handle_or(const ASTNode *node, bool discard_return_value);
+static void handle_not(const ASTNode *node, bool discard_return_value);
+static void handle_implicit_int_to_real(const ASTNode *node,
+                                        bool discard_return_value);
+static void handle_call(const ASTNode *node, bool discard_return_value);
+static void handle_return(const ASTNode *node, bool discard_return_value);
+static void handle_if(const ASTNode *node, bool discard_return_value);
+static void handle_while(const ASTNode *node, bool discard_return_value);
+static void handle_for(const ASTNode *node, bool discard_return_value);
+static void handle_list_constructor(const ASTNode *node,
+                                    bool discard_return_value);
+static void handle_list_indexing(const ASTNode *node,
+                                 bool discard_return_value);
+static void handle_list_concat(const ASTNode *node, bool discard_return_value);
+static void handle_to(const ASTNode *node, bool discard_return_value);
+static void handle_until(const ASTNode *node, bool discard_return_value);
+static void handle_by(const ASTNode *node, bool discard_return_value);
+static void handle_function_definition(const FunctionSymbol *function);
+
 static const ASTNodeHandler ast_handlers[] = {
     [AST_BLOCK] = handle_block,
     [AST_CONSTANT_INT] = handle_int,
@@ -78,8 +119,10 @@ static _Noreturn void codegen_abort(void) {
 /**
  * @brief Returns the code generation handler of @p node, or reports an
  * internal error and exits if the node kind has none.
+ * @param node AST node whose handler is requested.
+ * @return Matching code-generation handler.
  */
-static ASTNodeHandler ast_handler_for(const ASTNode *node) {
+static ASTNodeHandler get_ast_handler(const ASTNode *node) {
   if (node == NULL) {
     ERROR_INTERNAL("missing AST node");
     codegen_abort();
@@ -97,7 +140,11 @@ static ASTNodeHandler ast_handler_for(const ASTNode *node) {
   return ast_handlers[node->kind];
 }
 
-void pair_real_var(Symbol *symbol) {
+/**
+ * @brief Assigns and declares a unique local-frame operand.
+ * @param symbol Symbol to pair with a local-frame operand.
+ */
+static void pair_real_var(Symbol *symbol) {
   if (symbol->assembler_suffix != -1) {
     ERROR_INTERNAL("symbol '%s' already has a real variable", symbol->name);
     codegen_abort();
@@ -112,36 +159,40 @@ void pair_real_var(Symbol *symbol) {
   print_DEFVAR(operand);
 }
 
-InstructionOperand create_local_variable(const char *name) {
-  InstructionOperand operand = {.type = COMPILER_VAR_TYPE,
-                                .value = {.compiler_variable = {
-                                              .frame = LF,
-                                              .name = name,
-                                              .suffix = variable_suffix_counter,
-                                          }}};
-  variable_suffix_counter++;
-  return operand;
-}
+/**
+ * @brief Allocates and returns a fresh generated-label suffix.
+ * @return New unique label suffix.
+ */
+static int reserve_label_id(void) { return label_suffix_counter++; }
 
-int reserve_label_id(void) { return label_suffix_counter++; }
+/** @brief Pops and discards a value left on the operand stack. */
+static void trash_return_value(void) { print_POPS(TRASH_GLOBAL); }
 
-void trash_return_value(void) { print_POPS(TRASH_GLOBAL); }
-
-void handle_block(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for a block.
+ * @param node AST block node.
+ * @param discard_return_value Whether to discard the block result.
+ */
+static void handle_block(const ASTNode *node, bool discard_return_value) {
   for (size_t i = 0; i < node->data.block.statement_count - 1; i++) {
     ASTNode *statement = node->data.block.statements[i];
-    ASTNodeHandler handler = ast_handler_for(statement);
+    ASTNodeHandler handler = get_ast_handler(statement);
     handler(statement, true);
   }
 
   // keep the last statemen return value on the data stack
   ASTNode *statement =
       node->data.block.statements[node->data.block.statement_count - 1];
-  ASTNodeHandler handler = ast_handler_for(statement);
+  ASTNodeHandler handler = get_ast_handler(statement);
   handler(statement, discard_return_value);
 }
 
-void handle_asign(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for an assignment.
+ * @param node AST assignment node.
+ * @param discard_return_value Whether to discard the assignment result.
+ */
+static void handle_asign(const ASTNode *node, bool discard_return_value) {
   Symbol *target = node->data.assignment.target;
   ASTNode *value = node->data.assignment.value;
 
@@ -149,7 +200,7 @@ void handle_asign(const ASTNode *node, bool discard_return_value) {
       .type = REAL_VARIABLE_TYPE,
       .value = {.real_variable = {.frame = LF, .symbol = target}}};
 
-  ASTNodeHandler handler = ast_handler_for(value);
+  ASTNodeHandler handler = get_ast_handler(value);
   handler(value, false);
 
   print_POPS(variable);
@@ -162,7 +213,13 @@ void handle_asign(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_variable_ref(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Loads a variable reference.
+ * @param node AST variable-reference node.
+ * @param discard_return_value Whether to discard the loaded value.
+ */
+static void handle_variable_ref(const ASTNode *node,
+                                bool discard_return_value) {
   Symbol *symbol = node->data.variable.symbol;
 
   InstructionOperand operand = {
@@ -174,7 +231,12 @@ void handle_variable_ref(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_int(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for an integer literal.
+ * @param node AST integer-literal node.
+ * @param discard_return_value Whether to discard the literal value.
+ */
+static void handle_int(const ASTNode *node, bool discard_return_value) {
   InstructionOperand operand = {.type = INT_TYPE,
                                 .value = {.integer = node->data.int_value}};
 
@@ -183,7 +245,12 @@ void handle_int(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_real(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for a floating-point literal.
+ * @param node AST real-literal node.
+ * @param discard_return_value Whether to discard the literal value.
+ */
+static void handle_real(const ASTNode *node, bool discard_return_value) {
   InstructionOperand operand = {.type = REAL_TYPE,
                                 .value = {.real = node->data.real_value}};
 
@@ -192,7 +259,12 @@ void handle_real(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_string(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for a string literal.
+ * @param node AST string-literal node.
+ * @param discard_return_value Whether to discard the literal value.
+ */
+static void handle_string(const ASTNode *node, bool discard_return_value) {
   InstructionOperand operand = {.type = STRING_TYPE,
                                 .value = {.string = node->data.string_value}};
 
@@ -201,7 +273,12 @@ void handle_string(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_bool(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for a Boolean literal.
+ * @param node AST Boolean-literal node.
+ * @param discard_return_value Whether to discard the literal value.
+ */
+static void handle_bool(const ASTNode *node, bool discard_return_value) {
   InstructionOperand operand = {.type = BOOL_TYPE,
                                 .value = {.boolean = node->data.bool_value}};
 
@@ -210,7 +287,12 @@ void handle_bool(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_unit(const ASTNode *node, bool discard_return_value) {
+/**
+ * @brief Generates code for the unit literal.
+ * @param node AST unit-literal node.
+ * @param discard_return_value Whether to discard the literal value.
+ */
+static void handle_unit(const ASTNode *node, bool discard_return_value) {
   (void)node;
   InstructionOperand operand = {
       .type = NIL_TYPE,
@@ -221,17 +303,24 @@ void handle_unit(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void resolve_binary_operands(const ASTNode *node) {
+/**
+ * @brief Evaluates both operands of a binary AST node.
+ * @param node Binary-operation AST node.
+ */
+static void resolve_binary_operands(const ASTNode *node) {
   ASTNode *left = node->data.binary_op.left;
   ASTNode *right = node->data.binary_op.right;
-  ASTNodeHandler handlerLeft = ast_handler_for(left);
-  ASTNodeHandler handlerRight = ast_handler_for(right);
+  ASTNodeHandler handlerLeft = get_ast_handler(left);
+  ASTNodeHandler handlerRight = get_ast_handler(right);
 
   handlerLeft(left, false);
   handlerRight(right, false);
 }
 
-void handle_add(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for addition or string concatenation. @param node AST
+ * binary-operation node. @param discard_return_value Whether to discard the
+ * result. */
+static void handle_add(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
 
   if (node->inferred_type.type.base == TYPE_STRING) {
@@ -248,7 +337,9 @@ void handle_add(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_subtract(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for subtraction. @param node AST binary-operation
+ * node. @param discard_return_value Whether to discard the result. */
+static void handle_subtract(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_SUBS();
 
@@ -257,7 +348,9 @@ void handle_subtract(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_multiply(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for multiplication. @param node AST binary-operation
+ * node. @param discard_return_value Whether to discard the result. */
+static void handle_multiply(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_MULS();
 
@@ -266,7 +359,9 @@ void handle_multiply(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_divide(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for division. @param node AST binary-operation node.
+ * @param discard_return_value Whether to discard the result. */
+static void handle_divide(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
 
   switch (node->inferred_type.type.base) {
@@ -288,7 +383,9 @@ void handle_divide(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_equal(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for equality. @param node AST binary-operation node.
+ * @param discard_return_value Whether to discard the result. */
+static void handle_equal(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_EQS();
 
@@ -297,7 +394,9 @@ void handle_equal(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_not_equal(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for inequality. @param node AST binary-operation node.
+ * @param discard_return_value Whether to discard the result. */
+static void handle_not_equal(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_EQS();
   print_NOTS();
@@ -307,7 +406,10 @@ void handle_not_equal(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_less(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for the less-than operator. @param node AST
+ * binary-operation node. @param discard_return_value Whether to discard the
+ * result. */
+static void handle_less(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_LTS();
 
@@ -316,7 +418,10 @@ void handle_less(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_less_equal(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for the less-than-or-equal operator. @param node AST
+ * binary-operation node. @param discard_return_value Whether to discard the
+ * result. */
+static void handle_less_equal(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_GTS();
   print_NOTS();
@@ -326,7 +431,10 @@ void handle_less_equal(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_greater(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for the greater-than operator. @param node AST
+ * binary-operation node. @param discard_return_value Whether to discard the
+ * result. */
+static void handle_greater(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_GTS();
 
@@ -335,7 +443,11 @@ void handle_greater(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_greater_equal(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for the greater-than-or-equal operator. @param node
+ * AST binary-operation node. @param discard_return_value Whether to discard the
+ * result. */
+static void handle_greater_equal(const ASTNode *node,
+                                 bool discard_return_value) {
   resolve_binary_operands(node);
   print_LTS();
   print_NOTS();
@@ -345,21 +457,28 @@ void handle_greater_equal(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void short_circuit(const ASTNode *node, bool short_value,
-                   const char *short_name, const char *end_name) {
+/**
+ * @brief Generates short-circuit evaluation for a Boolean binary operator.
+ * @param node Binary-operation AST node.
+ * @param short_value Value produced when short-circuiting.
+ * @param short_name Label name for the short-circuit branch.
+ * @param end_name Label name for the end of the expression.
+ */
+static void short_circuit(const ASTNode *node, bool short_value,
+                          const char *short_name, const char *end_name) {
   unsigned int id = reserve_label_id();
 
   InstructionOperand shortOp = {.type = BOOL_TYPE,
                                 .value = {.boolean = short_value}};
 
   const ASTNode *left = node->data.binary_op.left;
-  const ASTNodeHandler handlerLeft = ast_handler_for(left);
+  const ASTNodeHandler handlerLeft = get_ast_handler(left);
   handlerLeft(left, false);
 
   print_JUMPIFEQS_bool(short_name, id, short_value);
 
   const ASTNode *right = node->data.binary_op.right;
-  const ASTNodeHandler handlerRight = ast_handler_for(right);
+  const ASTNodeHandler handlerRight = get_ast_handler(right);
   handlerRight(right, false);
 
   print_JUMP(end_name, id);
@@ -369,7 +488,9 @@ void short_circuit(const ASTNode *node, bool short_value,
   print_LABEL(end_name, id);
 }
 
-void handle_and(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for logical AND. @param node AST binary-operation
+ * node. @param discard_return_value Whether to discard the result. */
+static void handle_and(const ASTNode *node, bool discard_return_value) {
   short_circuit(node, false, "AND_SHORT", "AND_END");
 
   if (discard_return_value) {
@@ -377,7 +498,9 @@ void handle_and(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_or(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for logical OR. @param node AST binary-operation node.
+ * @param discard_return_value Whether to discard the result. */
+static void handle_or(const ASTNode *node, bool discard_return_value) {
   short_circuit(node, true, "OR_SHORT", "OR_END");
 
   if (discard_return_value) {
@@ -385,7 +508,9 @@ void handle_or(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_not(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for logical NOT. @param node AST unary-operation node.
+ * @param discard_return_value Whether to discard the result. */
+static void handle_not(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   print_NOTS();
 
@@ -394,11 +519,16 @@ void handle_not(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_implicit_int_to_real(const ASTNode *node,
-                                 bool discard_return_value) {
+/**
+ * @brief Generates code for implicit Int-to-Double conversion.
+ * @param node AST conversion node.
+ * @param discard_return_value Whether to discard the converted value.
+ */
+static void handle_implicit_int_to_real(const ASTNode *node,
+                                        bool discard_return_value) {
   ASTNode *operand = node->data.conversion.operand;
 
-  ASTNodeHandler handler = ast_handler_for(operand);
+  ASTNodeHandler handler = get_ast_handler(operand);
   handler(operand, false);
 
   print_INT2FLOATS();
@@ -408,10 +538,12 @@ void handle_implicit_int_to_real(const ASTNode *node,
   }
 }
 
-void handle_call(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a function call. @param node AST call node. @param
+ * discard_return_value Whether to discard the call result. */
+static void handle_call(const ASTNode *node, bool discard_return_value) {
   for (size_t i = 0; i < node->data.call.argument_count; i++) {
     const ASTNode *argument = node->data.call.arguments[i];
-    ASTNodeHandler handler = ast_handler_for(argument);
+    ASTNodeHandler handler = get_ast_handler(argument);
     handler(argument, false);
   }
 
@@ -422,16 +554,20 @@ void handle_call(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_return(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a return statement. @param node AST return node.
+ * @param discard_return_value Unused by this handler. */
+static void handle_return(const ASTNode *node, bool discard_return_value) {
   (void)discard_return_value;
   const ASTNode *return_expression = node->data.return_statement.value;
-  ASTNodeHandler handler = ast_handler_for(return_expression);
+  ASTNodeHandler handler = get_ast_handler(return_expression);
   handler(return_expression, false);
   print_POPFRAME();
   print_RETURN();
 }
 
-void handle_function_definition(const FunctionSymbol *function) {
+/** @brief Generates code for a complete function definition. @param function
+ * Function symbol to generate. */
+static void handle_function_definition(const FunctionSymbol *function) {
   current_function = function;
   printf("\n");
   print_LABEL(function->name, 0);
@@ -462,12 +598,16 @@ void handle_function_definition(const FunctionSymbol *function) {
     print_POPS(operand);
   }
 
-  ASTNodeHandler handler = ast_handler_for(function->ast_root);
+  ASTNodeHandler handler = get_ast_handler(function->ast_root);
   handler(function->ast_root, false);
   current_function = NULL;
 }
 
-void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a list constructor. @param node AST
+ * list-constructor node. @param discard_return_value Whether to discard the
+ * constructed list. */
+static void handle_list_constructor(const ASTNode *node,
+                                    bool discard_return_value) {
   const size_t data_size = node->data.call.argument_count;
   const size_t real_size = data_size + 1;
 
@@ -492,7 +632,7 @@ void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
                                     .integer = i + 1,
                                 }};
     const ASTNode *element = node->data.call.arguments[i];
-    const ASTNodeHandler element_handler = ast_handler_for(element);
+    const ASTNodeHandler element_handler = get_ast_handler(element);
 
     // Save the list, the nested evaluation may overwrite the global
     print_PUSHS(LIST_GLOBAL_A);
@@ -509,7 +649,10 @@ void handle_list_constructor(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_list_indexing(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for list indexing. @param node AST indexing node.
+ * @param discard_return_value Whether to discard the indexed value. */
+static void handle_list_indexing(const ASTNode *node,
+                                 bool discard_return_value) {
   int id = reserve_label_id();
   resolve_binary_operands(node);
 
@@ -534,7 +677,10 @@ void handle_list_indexing(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_list_concat(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for list concatenation. @param node AST concatenation
+ * node. @param discard_return_value Whether to discard the concatenated list.
+ */
+static void handle_list_concat(const ASTNode *node, bool discard_return_value) {
   resolve_binary_operands(node);
   // Load the arrays
   print_POPS(LIST_GLOBAL_B);
@@ -601,6 +747,7 @@ void handle_list_concat(const ASTNode *node, bool discard_return_value) {
   }
 }
 
+/** @brief Emits a runtime check that rejects a zero range step. */
 static void check_zero_step(void) {
   const int id = reserve_label_id();
   print_JUMPIFNEQ("STEP_OK", id, BY_GLOBAL, INT_ZERO_OPERAND);
@@ -608,6 +755,10 @@ static void check_zero_step(void) {
   print_LABEL("STEP_OK", id);
 }
 
+/**
+ * @brief Builds a range list.
+ * @param inclusive Whether the range's upper bound is inclusive.
+ */
 static void create_array_from_range(bool inclusive) {
   const int id = reserve_label_id();
 
@@ -682,12 +833,16 @@ static void create_array_from_range(bool inclusive) {
   print_LABEL("RANGE_END", id);
 }
 
-// this processes the range and pushes the data into the globals
+/**
+ * @brief Loads range endpoints and an optional step into global temporaries.
+ * @param range Range AST node.
+ * @param step Optional AST step node, or NULL.
+ */
 static void load_range_data(const ASTNode *range, const ASTNode *step) {
   resolve_binary_operands(range);
 
   if (step != NULL) {
-    ast_handler_for(step)(step, false);
+    get_ast_handler(step)(step, false);
     print_POPS(BY_GLOBAL);
   } else {
     print_MOVE(BY_GLOBAL, INT_ONE_OPERAND);
@@ -696,7 +851,9 @@ static void load_range_data(const ASTNode *range, const ASTNode *step) {
   print_POPS(FROM_GLOBAL);
 }
 
-void handle_to(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for an inclusive range list. @param node AST range
+ * node. @param discard_return_value Whether to discard the resulting list. */
+static void handle_to(const ASTNode *node, bool discard_return_value) {
   load_range_data(node, NULL);
   create_array_from_range(true);
 
@@ -705,7 +862,9 @@ void handle_to(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_until(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for an exclusive range list. @param node AST range
+ * node. @param discard_return_value Whether to discard the resulting list. */
+static void handle_until(const ASTNode *node, bool discard_return_value) {
   load_range_data(node, NULL);
   create_array_from_range(false);
 
@@ -714,7 +873,10 @@ void handle_until(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_by(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a range list with a custom step. @param node AST
+ * range node. @param discard_return_value Whether to discard the resulting
+ * list. */
+static void handle_by(const ASTNode *node, bool discard_return_value) {
   const ASTNode *left = node->data.binary_op.left;
   const ASTNode *right = node->data.binary_op.right;
 
@@ -795,7 +957,9 @@ void handle_by(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_if(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for an if statement or expression. @param node AST if
+ * node. @param discard_return_value Whether to discard the produced value. */
+static void handle_if(const ASTNode *node, bool discard_return_value) {
   const ASTNode *condition = node->data.if_statement.condition;
   const ASTNode *then_branch = node->data.if_statement.then_branch;
   const ASTNode *else_branch = node->data.if_statement.else_branch;
@@ -804,19 +968,19 @@ void handle_if(const ASTNode *node, bool discard_return_value) {
 
   int id = reserve_label_id();
 
-  const ASTNodeHandler handlerCondition = ast_handler_for(condition);
+  const ASTNodeHandler handlerCondition = get_ast_handler(condition);
   handlerCondition(condition, false);
   print_JUMPIFEQS_bool("IF_ELSE", id, false);
 
   if (then_branch != NULL) {
-    const ASTNodeHandler handlerThen = ast_handler_for(then_branch);
+    const ASTNodeHandler handlerThen = get_ast_handler(then_branch);
     handlerThen(then_branch, !is_expression);
   }
   print_JUMP("IF_END", id);
 
   print_LABEL("IF_ELSE", id);
   if (else_branch != NULL) {
-    const ASTNodeHandler handlerElse = ast_handler_for(else_branch);
+    const ASTNodeHandler handlerElse = get_ast_handler(else_branch);
     handlerElse(else_branch, !is_expression);
   }
 
@@ -830,12 +994,14 @@ void handle_if(const ASTNode *node, bool discard_return_value) {
   }
 }
 
-void handle_while(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a while loop. @param node AST while node. @param
+ * discard_return_value Whether to discard the loop result. */
+static void handle_while(const ASTNode *node, bool discard_return_value) {
   (void)discard_return_value;
   int id = reserve_label_id();
 
   const ASTNode *condition = node->data.while_loop.condition;
-  const ASTNodeHandler condition_handler = ast_handler_for(condition);
+  const ASTNodeHandler condition_handler = get_ast_handler(condition);
 
   print_LABEL("WHILE_START", id);
   condition_handler(condition, false);
@@ -843,14 +1009,16 @@ void handle_while(const ASTNode *node, bool discard_return_value) {
   print_JUMPIFEQS_bool("WHILE_END", id, false);
 
   const ASTNode *body = node->data.while_loop.body;
-  const ASTNodeHandler body_handler = ast_handler_for(body);
+  const ASTNodeHandler body_handler = get_ast_handler(body);
   body_handler(body, true);
 
   print_JUMP("WHILE_START", id);
   print_LABEL("WHILE_END", id);
 }
 
-void handle_for(const ASTNode *node, bool discard_return_value) {
+/** @brief Generates code for a for loop. @param node AST for node. @param
+ * discard_return_value Whether to discard the loop result. */
+static void handle_for(const ASTNode *node, bool discard_return_value) {
   const int id = reserve_label_id();
 
   Symbol *symbol = node->data.for_loop.variable;
@@ -860,7 +1028,7 @@ void handle_for(const ASTNode *node, bool discard_return_value) {
 
   // Load the list
   const ASTNode *list = node->data.for_loop.iterable;
-  ast_handler_for(list)(list, false);
+  get_ast_handler(list)(list, false);
   // Push starting index
   print_PUSHS(INT_ONE_OPERAND);
 
@@ -886,13 +1054,13 @@ void handle_for(const ASTNode *node, bool discard_return_value) {
   // If a guard exists, evaluate it
   const ASTNode *guard = node->data.for_loop.guard;
   if (guard != NULL) {
-    ast_handler_for(guard)(guard, false);
+    get_ast_handler(guard)(guard, false);
     print_JUMPIFEQS_bool("FOR_START", id, false);
   }
 
   // Evaluate the body
   const ASTNode *body = node->data.for_loop.body;
-  ast_handler_for(body)(body, true);
+  get_ast_handler(body)(body, true);
 
   print_JUMP("FOR_START", id);
   print_LABEL("FOR_END", id);
@@ -903,6 +1071,10 @@ void handle_for(const ASTNode *node, bool discard_return_value) {
   }
 }
 
+/**
+ * @brief Converts a parsed program to IFJCode26 assembler.
+ * @param program Parsed program to convert.
+ */
 void convert_AST_to_assembler(Program *program) {
   print_prolog();
 
