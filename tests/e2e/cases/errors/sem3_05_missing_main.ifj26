@@ -1,0 +1,7 @@
+// AI-generated test - program without any @main function.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with semantic errors 3-7 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+def run(): Unit =
+  print("a")

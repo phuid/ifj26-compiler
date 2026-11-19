@@ -1,0 +1,10 @@
+// AI-generated test - user function called with fewer arguments.
+// Model: claude-opus-5-5 (Claude Code).
+// Prompt: Write IFJ26 programs that must fail with semantic errors 3-7 (plan-e2e.md 3.7), one defect per program, otherwise valid.
+import ifj26.*
+
+def add(a: Int, b: Int): Int = a + b
+
+@main def run(): Unit =
+  val r = add(1)
+  print(r)
