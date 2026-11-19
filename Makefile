@@ -7,6 +7,8 @@ ETESTS ?= ""
 all: build
 
 SOURCES = $(wildcard src/*.c)
+OBJECTS = $(patsubst src/%.c,$(BUILD_DIR)/make/%.o,$(SOURCES))
+DEPFILES = $(OBJECTS:.o=.d)
 ROOT_DIR := $(CURDIR)
 PACK_DIR_NAME := .
 PACK_ARCHIVE := $(ROOT_DIR)/compiler.zip
@@ -16,8 +18,16 @@ configure: $(BUILD_DIR)/CMakeCache.txt
 $(BUILD_DIR)/CMakeCache.txt: CMakeLists.txt
 	cmake -S . -B $(BUILD_DIR)
 
-build: $(SOURCES)
-	gcc -Wall -Wextra -std=c11 -g $(SOURCES) -o ifj26-compiler
+build: ifj26-compiler
+
+ifj26-compiler: $(OBJECTS)
+	gcc -o $@ $(OBJECTS)
+
+$(BUILD_DIR)/make/%.o: src/%.c
+	mkdir -p $(dir $@)
+	gcc -Wall -Wextra -std=c11 -g -MMD -MP -MF $(@:.o=.d) -c $< -o $@
+
+-include $(DEPFILES)
 
 run: build
 	./ifj26-compiler < prog.ifj26 > prg.code
