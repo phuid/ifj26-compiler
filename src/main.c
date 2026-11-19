@@ -55,10 +55,11 @@ int main(void) {
     return EXIT_INTERNAL_ERROR;
   }
 
-  if (source_preprocess(source_code) != PREPROCESS_OK) {
+  PreprocessStatus preprocess_status = source_preprocess(source_code);
+  if (preprocess_status != PREPROCESS_OK) {
     free(source_code);
     fprintf(stderr, "error preprocessing source code\n");
-    return EXIT_INTERNAL_ERROR;
+    return preprocess_status;
   }
 
   Lexer lexer;
