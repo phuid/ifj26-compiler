@@ -1,4 +1,5 @@
-#include "codegen.h"
+#include "instructions.h"
+#include <stddef.h>
 
 const InstructionOperand TRASH_GLOBAL = {
     .type = COMPILER_VAR_TYPE,

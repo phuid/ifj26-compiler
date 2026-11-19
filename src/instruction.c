@@ -1,9 +1,14 @@
 #include "codegen.h"
 #include "error_trace.h"
+#include "instructions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * @brief Prints one instruction operand in IFJCode26 syntax.
+ * @param operand Operand to format.
+ */
 static void _print_operand(const InstructionOperand operand) {
   switch (operand.type) {
   case INT_TYPE:
@@ -52,6 +57,11 @@ static void _print_operand(const InstructionOperand operand) {
   }
 }
 
+/**
+ * @brief Prints a space-separated operand list followed by a newline.
+ * @param operands Array of operands.
+ * @param count Number of operands in the array.
+ */
 static void _print_operands(const InstructionOperand *operands, size_t count) {
   for (size_t i = 0; i < count; i++) {
     printf(" ");
