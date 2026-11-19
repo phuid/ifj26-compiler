@@ -57,9 +57,12 @@ int main(void) {
 
   PreprocessStatus preprocess_status = source_preprocess(source_code);
   if (preprocess_status != PREPROCESS_OK) {
+  PreprocessStatus preprocess_status = source_preprocess(source_code);
+  if (preprocess_status != PREPROCESS_OK) {
     free(source_code);
     fprintf(stderr, "error preprocessing source code\n");
-    return preprocess_status;
+    // PreprocessStatus values equal the exit codes (1, 2 or 99).
+    return (int)preprocess_status;
   }
 
   Lexer lexer;
