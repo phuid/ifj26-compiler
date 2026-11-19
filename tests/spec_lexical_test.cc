@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "preprocessed_source.hpp"
 #include "spec_harness.hpp"
 #include "gtest/gtest.h"
 
@@ -1087,6 +1088,19 @@ LexResult lex_all(const std::string &input) {
   return result;
 }
 
+/**
+ * Lexes @p input after source_preprocess, which removes comments before the
+ * lexer runs (as in main.c); the lexer itself does not know comments.
+ */
+LexResult lex_all_preprocessed(const std::string &input) {
+  PreprocessedSource source = preprocess_snippet(input);
+  if (source.status != PREPROCESS_OK) {
+    ADD_FAILURE() << "source_preprocess failed with " << source.status;
+    return {{}, LEXER_INVALID_ARGUMENT};
+  }
+  return lex_all(source.text);
+}
+
 /** Expected token; @c line 0 means the position is not checked. */
 struct Expected {
   TokenType type;
@@ -1137,7 +1151,21 @@ std::string token_case_name(const ::testing::TestParamInfo<TokenCase> &info) {
   return info.param.name;
 }
 
+/** Checks that @p result is exactly the tokens of @p token_case + EOF. */
+void expect_exact_tokens(const LexResult &result, const TokenCase &token_case) {
+  EXPECT_EQ(result.status, LEXER_EOF) << token_case.input;
+  ASSERT_EQ(result.tokens.size(), token_case.tokens.size()) << token_case.input;
+  for (size_t index = 0U; index < token_case.tokens.size(); index += 1U) {
+    SCOPED_TRACE(index);
+    expect_token(result.tokens[index], token_case.tokens[index]);
+  }
+}
+
 class SpecLexicalTokensTest : public ::testing::TestWithParam<TokenCase> {};
+
+/** Token tables whose input contains comments (see lex_all_preprocessed). */
+class SpecLexicalCommentTokensTest
+    : public ::testing::TestWithParam<TokenCase> {};
 
 } // namespace
 
@@ -1150,12 +1178,19 @@ TEST_P(SpecLexicalTokensTest, InputLexesToExactTokens) {
   LexResult result = lex_all(token_case.input);
 
   // Assert
-  EXPECT_EQ(result.status, LEXER_EOF) << token_case.input;
-  ASSERT_EQ(result.tokens.size(), token_case.tokens.size()) << token_case.input;
-  for (size_t index = 0U; index < token_case.tokens.size(); index += 1U) {
-    SCOPED_TRACE(index);
-    expect_token(result.tokens[index], token_case.tokens[index]);
-  }
+  expect_exact_tokens(result, token_case);
+}
+
+// §1.1: after comment removal each row lexes to exactly the listed tokens.
+TEST_P(SpecLexicalCommentTokensTest, PreprocessedInputLexesToExactTokens) {
+  // Arrange
+  const TokenCase &token_case = GetParam();
+
+  // Act
+  LexResult result = lex_all_preprocessed(token_case.input);
+
+  // Assert
+  expect_exact_tokens(result, token_case);
 }
 
 /*
@@ -1172,31 +1207,28 @@ namespace {
 
 const TokenCase kCommentTokenCases[] = {
     // A1-122 §1.1: a block comment without LF is whitespace: `1` and `2`.
-    // Fails today: RC-COMMENT (`/` `*` `*` `/` are operators).
+    // The column of `2` is not checked: preprocessing replaces the comment
+    // with one space, so columns after it shift.
     {"BlockCommentSeparatesNumbers",
      "1/**/2",
-     {int_at(1, 1U, 1U), int_at(2, 1U, 6U)}},
+     {int_at(1, 1U, 1U), int_at(2, 0U, 0U)}},
     // A1-123 §1.1: `/*/` opens a comment but does not close it.
-    // Fails today: RC-COMMENT.
     {"OverlappingCommentMarkersDoNotClose",
      "a /*/ b */ c",
      {ident("a"), ident("c")}},
     // A1-124 §1.1: `/***/` is a complete comment.
-    // Fails today: RC-COMMENT.
     {"CommentWithStarsOnly", "a /***/ b", {ident("a"), ident("b")}},
     // A1-125 §1.1: content of a comment is ignored, `"` starts no string.
-    // Fails today: RC-COMMENT (unterminated string error).
     {"QuoteInsideBlockCommentIsIgnored",
      "a /* \" */ b",
      {ident("a"), ident("b")}},
     // A1-126 §1.1: a line comment is one end of line, `"` starts no string.
-    // Fails today: RC-COMMENT (unterminated string error).
     {"QuoteInsideLineCommentIsIgnored",
      "a // \"\nb",
      {ident("a"), tok(TOKEN_NEWLINE), ident("b")}},
 };
 
-INSTANTIATE_TEST_SUITE_P(Comments, SpecLexicalTokensTest,
+INSTANTIATE_TEST_SUITE_P(Comments, SpecLexicalCommentTokensTest,
                          ::testing::ValuesIn(kCommentTokenCases),
                          token_case_name);
 
@@ -1272,13 +1304,12 @@ TEST_F(SpecLexicalLexerTest, CommentBetweenAtAndMainIsRejected) {
 }
 
 // A1-129 §1.1 + §1.2: a tab inside a block comment is content, not indent.
-// Fails today: RC-COMMENT (tab at line start gives LEXER_INVALID_TOKEN 2:2).
 TEST_F(SpecLexicalLexerTest, TabInsideBlockCommentIsNotIndentation) {
   // Arrange
   const std::string input = "a /* x\n\tb */\nc";
 
   // Act
-  LexResult result = lex_all(input);
+  LexResult result = lex_all_preprocessed(input);
 
   // Assert
   EXPECT_EQ(result.status, LEXER_EOF);
@@ -1291,13 +1322,12 @@ TEST_F(SpecLexicalLexerTest, TabInsideBlockCommentIsNotIndentation) {
 }
 
 // A1-130 §1.1: after a multiline block comment `x` is at line 3, column 1.
-// Fails today: RC-COMMENT (the first token is `/` at 1:1).
 TEST_F(SpecLexicalLexerTest, PositionAfterMultilineBlockComment) {
   // Arrange
   const std::string input = "/* a\nb */\nx";
 
   // Act
-  LexResult result = lex_all(input);
+  LexResult result = lex_all_preprocessed(input);
   size_t index = first_non_newline(result);
 
   // Assert

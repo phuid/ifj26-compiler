@@ -4,6 +4,8 @@
 
 #include "gtest/gtest.h"
 
+#include "preprocessed_source.hpp"
+
 extern "C" {
 #include "../src/lexer.h"
 }
@@ -38,6 +40,14 @@ protected:
     ASSERT_EQ(lexer_init(&lexer, buffer.data()), LEXER_OK);
   }
 
+  /// Opens @p text after source_preprocess, which removes comments before
+  /// the lexer runs (as in main.c).
+  void open_preprocessed(const char *text) {
+    PreprocessedSource source = preprocess_snippet(text);
+    ASSERT_EQ(source.status, PREPROCESS_OK);
+    open(source.text.c_str());
+  }
+
   void TearDown() override { lexer_destroy(&lexer); }
 
   /// Reads the next token and checks it is an identifier spelled @p name.
@@ -54,6 +64,29 @@ protected:
 };
 
 } // namespace
+
+TEST_F(LexerBugTest, LineCommentIsIgnoredAndCountsAsNewline) {
+  // Spec 1.1: `//` starts a comment up to the end of the line; it is one EOL.
+  open_preprocessed("a // comment\nb");
+  expect_identifier("a");
+  expect_token(TOKEN_NEWLINE);
+  expect_identifier("b");
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+}
+
+TEST_F(LexerBugTest, NestedBlockCommentIsIgnored) {
+  // Spec 1.1: block comments /* */ may be nested.
+  open_preprocessed("a /* x /* y */ z */ b");
+  expect_identifier("a");
+  expect_identifier("b");
+  EXPECT_EQ(lexer_pls(&lexer), LEXER_EOF);
+}
+
+TEST_F(LexerBugTest, UnterminatedBlockCommentIsLexicalError) {
+  // Spec 1.1: an unterminated (also nested) comment is lexical error 1.
+  // source_preprocess rejects it before the lexer runs.
+  EXPECT_EQ(preprocess_snippet("a /* x /* y */").status, PREPROCESS_MALFORMED);
+}
 
 TEST_F(LexerBugTest, WhitespaceBeforeFirstTokenIsSkipped) {
   // Spec 2: only whitespace and comments may precede the prolog.
