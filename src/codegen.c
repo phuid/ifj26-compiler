@@ -511,7 +511,8 @@ static void handle_or(const ASTNode *node, bool discard_return_value) {
 /** @brief Generates code for logical NOT. @param node AST unary-operation node.
  * @param discard_return_value Whether to discard the result. */
 static void handle_not(const ASTNode *node, bool discard_return_value) {
-  resolve_binary_operands(node);
+  ASTNodeHandler handler = get_ast_handler(node->data.unary_op.operand);
+  handler(node->data.unary_op.operand, false);
   print_NOTS();
 
   if (discard_return_value) {
