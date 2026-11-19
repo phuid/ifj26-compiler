@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "error_trace.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,10 +46,9 @@ static void _print_operand(const InstructionOperand operand) {
     printf("%s@%s$$%i", frameStr, name, suffix);
   } break;
   default:
-    fprintf(stderr, "Invalid InstructionOperand type in print_operand - stupid "
-                    "programer\n");
+    ERROR_INTERNAL("invalid instruction operand type %d", (int)operand.type);
+    ERROR_TRACE("while generating code");
     exit(99);
-    break;
   }
 }
 

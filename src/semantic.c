@@ -22,12 +22,20 @@
 #include "semantic.h"
 
 #include "ast.h"
+#include "error_trace.h"
 #include "function_table.h"
 #include "symtable.h"
 #include "type.h"
 
 #include <stdbool.h>
 #include <stddef.h>
+
+/** Records an error origin at the start of the body of @p function. */
+#define ERROR_ORIGIN_FUNCTION(function, ...)                                   \
+  ERROR_ORIGIN_AT(                                                             \
+      (function)->ast_root != NULL ? (function)->ast_root->line : 0U,          \
+      (function)->ast_root != NULL ? (function)->ast_root->column : 0U, NULL,  \
+      __VA_ARGS__)
 
 #include "builtins.h"
 
@@ -77,6 +85,8 @@ static SemanticStatus register_builtins(Program *program) {
     /// A user definition of a builtin name (e.g. `def print(...)`) is a
     /// second definition of that function; overloading is not supported.
     if (function->is_defined) {
+      ERROR_ORIGIN_FUNCTION(function, "redefinition of builtin function '%s'",
+                            function->name);
       return SEMANTIC_REDEFINITION;
     }
 
@@ -90,6 +100,8 @@ static SemanticStatus register_builtins(Program *program) {
     /// functions; their names are synthetic and never visible to the program.
     local_scope = function_symbol_create_local_scope(function);
     if (local_scope == NULL) {
+      ERROR_INTERNAL("cannot create the local scope of builtin '%s'",
+                     function->name);
       return SEMANTIC_INTERNAL_ERROR;
     }
     for (parameter = 0U; parameter < BUILTINS[index].parameter_count;
@@ -103,6 +115,8 @@ static SemanticStatus register_builtins(Program *program) {
               &symbol) != SYMTABLE_OK ||
           function_symbol_add_parameter(function, symbol) !=
               FUNCTION_TABLE_OK) {
+        ERROR_INTERNAL("cannot add parameter %zu of builtin '%s'", parameter,
+                       function->name);
         return SEMANTIC_INTERNAL_ERROR;
       }
     }
@@ -139,6 +153,7 @@ static SemanticStatus collect_graph(FunctionSymbol *function,
     /// Edge to the callee first, then calls nested in the arguments.
     if (function_symbol_add_callee(function, node->data.call.function) !=
         FUNCTION_TABLE_OK) {
+      ERROR_INTERNAL("cannot add a call-graph edge from '%s'", function->name);
       return SEMANTIC_INTERNAL_ERROR;
     }
     for (index = 0U;
@@ -228,6 +243,7 @@ static SemanticStatus collect_graph(FunctionSymbol *function,
   }
 
   /// Unknown node kind; every valid kind is handled above.
+  ERROR_INTERNAL("unknown AST node kind %d", (int)node->kind);
   return SEMANTIC_INTERNAL_ERROR;
 }
 
@@ -273,6 +289,88 @@ static bool reaches(FunctionSymbol *from, const FunctionSymbol *target,
 static bool is_numeric(DataType type) {
   return type_is_scalar(type, TYPE_INT) || type_is_scalar(type, TYPE_REAL);
 }
+
+/** Returns the name of a base type for error messages, e.g. "Int". */
+static const char *base_type_name(BaseType base) {
+  switch (base) {
+  case TYPE_INT:
+    return "Int";
+  case TYPE_REAL:
+    return "Double";
+  case TYPE_STRING:
+    return "String";
+  case TYPE_UNIT:
+    return "Unit";
+  case TYPE_BOOL:
+    return "Boolean";
+  case TYPE_ANY:
+    return "Any";
+  case TYPE_ANY_LIST:
+    return "List";
+  default:
+    return "unknown";
+  }
+}
+
+/**
+ * printf format and arguments that print a type as its base type and list
+ * depth, e.g. "Int (list depth 2)" for List[List[Int]].
+ */
+#define TYPE_FMT "%s (list depth %zu)"
+#define TYPE_ARGS(type) base_type_name((type).base), (type).list_depth
+
+/**
+ * @brief Returns the source spelling of a binary operator for error messages.
+ * @param kind Kind of a binary operator node.
+ * @return Operator text, e.g. "+" or "until".
+ */
+static const char *operator_name(ASTNodeKind kind) {
+  switch (kind) {
+  case AST_ADD:
+    return "+";
+  case AST_SUBTRACT:
+    return "-";
+  case AST_MULTIPLY:
+    return "*";
+  case AST_DIVIDE:
+    return "/";
+  case AST_LESS:
+    return "<";
+  case AST_LESS_EQUAL:
+    return "<=";
+  case AST_GREATER:
+    return ">";
+  case AST_GREATER_EQUAL:
+    return ">=";
+  case AST_EQUAL:
+    return "==";
+  case AST_NOT_EQUAL:
+    return "!=";
+  case AST_AND:
+    return "&&";
+  case AST_OR:
+    return "||";
+  case AST_LIST_CONCAT:
+    return "++";
+  case AST_LIST_INDEXING:
+    return "[]";
+  case AST_TO:
+    return "to";
+  case AST_UNTIL:
+    return "until";
+  case AST_BY:
+    return "by";
+  default:
+    return "?";
+  }
+}
+
+/** Records an origin for a binary operator applied to wrong operand types. */
+#define ERROR_ORIGIN_OPERANDS(node, left, right)                               \
+  ERROR_ORIGIN_AT(                                                             \
+      (node)->line, (node)->column, NULL,                                      \
+      "operator '%s' cannot be applied to " TYPE_FMT " and " TYPE_FMT,         \
+      operator_name((node)->kind), TYPE_ARGS(left), TYPE_ARGS(right))
 
 /**
  * @brief Tells whether @p node is a list expression whose element type is not
@@ -340,6 +438,7 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
     /// The conversion node takes ownership of the original expression.
     conversion = ast_node_create_implicit_int_to_real(*slot);
     if (conversion == NULL) {
+      ERROR_INTERNAL("cannot allocate an Int-to-Double conversion node");
       return SEMANTIC_INTERNAL_ERROR;
     }
     *slot = conversion;
@@ -348,6 +447,14 @@ static SemanticStatus coerce(ASTNode **slot, DataType from, DataType to,
   if (has_unknown_element_type(*slot) && type_is_list(to)) {
     (*slot)->inferred_type.type = to;
     return SEMANTIC_OK;
+  }
+  if (mismatch == SEMANTIC_INTERNAL_ERROR) {
+    ERROR_INTERNAL("cannot convert " TYPE_FMT " to " TYPE_FMT, TYPE_ARGS(from),
+                   TYPE_ARGS(to));
+  } else {
+    ERROR_ORIGIN_AT((*slot)->line, (*slot)->column, NULL,
+                    "type mismatch: expected " TYPE_FMT ", got " TYPE_FMT,
+                    TYPE_ARGS(to), TYPE_ARGS(from));
   }
   return mismatch;
 }
@@ -439,10 +546,25 @@ static SemanticStatus coerce_tail(ASTNode **slot, DataType to,
   if (node->kind == AST_IF && !node->data.if_statement.used_as_an_expression) {
     status = coerce_tail(&node->data.if_statement.then_branch, to, mismatch);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while matching the then branch of an if");
       return status;
     }
     if (node->data.if_statement.else_branch != NULL) {
-      return coerce_tail(&node->data.if_statement.else_branch, to, mismatch);
+      status = coerce_tail(&node->data.if_statement.else_branch, to, mismatch);
+      if (status != SEMANTIC_OK) {
+        ERROR_TRACE("while matching the else branch of an if");
+      }
+      return status;
+    }
+    if (!type_is_scalar(to, TYPE_UNIT)) {
+      if (mismatch == SEMANTIC_INTERNAL_ERROR) {
+        ERROR_INTERNAL("an if without else has no value of type " TYPE_FMT,
+                       TYPE_ARGS(to));
+      } else {
+        ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                        "an if without else has no value, expected " TYPE_FMT,
+                        TYPE_ARGS(to));
+      }
     }
     return type_is_scalar(to, TYPE_UNIT) ? SEMANTIC_OK : mismatch;
   }
@@ -476,11 +598,19 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
   size_t index;
 
   if (callee == NULL || !callee->is_defined) {
+    ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                    "call of undefined function '%s'",
+                    callee != NULL ? callee->name : "?");
     return SEMANTIC_UNDEFINED;
   }
 
   /// The number of arguments must match the signature exactly.
   if (node->data.call.argument_count != callee->argument_count) {
+    ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                    "wrong number of arguments in call to '%s': expected %zu, "
+                    "got %zu",
+                    callee->name, callee->argument_count,
+                    node->data.call.argument_count);
     return SEMANTIC_BAD_CALL;
   }
 
@@ -492,6 +622,8 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     status = check_expression(ctx, function, &node->data.call.arguments[index],
                               &argument_type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking argument %zu of call to '%s'", index + 1U,
+                  callee->name);
       return status;
     }
 
@@ -500,6 +632,11 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     if (type_is_scalar(parameter_type, TYPE_ANY_LIST)) {
       if (!type_is_list(argument_type) &&
           !has_unknown_element_type(node->data.call.arguments[index])) {
+        ERROR_ORIGIN_AT(node->data.call.arguments[index]->line,
+                        node->data.call.arguments[index]->column, NULL,
+                        "argument %zu of call to '%s' has type " TYPE_FMT
+                        ", expected a list",
+                        index + 1U, callee->name, TYPE_ARGS(argument_type));
         return SEMANTIC_TYPE_ERROR; /// e.g. head(42)
       }
       continue;
@@ -509,6 +646,11 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     if (type_is_scalar(parameter_type, TYPE_ANY)) {
       if (type_is_unknown(argument_type) &&
           !has_unknown_element_type(node->data.call.arguments[index])) {
+        ERROR_ORIGIN_AT(node->data.call.arguments[index]->line,
+                        node->data.call.arguments[index]->column, NULL,
+                        "cannot infer the type of argument %zu of call to "
+                        "'%s'",
+                        index + 1U, callee->name);
         return SEMANTIC_TYPE_ERROR; /// e.g. print(List())
       }
       continue;
@@ -516,6 +658,8 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     status = coerce(&node->data.call.arguments[index], argument_type,
                     parameter_type, SEMANTIC_BAD_CALL);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while passing argument %zu to '%s'", index + 1U,
+                  callee->name);
       return status;
     }
   }
@@ -525,12 +669,16 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
   if (!callee->has_explicit_return_type) {
     status = check_function(ctx, callee);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking callee '%s' (inferring its return type)",
+                  callee->name);
       return status;
     }
   }
 
   if (type_is_scalar(callee->return_type.type, TYPE_ANY_LIST)) {
     if (!callee->is_builtin) {
+      ERROR_INTERNAL("non-builtin '%s' returns an arbitrary list",
+                     callee->name);
       return SEMANTIC_INTERNAL_ERROR; /// Only builtins can have TYPE_ANY_LIST.
     }
 
@@ -544,6 +692,8 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
     /// list, the return type is the element type of that list
 
     if (!callee->is_builtin) {
+      ERROR_INTERNAL("non-builtin '%s' returns an arbitrary type",
+                     callee->name);
       return SEMANTIC_INTERNAL_ERROR; /// Only builtins can return TYPE_ANY.
     }
 
@@ -554,6 +704,11 @@ static SemanticStatus check_call(SemanticContext *ctx, FunctionSymbol *function,
                            &element_type)) {
       /// Return SEMANTIC_ERROR if the first argument is not a list or an empty
       /// untyped list
+      ERROR_ORIGIN_AT(node->data.call.arguments[0]->line,
+                      node->data.call.arguments[0]->column, NULL,
+                      "cannot determine the element type of the list passed "
+                      "to '%s'",
+                      callee->name);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = element_type;
@@ -589,15 +744,23 @@ static SemanticStatus check_list_constructor(SemanticContext *ctx,
     status = check_expression(ctx, function, &node->data.call.arguments[index],
                               &type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking element %zu of a list literal", index + 1U);
       return status;
     }
     if (index == 0U) {
       element = type;
     } else if (!common_type(element, type, &element)) {
+      ERROR_ORIGIN_AT(node->data.call.arguments[index]->line,
+                      node->data.call.arguments[index]->column, NULL,
+                      "element %zu of a list literal has type " TYPE_FMT
+                      ", incompatible with " TYPE_FMT,
+                      index + 1U, TYPE_ARGS(type), TYPE_ARGS(element));
       return SEMANTIC_TYPE_ERROR;
     }
   }
   if (type_is_unknown(element)) {
+    ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                    "cannot infer the element type of a list literal");
     return SEMANTIC_TYPE_ERROR; /// e.g. List(List())
   }
 
@@ -607,6 +770,7 @@ static SemanticStatus check_list_constructor(SemanticContext *ctx,
                     node->data.call.arguments[index]->inferred_type.type,
                     element, SEMANTIC_TYPE_ERROR);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while converting element %zu of a list literal", index + 1U);
       return status;
     }
   }
@@ -638,11 +802,15 @@ static SemanticStatus check_binary(SemanticContext *ctx,
   SemanticStatus status;
 
   status = check_expression(ctx, function, &node->data.binary_op.left, &left);
-  if (status == SEMANTIC_OK) {
-    status =
-        check_expression(ctx, function, &node->data.binary_op.right, &right);
-  }
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while checking the left operand of '%s'",
+                operator_name(node->kind));
+    return status;
+  }
+  status = check_expression(ctx, function, &node->data.binary_op.right, &right);
+  if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while checking the right operand of '%s'",
+                operator_name(node->kind));
     return status;
   }
 
@@ -650,6 +818,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
   case AST_AND:
   case AST_OR:
     if (!type_is_scalar(left, TYPE_BOOL) || !type_is_scalar(right, TYPE_BOOL)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = type_scalar(TYPE_BOOL);
@@ -667,6 +836,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
       node->data.binary_op.left->inferred_type.type = right;
     }
     if (!type_is_list(left) || !type_equal(left, right)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = left;
@@ -674,6 +844,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
 
   case AST_LIST_INDEXING:
     if (!type_is_list(left) || !type_is_scalar(right, TYPE_INT)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     type_element_type(left, out_type);
@@ -683,6 +854,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
   case AST_UNTIL:
     /// Int range; represented as List[Int] (it supports `toList`, `by`).
     if (!type_is_scalar(left, TYPE_INT) || !type_is_scalar(right, TYPE_INT)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = type_list(type_scalar(TYPE_INT));
@@ -691,6 +863,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
   case AST_BY:
     if (!type_equal(left, type_list(type_scalar(TYPE_INT))) ||
         !type_is_scalar(right, TYPE_INT)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = left;
@@ -708,6 +881,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
       *out_type = left; /// String concatenation.
       return SEMANTIC_OK;
     }
+    ERROR_ORIGIN_OPERANDS(node, left, right);
     return SEMANTIC_TYPE_ERROR;
 
   case AST_LESS:
@@ -722,6 +896,7 @@ static SemanticStatus check_binary(SemanticContext *ctx,
       *out_type = type_scalar(TYPE_BOOL);
       return SEMANTIC_OK;
     }
+    ERROR_ORIGIN_OPERANDS(node, left, right);
     return SEMANTIC_TYPE_ERROR;
 
   case AST_EQUAL:
@@ -731,12 +906,14 @@ static SemanticStatus check_binary(SemanticContext *ctx,
     }
     /// Any two values of the same type (incl. Boolean, Unit, lists).
     if (type_is_unknown(left) || !type_equal(left, right)) {
+      ERROR_ORIGIN_OPERANDS(node, left, right);
       return SEMANTIC_TYPE_ERROR;
     }
     *out_type = type_scalar(TYPE_BOOL);
     return SEMANTIC_OK;
 
   default:
+    ERROR_INTERNAL("unexpected binary operator kind %d", (int)node->kind);
     return SEMANTIC_INTERNAL_ERROR;
   }
 
@@ -749,6 +926,8 @@ static SemanticStatus check_binary(SemanticContext *ctx,
         coerce(&node->data.binary_op.right, right, common, SEMANTIC_TYPE_ERROR);
   }
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while widening the operands of '%s'",
+                operator_name(node->kind));
     return status;
   }
   switch (node->kind) {
@@ -779,15 +958,26 @@ static SemanticStatus check_if_parts(SemanticContext *ctx,
   status = check_expression(ctx, function, &node->data.if_statement.condition,
                             &type);
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while checking the condition of an if");
     return status;
   }
   if (!type_is_scalar(type, TYPE_BOOL)) {
+    ERROR_ORIGIN_AT(node->data.if_statement.condition->line,
+                    node->data.if_statement.condition->column, NULL,
+                    "if condition must be Boolean, got " TYPE_FMT,
+                    TYPE_ARGS(type));
     return SEMANTIC_TYPE_ERROR;
   }
   status = check_statement(ctx, function, &node->data.if_statement.then_branch);
+  if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while checking the then branch of an if");
+  }
   if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
     status =
         check_statement(ctx, function, &node->data.if_statement.else_branch);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the else branch of an if");
+    }
   }
   return status;
 }
@@ -814,6 +1004,7 @@ static SemanticStatus if_result(ASTNode *node, BodyResult *out_result) {
         statement_result(node->data.if_statement.else_branch, &else_result);
   }
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while determining the value of an if branch");
     return status;
   }
 
@@ -840,6 +1031,9 @@ static SemanticStatus if_result(ASTNode *node, BodyResult *out_result) {
   if (status == SEMANTIC_OK && node->data.if_statement.else_branch != NULL) {
     status = coerce_tail(&node->data.if_statement.else_branch, common,
                          SEMANTIC_INTERNAL_ERROR);
+  }
+  if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while widening the branch values of an if");
   }
   out_result->kind = RESULT_VALUE;
   out_result->type = common;
@@ -868,6 +1062,7 @@ static SemanticStatus check_expression(SemanticContext *ctx,
   DataType type = type_unknown();
 
   if (node == NULL) {
+    ERROR_INTERNAL("missing expression node");
     return SEMANTIC_INTERNAL_ERROR;
   }
 
@@ -891,6 +1086,9 @@ static SemanticStatus check_expression(SemanticContext *ctx,
     type = node->data.variable.symbol->type.type;
     if (type_is_unknown(type)) {
       /// e.g. `val x = x`: used inside its own initialization.
+      ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                      "variable '%s' used in its own initialization",
+                      node->data.variable.symbol->name);
       return SEMANTIC_UNDEFINED;
     }
     break;
@@ -922,7 +1120,14 @@ static SemanticStatus check_expression(SemanticContext *ctx,
   case AST_NOT:
     status =
         check_expression(ctx, function, &node->data.unary_op.operand, &type);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the operand of '!'");
+    }
     if (status == SEMANTIC_OK && !type_is_scalar(type, TYPE_BOOL)) {
+      ERROR_ORIGIN_AT(node->data.unary_op.operand->line,
+                      node->data.unary_op.operand->column, NULL,
+                      "operator '!' cannot be applied to " TYPE_FMT,
+                      TYPE_ARGS(type));
       return SEMANTIC_TYPE_ERROR;
     }
     break;
@@ -930,7 +1135,12 @@ static SemanticStatus check_expression(SemanticContext *ctx,
     /// The operand of a conversion must be Int; the result is Double.
     status =
         check_expression(ctx, function, &node->data.conversion.operand, &type);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the operand of an Int-to-Double conversion");
+    }
     if (status == SEMANTIC_OK && !type_is_scalar(type, TYPE_INT)) {
+      ERROR_INTERNAL("Int-to-Double conversion applied to " TYPE_FMT,
+                     TYPE_ARGS(type));
       return SEMANTIC_INTERNAL_ERROR;
     }
     type = type_scalar(TYPE_REAL);
@@ -941,6 +1151,8 @@ static SemanticStatus check_expression(SemanticContext *ctx,
     BodyResult result;
 
     if (node->data.if_statement.else_branch == NULL) {
+      ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                      "an if used as an expression must have an else branch");
       return SEMANTIC_TYPE_ERROR;
     }
     status = check_if_parts(ctx, function, node);
@@ -948,9 +1160,12 @@ static SemanticStatus check_expression(SemanticContext *ctx,
       status = if_result(node, &result);
     }
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking an if expression");
       return status;
     }
     if (result.kind != RESULT_VALUE) {
+      ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                      "the branches of an if expression have no common value");
       return SEMANTIC_TYPE_ERROR;
     }
     type = result.type;
@@ -962,6 +1177,7 @@ static SemanticStatus check_expression(SemanticContext *ctx,
   case AST_WHILE:
   case AST_FOR:
     /// Statements are not expressions.
+    ERROR_INTERNAL("statement node used as an expression");
     return SEMANTIC_INTERNAL_ERROR;
   }
   if (status != SEMANTIC_OK) {
@@ -998,6 +1214,9 @@ static SemanticStatus check_statement(SemanticContext *ctx,
          index += 1U) {
       status =
           check_statement(ctx, function, &node->data.block.statements[index]);
+      if (status != SEMANTIC_OK) {
+        ERROR_TRACE("while checking statement %zu of a block", index + 1U);
+      }
     }
 
     /// The block node itself is Unit; its result is given by statement_result.
@@ -1011,11 +1230,17 @@ static SemanticStatus check_statement(SemanticContext *ctx,
 
     if (!node->data.assignment.is_definition && target->constant) {
       /// Assignment to `val` or a parameter.
+      ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                      "assignment to immutable variable '%s'", target->name);
       return SEMANTIC_OTHER;
     }
     status =
         check_expression(ctx, function, &node->data.assignment.value, &type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE(node->data.assignment.is_definition
+                      ? "while checking the initializer of '%s'"
+                      : "while checking the value assigned to '%s'",
+                  target->name);
       return status;
     }
     if (node->data.assignment.is_definition &&
@@ -1023,6 +1248,11 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       /// `val x = expr`: the variable takes the initializer's type; it must be
       /// inferable (not e.g. `val x = List()`).
       if (type_is_unknown(type)) {
+        ERROR_ORIGIN_AT(node->data.assignment.value->line,
+                        node->data.assignment.value->column, NULL,
+                        "cannot infer the type of variable '%s' from its "
+                        "initializer",
+                        target->name);
         return SEMANTIC_TYPE_ERROR;
       }
       target->type.type = type;
@@ -1031,6 +1261,8 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       status = coerce(&node->data.assignment.value, type, target->type.type,
                       SEMANTIC_TYPE_ERROR);
       if (status != SEMANTIC_OK) {
+        ERROR_TRACE("while assigning to variable '%s' of type " TYPE_FMT,
+                    target->name, TYPE_ARGS(target->type.type));
         return status;
       }
     }
@@ -1041,16 +1273,25 @@ static SemanticStatus check_statement(SemanticContext *ctx,
   case AST_RETURN:
     if (!function->has_explicit_return_type) {
       /// Already excluded, kept for safety.
+      ERROR_ORIGIN_AT(node->line, node->column, NULL,
+                      "'return' in function '%s' without a declared return "
+                      "type",
+                      function->name);
       return SEMANTIC_TYPE_ERROR;
     }
     if (node->data.return_statement.value == NULL) {
       /// A bare `return` is allowed only with an explicit Unit return type.
       if (!type_is_scalar(function->return_type.type, TYPE_UNIT)) {
+        ERROR_ORIGIN_AT(
+            node->line, node->column, NULL,
+            "'return' without a value in function '%s' returning " TYPE_FMT,
+            function->name, TYPE_ARGS(function->return_type.type));
         return SEMANTIC_TYPE_ERROR;
       }
       /// Attach an implicit Unit constant so that every return has a value.
       ASTNode *unit = ast_node_create_unit(node->line, node->column);
       if (unit == NULL) {
+        ERROR_INTERNAL("cannot allocate the value of a bare 'return'");
         return SEMANTIC_INTERNAL_ERROR;
       }
       node->data.return_statement.value = unit;
@@ -1060,6 +1301,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     status = check_expression(ctx, function, &node->data.return_statement.value,
                               &type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the returned value");
       return status;
     }
     node->inferred_type.type = type;
@@ -1067,8 +1309,14 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       /// The value is evaluated and discarded (rule 4).
       return SEMANTIC_OK;
     }
-    return coerce(&node->data.return_statement.value, type,
-                  function->return_type.type, SEMANTIC_TYPE_ERROR);
+    status = coerce(&node->data.return_statement.value, type,
+                    function->return_type.type, SEMANTIC_TYPE_ERROR);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while matching the returned value with the return type of "
+                  "'%s'",
+                  function->name);
+    }
+    return status;
 
   case AST_IF:
     if (node->data.if_statement.used_as_an_expression) {
@@ -1076,6 +1324,9 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     }
     /// An `if` statement; its value (if needed) is given by statement_result.
     status = check_if_parts(ctx, function, node);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking an if statement");
+    }
     if (status == SEMANTIC_OK) {
       node->inferred_type.type = type_scalar(TYPE_UNIT);
     }
@@ -1086,12 +1337,20 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     status = check_expression(ctx, function, &node->data.while_loop.condition,
                               &type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the condition of a while loop");
       return status;
     }
     if (!type_is_scalar(type, TYPE_BOOL)) {
+      ERROR_ORIGIN_AT(node->data.while_loop.condition->line,
+                      node->data.while_loop.condition->column, NULL,
+                      "while condition must be Boolean, got " TYPE_FMT,
+                      TYPE_ARGS(type));
       return SEMANTIC_TYPE_ERROR;
     }
     status = check_statement(ctx, function, &node->data.while_loop.body);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the body of a while loop");
+    }
     if (status == SEMANTIC_OK) {
       /// A loop yields ().
       node->inferred_type.type = type_scalar(TYPE_UNIT);
@@ -1107,10 +1366,17 @@ static SemanticStatus check_statement(SemanticContext *ctx,
     status =
         check_expression(ctx, function, &node->data.for_loop.iterable, &type);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the iterable of a for loop over '%s'",
+                  variable->name);
       return status;
     }
     if (!type_element_type(type, &element)) {
       /// Not a list, or an empty `List()` without an element type.
+      ERROR_ORIGIN_AT(
+          node->data.for_loop.iterable->line,
+          node->data.for_loop.iterable->column, NULL,
+          "for loop needs a list with a known element type, got " TYPE_FMT,
+          TYPE_ARGS(type));
       return SEMANTIC_TYPE_ERROR;
     }
     variable->type.type = element;
@@ -1119,13 +1385,21 @@ static SemanticStatus check_statement(SemanticContext *ctx,
       status =
           check_expression(ctx, function, &node->data.for_loop.guard, &type);
       if (status != SEMANTIC_OK) {
+        ERROR_TRACE("while checking the guard of a for loop");
         return status;
       }
       if (!type_is_scalar(type, TYPE_BOOL)) {
+        ERROR_ORIGIN_AT(node->data.for_loop.guard->line,
+                        node->data.for_loop.guard->column, NULL,
+                        "for loop guard must be Boolean, got " TYPE_FMT,
+                        TYPE_ARGS(type));
         return SEMANTIC_TYPE_ERROR;
       }
     }
     status = check_statement(ctx, function, &node->data.for_loop.body);
+    if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while checking the body of a for loop");
+    }
     if (status == SEMANTIC_OK) {
       node->inferred_type.type = type_scalar(TYPE_UNIT);
     }
@@ -1230,6 +1504,7 @@ static SemanticStatus append_unit_return(ASTNode **slot,
   ASTNode *block;
 
   if (ret == NULL) {
+    ERROR_INTERNAL("cannot allocate an implicit 'return ()'");
     return SEMANTIC_INTERNAL_ERROR;
   }
 
@@ -1238,6 +1513,7 @@ static SemanticStatus append_unit_return(ASTNode **slot,
   if (parent_block != NULL) {
     if (ast_node_block_append_statement(parent_block, ret) != AST_OK) {
       ast_node_destroy(ret);
+      ERROR_INTERNAL("cannot append an implicit 'return ()' to a block");
       return SEMANTIC_INTERNAL_ERROR;
     }
     return SEMANTIC_OK;
@@ -1248,18 +1524,21 @@ static SemanticStatus append_unit_return(ASTNode **slot,
   block = ast_node_create_block(statement->line, statement->column);
   if (block == NULL) {
     ast_node_destroy(ret);
+    ERROR_INTERNAL("cannot allocate a block for an implicit 'return ()'");
     return SEMANTIC_INTERNAL_ERROR;
   }
   block->inferred_type.type = type_scalar(TYPE_UNIT);
   if (ast_node_block_append_statement(block, statement) != AST_OK) {
     ast_node_destroy(block);
     ast_node_destroy(ret);
+    ERROR_INTERNAL("cannot move a statement into a new block");
     return SEMANTIC_INTERNAL_ERROR;
   }
   /// The block owns the statement from now on.
   *slot = block;
   if (ast_node_block_append_statement(block, ret) != AST_OK) {
     ast_node_destroy(ret);
+    ERROR_INTERNAL("cannot append an implicit 'return ()' to a new block");
     return SEMANTIC_INTERNAL_ERROR;
   }
   return SEMANTIC_OK;
@@ -1296,10 +1575,12 @@ static SemanticStatus add_implicit_return(ASTNode **slot, ASTNode *parent_block,
       /// An empty block has the value (), valid only in a Unit function.
       ret = create_unit_return(node);
       if (ret == NULL) {
+        ERROR_INTERNAL("cannot allocate an implicit 'return ()'");
         return SEMANTIC_INTERNAL_ERROR;
       }
       if (ast_node_block_append_statement(node, ret) != AST_OK) {
         ast_node_destroy(ret);
+        ERROR_INTERNAL("cannot append an implicit 'return ()' to a block");
         return SEMANTIC_INTERNAL_ERROR;
       }
       return SEMANTIC_OK;
@@ -1316,6 +1597,8 @@ static SemanticStatus add_implicit_return(ASTNode **slot, ASTNode *parent_block,
     status = add_implicit_return(&node->data.if_statement.then_branch, NULL,
                                  unit_function);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while adding an implicit return to the then branch of an "
+                  "if");
       return status;
     }
     if (node->data.if_statement.else_branch != NULL) {
@@ -1338,6 +1621,7 @@ static SemanticStatus add_implicit_return(ASTNode **slot, ASTNode *parent_block,
   /// The final value becomes the returned value.
   ret = ast_node_create_return(node, node->line, node->column);
   if (ret == NULL) {
+    ERROR_INTERNAL("cannot allocate an implicit 'return'");
     return SEMANTIC_INTERNAL_ERROR;
   }
   ret->inferred_type.type = node->inferred_type.type;
@@ -1365,21 +1649,27 @@ static SemanticStatus check_function(SemanticContext *ctx,
   }
   if (function->check_state == FUNCTION_CHECKING) {
     /// Unreachable: cycles through not-annotated functions were rejected.
+    ERROR_INTERNAL("function '%s' is already being checked (unexpected cycle)",
+                   function->name);
     return SEMANTIC_INTERNAL_ERROR;
   }
   if (function->ast_root == NULL) {
+    ERROR_INTERNAL("function '%s' has no body", function->name);
     return SEMANTIC_INTERNAL_ERROR;
   }
   function->check_state = FUNCTION_CHECKING;
 
   status = check_statement(ctx, function, &function->ast_root);
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while checking the body of function '%s'", function->name);
     return status;
   }
 
   /// Compare the value of the body with the (declared or inferred) return type.
   status = statement_result(function->ast_root, &result);
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while determining the value of the body of function '%s'",
+                function->name);
     return status;
   }
   if (function->has_explicit_return_type) {
@@ -1388,16 +1678,26 @@ static SemanticStatus check_function(SemanticContext *ctx,
     /// With a declared Unit type the final value is discarded.
     if (!type_is_scalar(declared, TYPE_UNIT) && result.kind != RESULT_RETURNS) {
       if (result.kind == RESULT_BAD_IF) {
+        ERROR_ORIGIN_FUNCTION(function,
+                              "function '%s' must return a value, but its "
+                              "body ends with an if without a value",
+                              function->name);
         return SEMANTIC_TYPE_ERROR;
       }
       status = coerce_tail(&function->ast_root, declared, SEMANTIC_TYPE_ERROR);
       if (status != SEMANTIC_OK) {
+        ERROR_TRACE("while matching the body of function '%s' with its "
+                    "declared return type",
+                    function->name);
         return status;
       }
     }
   } else {
     /// No `return` here (checked), so the result is the value of the body.
     if (result.kind != RESULT_VALUE || type_is_unknown(result.type)) {
+      ERROR_ORIGIN_FUNCTION(function,
+                            "cannot infer the return type of function '%s'",
+                            function->name);
       return SEMANTIC_TYPE_ERROR;
     }
     function->return_type.type = result.type;
@@ -1408,6 +1708,8 @@ static SemanticStatus check_function(SemanticContext *ctx,
       &function->ast_root, NULL,
       type_is_scalar(function->return_type.type, TYPE_UNIT));
   if (status != SEMANTIC_OK) {
+    ERROR_TRACE("while adding the implicit return of function '%s'",
+                function->name);
     return status;
   }
 
@@ -1427,6 +1729,7 @@ SemanticStatus semantic_check(Program *program) {
   size_t index;
 
   if (program == NULL || !program->initialized) {
+    ERROR_INTERNAL("semantic analysis of an uninitialized program");
     return SEMANTIC_INTERNAL_ERROR;
   }
   ctx.program = program;
@@ -1443,16 +1746,20 @@ SemanticStatus semantic_check(Program *program) {
   for (index = 0U; index < table->function_count; index += 1U) {
     FunctionSymbol *function = table->functions[index];
     if (!function->is_defined) {
+      ERROR_ORIGIN_AT(0U, 0U, NULL, "call of undefined function '%s'",
+                      function->name);
       return SEMANTIC_UNDEFINED;
     }
     if (function->is_main) {
       if (main_function != NULL) {
+        ERROR_ORIGIN_FUNCTION(function, "redefinition of the main function");
         return SEMANTIC_REDEFINITION;
       }
       main_function = function;
     }
   }
   if (main_function == NULL) {
+    ERROR_ORIGIN_AT(0U, 0U, NULL, "missing main function ('@main')");
     return SEMANTIC_UNDEFINED;
   }
 
@@ -1464,6 +1771,8 @@ SemanticStatus semantic_check(Program *program) {
     }
     status = collect_graph(function, function->ast_root);
     if (status != SEMANTIC_OK) {
+      ERROR_TRACE("while building the call graph of function '%s'",
+                  function->name);
       return status;
     }
   }
@@ -1476,10 +1785,18 @@ SemanticStatus semantic_check(Program *program) {
       continue;
     }
     if (function->contains_return) {
+      ERROR_ORIGIN_FUNCTION(function,
+                            "function '%s' contains 'return' but has no "
+                            "declared return type",
+                            function->name);
       return SEMANTIC_TYPE_ERROR;
     }
     ctx.mark += 1U;
     if (reaches(function, function, ctx.mark)) {
+      ERROR_ORIGIN_FUNCTION(function,
+                            "recursive function '%s' has no declared return "
+                            "type",
+                            function->name);
       return SEMANTIC_TYPE_ERROR;
     }
   }
@@ -1495,9 +1812,14 @@ SemanticStatus semantic_check(Program *program) {
 
   /// 5. The entry function has no parameters and returns Unit.
   if (main_function->argument_count != 0U) {
+    ERROR_ORIGIN_FUNCTION(main_function,
+                          "main function '%s' must not have parameters",
+                          main_function->name);
     return SEMANTIC_BAD_CALL;
   }
   if (!type_is_scalar(main_function->return_type.type, TYPE_UNIT)) {
+    ERROR_ORIGIN_FUNCTION(main_function, "main function '%s' must return Unit",
+                          main_function->name);
     return SEMANTIC_TYPE_ERROR;
   }
   return SEMANTIC_OK;
