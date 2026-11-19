@@ -114,8 +114,7 @@ const FunctionCase kMainCases[] = {
      3},
     // §2: more than one entry function is error 4 [A3-007].
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-PSTATUS (parser folds codes 3-5
-    //   into one status) gives -3 (IFJ26_PARSER_SEMANTIC).
+    //   passes without the prolog.
     {"TwoMainFunctionsAreError4",
      R"(@main def first(): Unit =
   return
@@ -125,8 +124,7 @@ const FunctionCase kMainCases[] = {
      4},
     // §2, ch. 6: a parameter of the @main function is error 5 [A3-008].
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-PSTATUS (parser folds codes 3-5
-    //   into one status) gives -3 (IFJ26_PARSER_SEMANTIC).
+    //   passes without the prolog.
     {"MainWithParameterIsError5",
      R"(@main def run(x: Int): Unit =
   return
@@ -174,8 +172,7 @@ const FunctionCase kMainCases[] = {
     // §2.3, §2: a plain function with the name of the entry function is a
     //   redefinition, error 4 [A3-030].
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-PSTATUS (parser folds codes 3-5
-    //   into one status) gives -3 (IFJ26_PARSER_SEMANTIC).
+    //   passes without the prolog.
     {"FunctionNamedLikeMainFunctionIsError4",
      R"(@main def run(): Unit =
   return
@@ -289,8 +286,7 @@ const FunctionCase kDefinitionCases[] = {
     // §2.3: overloading is not supported; two functions with one name are
     //   error 4 [A3-029].
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-PSTATUS (parser folds codes 3-5
-    //   into one status) gives -3 (IFJ26_PARSER_SEMANTIC).
+    //   passes without the prolog.
     {"OverloadingByParameterTypeIsError4",
      R"(def f(a: Int): Unit =
   return
@@ -396,8 +392,7 @@ const FunctionCase kParameterCases[] = {
     // §2.3, §2.2: two parameters with the same name are a redefinition,
     //   error 4 [A3-078].
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-PSTATUS (parser folds codes 3-5
-    //   into one status) gives -3 (IFJ26_PARSER_SEMANTIC).
+    //   passes without the prolog.
     {"DuplicateParameterNameIsError4",
      R"(def f(a: Int, a: String): Unit =
   return

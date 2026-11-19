@@ -64,9 +64,9 @@ void expect_spec_exit_code(const ExtCase &row) {
 }
 
 using Nodes = std::vector<ASTNode *>;
-using Types = std::vector<DataType>;
+using Types = std::vector<BaseType>;
 
-constexpr DataType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL, U = TYPE_UNIT,
+constexpr BaseType N = TYPE_UNKNOWN, I = TYPE_INT, R = TYPE_REAL, U = TYPE_UNIT,
                    B = TYPE_BOOL;
 constexpr SemanticStatus OK = SEMANTIC_OK, E3 = SEMANTIC_UNDEFINED,
                          E5 = SEMANTIC_BAD_CALL, E6 = SEMANTIC_TYPE_ERROR;
@@ -113,13 +113,17 @@ ASTNode *call(FunctionSymbol *f, const Nodes &args = {}) {
 bool widened(const ASTNode *n) {
   return n != nullptr && n->kind == AST_IMPLICIT_INT_TO_REAL;
 }
+/** True when @p t is the scalar type @p b (the unresolved type for
+ *  TYPE_UNKNOWN). */
+bool has_type(DataType t, BaseType b) { return type_equal(t, type_scalar(b)); }
 
 /** Defines a local `val` (or `var` if !@p constant) in @p f's scope. */
-Symbol *var(FunctionSymbol *f, const char *name, DataType type,
+Symbol *var(FunctionSymbol *f, const char *name, BaseType type,
             bool constant = true) {
   Symbol *s = nullptr;
   if (f != nullptr) {
-    symbol_table_define(f->local_scope, name, type, true, constant, &s);
+    symbol_table_define(f->local_scope, name, type_scalar(type), true,
+                        constant, &s);
   }
   return s;
 }
@@ -143,7 +147,7 @@ protected:
     return f;
   }
   /** `def name(params...)[: ret] =` with an empty body; NULL on failure. */
-  FunctionSymbol *def(const char *name, DataType ret_type = N,
+  FunctionSymbol *def(const char *name, BaseType ret_type = N,
                       const Types &params = {}, bool is_main = false) {
     FunctionSymbol *f = ref(name);
     if (f == nullptr) {
@@ -152,11 +156,12 @@ protected:
     f->is_defined = true;
     f->is_main = is_main;
     function_symbol_create_local_scope(f);
-    for (DataType p : params) {
-      function_symbol_add_parameter(f, p);
+    for (size_t i = 0; i < params.size(); ++i) {
+      function_symbol_add_parameter(
+          f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
     }
     f->has_explicit_return_type = ret_type != N;
-    f->return_type.type = ret_type;
+    f->return_type.type = type_scalar(ret_type);
     f->ast_root = ast_node_create_block(1, 1);
     return f;
   }
@@ -249,7 +254,7 @@ TEST_F(ExtFunexpAstTest, CallInsideArithmetic) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(r->type.type, I);
+  EXPECT_TRUE(has_type(r->type.type, I));
 }
 
 // §5.1, §3 (A7-122): `val r = 1 + print("a")` is Int + Unit -> 6.
@@ -350,7 +355,7 @@ TEST_F(ExtFunexpAstTest, IntCallResultWidensInDoubleExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(r->type.type, R);
+  EXPECT_TRUE(has_type(r->type.type, R));
   const ASTNode *right = sum->data.binary_op.right;
   ASSERT_TRUE(widened(right));
   ASSERT_NE(right->data.conversion.operand, nullptr);
@@ -400,7 +405,7 @@ TEST_F(ExtFunexpAstTest, DoubleCalleeInferredBeforeCallerExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(a->return_type.type, R);
+  EXPECT_TRUE(has_type(a->return_type.type, R));
 }
 
 // §5.1, §2.3 (A7-126): the same order with `def b() = 3` makes a Int.
@@ -419,7 +424,7 @@ TEST_F(ExtFunexpAstTest, IntCalleeInferredBeforeCallerExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(a->return_type.type, I);
+  EXPECT_TRUE(has_type(a->return_type.type, I));
 }
 
 // §5.1, §2.3 (A7-127): direct recursion hidden in a nested argument still
@@ -476,7 +481,7 @@ TEST_F(ExtBoolthenMissingElseTest, MissingElseWithUnitBranchInfersUnit) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(f->return_type.type, U);
+  EXPECT_TRUE(has_type(f->return_type.type, U));
 }
 
 // §2.3 rule 3 item 1, rule 4 (A7-104): `def f(): Unit = if c then {1}` is
@@ -543,7 +548,7 @@ TEST_F(ExtBoolthenMissingElseTest, MissingElseNotLastStatement) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(f->return_type.type, I);
+  EXPECT_TRUE(has_type(f->return_type.type, I));
 }
 
 // §2.3 rule 3, §2.2 (A7-108): `var k: Int`; `if c then {k = "s"}`: the
@@ -620,7 +625,7 @@ TEST_F(ExtBoolthenMissingElseTest, NestedMissingElseAllUnitInfersUnit) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(f->return_type.type, U);
+  EXPECT_TRUE(has_type(f->return_type.type, U));
 }
 
 } // namespace
@@ -831,7 +836,7 @@ TEST_F(ExtBoolthenAstTest, DISABLED_InferredBooleanReturnType) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(f->return_type.type, B);
+  EXPECT_TRUE(has_type(f->return_type.type, B));
 }
 
 // §5.2, §1.3 (A7-114): `val b = 1 < 2` stores a Boolean.
@@ -848,7 +853,7 @@ TEST_F(ExtBoolthenAstTest, DISABLED_BooleanCanBeStored) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_EQ(b->type.type, B);
+  EXPECT_TRUE(has_type(b->type.type, B));
 }
 
 // §5.2, §1.3 (A7-114): `val b: Boolean = 1 < 2`.
@@ -1074,32 +1079,44 @@ TEST_F(ExtBoolthenAstTest, DISABLED_BooleanCallIsCondition) {
 /** Cells of the PSA precedence table for ! && ||. */
 class ExtBoolthenPsaTest : public ::testing::Test {};
 
-// §5.2, §3 (A7-145): unary ! cannot follow an operand or `)`; the cell
-// stays empty in every profile. Passes vacuously today (RC-PSA stub
-// returns PREC_INVALID everywhere).
+/** A token of type @p type without a value, for token_to_terminal. */
+Token psa_token(TokenType type) {
+  Token token = {};
+  token.type = type;
+  return token;
+}
+
+// §5.2, §3 (A7-145): unary ! cannot follow an operand; the cell stays empty
+// in every profile. `(` and `)` are no PSA terminals any more (a
+// parenthesised subexpression is one operand), so only the operand row is
+// left. Passes today: ! has no table terminal (TERMINAL_INVALID) and the
+// stack-only operand has no row.
 TEST_F(ExtBoolthenPsaTest, NotCannotFollowOperandOrRightParen) {
   // Arrange
-  const TerminalType tops[] = {TERMINAL_OPERAND, TERMINAL_RPAREN};
+  const TerminalType tops[] = {TERMINAL_OPERAND};
+  const TerminalType not_terminal = token_to_terminal(psa_token(TOKEN_NOT));
 
   for (TerminalType top : tops) {
     // Act
-    PRECEDENCE cell = get_precedence(top, TOKEN_NOT);
+    PRECEDENCE cell = get_precedence(top, not_terminal);
 
     // Assert
     EXPECT_EQ(cell, PREC_INVALID) << "top terminal " << top;
   }
 }
 
-// §5.2, §3 (A7-146): unary ! is shifted at the start, after an operator and
-// after `(`. Fails today: RC-PSA (stub), RC-EXT-BOOLTHEN (no terminal).
+// §5.2, §3 (A7-146): unary ! is shifted at the start and after an operator
+// (`(` is no PSA terminal any more; inside it the stack starts with `$`).
+// Fails today: RC-EXT-BOOLTHEN, ! has no table terminal (the parser takes
+// it as a prefix of an operand, outside the table).
 TEST_F(ExtBoolthenPsaTest, DISABLED_NotIsShiftedAfterOperatorsAndStart) {
   // Arrange
-  const TerminalType tops[] = {TERMINAL_DOLLAR, TERMINAL_MUL, TERMINAL_REL,
-                               TERMINAL_LPAREN};
+  const TerminalType tops[] = {TERMINAL_DOLLAR, TERMINAL_MUL, TERMINAL_REL};
+  const TerminalType not_terminal = token_to_terminal(psa_token(TOKEN_NOT));
 
   for (TerminalType top : tops) {
     // Act
-    PRECEDENCE cell = get_precedence(top, TOKEN_NOT);
+    PRECEDENCE cell = get_precedence(top, not_terminal);
 
     // Assert
     EXPECT_EQ(cell, PREC_TAKE) << "top terminal " << top;
@@ -1107,23 +1124,26 @@ TEST_F(ExtBoolthenPsaTest, DISABLED_NotIsShiftedAfterOperatorsAndStart) {
 }
 
 // §5.2, §3 (A7-147): && and || bind below relations (|| lowest), so they
-// reduce every higher level; with `( E` on the stack the top terminal is
-// `(`, so && is shifted.
-// Fails today: RC-PSA (stub), RC-EXT-BOOLTHEN (no terminal).
+// reduce every higher level; at the start of a (parenthesised)
+// subexpression the top terminal is `$`, so && is shifted. The operand and
+// `)` rows of the old table are gone: operands are stack-only and `(`/`)`
+// are no terminals.
 TEST_F(ExtBoolthenPsaTest, DISABLED_LogicalOperatorsReduceHigherLevels) {
   // Arrange
-  const TerminalType tops[] = {TERMINAL_OPERAND, TERMINAL_RPAREN, TERMINAL_PLUS,
-                               TERMINAL_MUL, TERMINAL_REL};
+  const TerminalType tops[] = {TERMINAL_PLUS, TERMINAL_MUL, TERMINAL_REL};
   const TokenType logical[] = {TOKEN_AND, TOKEN_OR};
 
   for (TokenType next : logical) {
+    const TerminalType input = token_to_terminal(psa_token(next));
     for (TerminalType top : tops) {
       // Act + Assert
-      EXPECT_EQ(get_precedence(top, next), PREC_REDUCE)
+      EXPECT_EQ(get_precedence(top, input), PREC_REDUCE)
           << "top " << top << " next " << next;
     }
   }
-  EXPECT_EQ(get_precedence(TERMINAL_LPAREN, TOKEN_AND), PREC_TAKE);
+  EXPECT_EQ(get_precedence(TERMINAL_DOLLAR,
+                           token_to_terminal(psa_token(TOKEN_AND))),
+            PREC_TAKE);
 }
 
 } // namespace
@@ -1616,18 +1636,23 @@ INSTANTIATE_TEST_SUITE_P(Spec, ExtAlgebdtTest,
 class ExtAlgebdtPsaTest : public ::testing::Test {};
 
 // §5.5, §5.7, §3 (A7-148): `=>` (after a guard or a lambda head) and
-// `match` end an expression, so an operand reduces before them. This is a
-// design choice of the team's PSA, not mandated by the spec.
-// Fails today: RC-PSA (stub); token_to_terminal maps both to INVALID.
+// `match` end an expression like `$`, so a pending operator reduces before
+// them. This is a design choice of the team's PSA, not mandated by the spec.
+// Fails today: token_to_terminal maps both to TERMINAL_INVALID.
 TEST_F(ExtAlgebdtPsaTest, DISABLED_ArrowAndMatchEndExpression) {
   // Arrange
   const TokenType enders[] = {TOKEN_ARROW, TOKEN_KW_MATCH};
 
   for (TokenType next : enders) {
+    Token token = {};
+    token.type = next;
+
     // Act
-    PRECEDENCE cell = get_precedence(TERMINAL_OPERAND, next);
+    const TerminalType input = token_to_terminal(token);
+    PRECEDENCE cell = get_precedence(TERMINAL_PLUS, input);
 
     // Assert
+    EXPECT_EQ(input, TERMINAL_DOLLAR) << "next token " << next;
     EXPECT_EQ(cell, PREC_REDUCE) << "next token " << next;
   }
 }

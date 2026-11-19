@@ -117,14 +117,12 @@ const ErrorCodeCase kProgramCases[] = {
     // §2.1, ch. 6 codes 2 and 99 (A6-136): a function whose body is
     //   missing (end of input right after =) is a syntax error, never 99.
     // Passes today only because of RC-PROLOG (every program gives 2), see
-    //   MinimalValidProgramIsCode0; without the prolog RC-EMPTYBODY (= at
-    //   end of input leaves no body) gives 99.
+    //   MinimalValidProgramIsCode0; passes without the prolog too.
     {"FunctionWithoutBodyAtEndOfInputIsCode2", R"(@main def run(): Unit =)", 2},
     // §2.4, ch. 6 code 2 (A6-138): else stands on its own line indented
     //   exactly like its if; a deeper else is a syntax error.
     // Passes today only because of RC-PROLOG (every program gives 2), see
-    //   MinimalValidProgramIsCode0; without the prolog it passes only
-    //   because of RC-EXPR (every if condition is a syntax error).
+    //   MinimalValidProgramIsCode0; passes without the prolog too.
     {"ElseIndentedDeeperThanIfIsCode2",
      R"(@main def run(): Unit =
   if 1 < 2 then
@@ -136,8 +134,7 @@ const ErrorCodeCase kProgramCases[] = {
     // §2.4, ch. 6 code 0 (A6-138 twin): the same program with else aligned
     //   with its if is valid; positive control for the row above.
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-EXPR (every if condition is a syntax error)
-    //   gives 2.
+    //   passes without the prolog.
     {"ElseAlignedWithIfIsCode0",
      R"(@main def run(): Unit =
   if 1 < 2 then
@@ -150,8 +147,7 @@ const ErrorCodeCase kProgramCases[] = {
     //   user-defined name (spec_builtins_test CapitalizedPrintIsUndefined-
     //   Error3 covers a misspelled built-in name).
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-STMT-CRASH (a statement starting with an
-    //   identifier crashes) gives a crash (-1).
+    //   passes without the prolog.
     {"CallOfUndefinedFunctionIsCode3",
      R"(@main def run(): Unit =
   foo(1)
@@ -160,7 +156,8 @@ const ErrorCodeCase kProgramCases[] = {
     // §2.2, ch. 6 codes 6 and 7 (A6-182): writing a String to a val is
     //   code 7, which is more specific than the type error 6.
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-EXPR (expression parser stub) gives 99.
+    //   without the prolog RC-ASSIGN (no production for `id = expr`)
+    //   gives 2.
     {"WrongTypeAssignedToValIsCode7",
      R"(@main def run(): Unit =
   val x = 1
@@ -170,8 +167,8 @@ const ErrorCodeCase kProgramCases[] = {
     // §2.3, ch. 6 codes 6 and 7 (A6-184): parameters are not modifiable,
     //   so writing a String to an Int parameter is code 7, not 6.
     // Fails today: RC-PROLOG, the prolog import is a syntax error (2);
-    //   without the prolog RC-STMT-CRASH (a statement starting with an
-    //   identifier crashes) gives a crash (-1).
+    //   without the prolog RC-ASSIGN (no production for `id = expr`)
+    //   gives 2.
     {"WrongTypeAssignedToParameterIsCode7",
      R"(def f(n: Int): Unit =
   n = "a"
@@ -239,7 +236,7 @@ const RawSourceCase kRawSourceCases[] = {
     // §2, ch. 6 code 2 (A6-131): an empty source lacks the mandatory
     //   prolog, so it is a syntax error (2), not a missing @main (3).
     // Fails today: RC-NOPROLOG-OK, the missing prolog is accepted and the
-    //   empty program gets 3 from the semantic check.
+    //   empty program gets 3 (missing @main, reported by the parser).
     {"EmptySourceWithoutPrologIsCode2", 0, "", 2},
     // §2, ch. 6 code 2 (A6-134): the prolog appears exactly once; a second
     //   import is a syntax error.
@@ -301,8 +298,7 @@ parser_map_case_name(const ::testing::TestParamInfo<ParserMapCase> &info) {
   return info.param.name;
 }
 
-// ch. 6 (A6-230): parser statuses map to chapter 6 codes; the folded
-//   semantic status has the harness-only code IFJ26_PARSER_SEMANTIC.
+// ch. 6 (A6-230): parser statuses map to chapter 6 codes.
 const ParserMapCase kParserMapCases[] = {
     // ch. 6 code 0: a parsed program goes on to the semantic check.
     {"OkIsCode0", PARSER_OK, 0},
@@ -310,18 +306,23 @@ const ParserMapCase kParserMapCases[] = {
     {"LexerErrorIsCode1", PARSER_LEXER_ERROR, 1},
     // ch. 6 code 2: syntax error.
     {"SyntaxErrorIsCode2", PARSER_SYNTAX_ERROR, 2},
-    // ch. 6 codes 3-6 folded into one status (RC-PSTATUS): harness -3.
-    {"SemanticErrorIsHarnessCode", PARSER_SEMANTIC_ERROR,
-     IFJ26_PARSER_SEMANTIC},
+    // ch. 6 code 3: undefined or not yet defined variable.
+    {"UndefinedErrorIsCode3", PARSER_UNDEFINED_ERROR, 3},
+    // ch. 6 code 4: redefinition of a function, variable or parameter.
+    {"RedefinitionErrorIsCode4", PARSER_REDEFINITION_ERROR, 4},
+    // ch. 6 code 5: wrong parameters (e.g. of @main).
+    {"BadCallErrorIsCode5", PARSER_BAD_CALL_ERROR, 5},
+    // ch. 6 code 6: type compatibility or type inference.
+    {"TypeErrorIsCode6", PARSER_TYPE_ERROR, 6},
     // ch. 6 code 99: internal error not caused by the input program.
     {"InvalidArgumentIsCode99", PARSER_INVALID_ARGUMENT, 99},
     // ch. 6 code 99: internal error (e.g. allocation failure).
     {"InternalErrorIsCode99", PARSER_INTERNAL_ERROR, 99},
     // ch. 6 code 99: a value without an enumerator is never a success or an
-    //   input error. 6 lies inside the value range of ParserStatus (0-7),
+    //   input error. 7 lies inside the value range of ParserStatus (0-127),
     //   so the cast is well defined.
     {"UnknownStatusIsCode99",
-     static_cast<ParserStatus>(PARSER_INTERNAL_ERROR + 1), 99},
+     static_cast<ParserStatus>(PARSER_TYPE_ERROR + 1), 99},
 };
 
 struct SemanticMapCase {
@@ -399,7 +400,7 @@ INSTANTIATE_TEST_SUITE_P(SpecErrorCodes, SpecErrorCodesSemanticMapTest,
 TEST(SpecErrorCodesEnumTest, StatusEnumsHaveNoUnmappedValues) {
   // Arrange, Act: nothing runs; the checks happen at compile time.
   // Assert
-  static_assert(PARSER_INTERNAL_ERROR == 5,
+  static_assert(PARSER_INVALID_ARGUMENT == 100,
                 "ParserStatus changed: review ifj26_code_from_parser");
   static_assert(LEXER_OUT_OF_MEMORY == 4,
                 "LexerStatus changed: review parser_status_from_lexer");
@@ -654,7 +655,7 @@ forked_run_case_name(const ::testing::TestParamInfo<ForkedRunCase> &info) {
 // Sources compiled raw (no prolog) that end without a crash today; each
 //   gives a different code. Harness rule: the fork changes no result.
 const ForkedRunCase kForkedRunCases[] = {
-    // Harness code 3 (missing @main, from the semantic check).
+    // Harness code 3 (missing @main, from the parser).
     {"MissingMain", "def f(): Unit =\n  return\n"},
     // Harness code 1 (a tab in the indentation, from the lexer).
     {"TabInIndentation", "@main def run(): Unit =\n\treturn\n"},
@@ -663,8 +664,7 @@ const ForkedRunCase kForkedRunCases[] = {
     // Harness code 4 (redefinition of a built-in, from the semantic check).
     {"RedefinedPrint",
      "def print(): Unit =\n  return\n@main def run(): Unit =\n  return\n"},
-    // Harness code -3: the folded parser status crosses the fork as exit
-    //   marker 100 and comes back as IFJ26_PARSER_SEMANTIC.
+    // Harness code 4 (a second @main is a redefinition, from the parser).
     {"TwoMainFunctions",
      "@main def a(): Unit =\n  return\n@main def b(): Unit =\n  return\n"},
 };
