@@ -1322,8 +1322,18 @@ static SemanticStatus check_statement(SemanticContext *ctx,
                       "assignment to immutable variable '%s'", target->name);
       return SEMANTIC_OTHER;
     }
+    /// A variable is not in scope inside its own initializer. Hiding its type
+    /// also detects self-references in ASTs constructed directly rather than by
+    /// the parser, including definitions with an explicit type annotation.
+    DataType declared_type = target->type.type;
+    if (node->data.assignment.is_definition) {
+      target->type.type = type_unknown();
+    }
     status =
         check_expression(ctx, function, &node->data.assignment.value, &type);
+    if (node->data.assignment.is_definition) {
+      target->type.type = declared_type;
+    }
     if (status != SEMANTIC_OK) {
       ERROR_TRACE(node->data.assignment.is_definition
                       ? "while checking the initializer of '%s'"

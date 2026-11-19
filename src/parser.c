@@ -2036,41 +2036,42 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
     return PARSER_SYNTAX_ERROR;
   }
 
-  /// Add the variable to the current lexical scope. It stays uninitialized
-  /// until its initializer is parsed, so the initializer cannot refer to it.
-  Symbol *var_symbol;
-  switch (symbol_table_define(scope, lexer->token.value.string_value,
-                              type_unknown(), false, constant, &var_symbol)) {
-  case SYMTABLE_OK:
-    break;
-  case SYMTABLE_DUPLICATE:
-    ERROR_ORIGIN(&lexer->token, "redefinition of variable '%s'",
-                 lexer->token.value.string_value);
-    return PARSER_REDEFINITION_ERROR;
-  default:
-    ERROR_INTERNAL("failed to define variable '%s'",
-                   lexer->token.value.string_value);
+  /// Keep the name and annotation until the initializer has been parsed. Only
+  /// then is the variable added to its scope, so the initializer cannot refer
+  /// to the variable being defined.
+  size_t name_length = strlen(lexer->token.value.string_value) + 1U;
+  char *variable_name = malloc(name_length);
+  if (variable_name == NULL) {
+    ERROR_INTERNAL("failed to allocate a variable name");
     return PARSER_INTERNAL_ERROR;
   }
+  memcpy(variable_name, lexer->token.value.string_value, name_length);
 
   /// Consume the variable name
   status = parser_advance(lexer);
   if (status != PARSER_OK) {
+    free(variable_name);
     return status;
   }
 
   /// Parse the optional type annotation for the variable
-  status = p_type(lexer, &var_symbol->type, false, false, NULL);
+  TypeEntity declared_type;
+  type_entity_init(&declared_type);
+  status = p_type(lexer, &declared_type, false, false, NULL);
+  DataType variable_type = declared_type.type;
+  type_entity_destroy(&declared_type);
   if (status != PARSER_OK) {
     ERROR_TRACE("while parsing the type annotation of variable '%s'",
-                var_symbol->name);
+                variable_name);
+    free(variable_name);
     return status;
   }
 
   /// Consume the assignment operator
   status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);
   if (status != PARSER_OK) {
-    ERROR_TRACE("in the definition of variable '%s'", var_symbol->name);
+    ERROR_TRACE("in the definition of variable '%s'", variable_name);
+    free(variable_name);
     return status;
   }
 
@@ -2080,12 +2081,29 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
                         false, NULL);
   if (status != PARSER_OK) {
     ERROR_TRACE("while parsing the initializer of variable '%s'",
-                var_symbol->name);
+                variable_name);
+    free(variable_name);
     return status;
   }
 
   /// The variable is visible from the end of its definition on.
-  var_symbol->initialized = true;
+  Symbol *var_symbol;
+  switch (symbol_table_define(scope, variable_name, variable_type, true,
+                              constant, &var_symbol)) {
+  case SYMTABLE_OK:
+    break;
+  case SYMTABLE_DUPLICATE:
+    ERROR_ORIGIN_AT(definition_line, definition_column, variable_name,
+                    "redefinition of variable '%s'", variable_name);
+    ast_node_destroy(expression_node);
+    free(variable_name);
+    return PARSER_REDEFINITION_ERROR;
+  default:
+    ERROR_INTERNAL("failed to define variable '%s'", variable_name);
+    ast_node_destroy(expression_node);
+    free(variable_name);
+    return PARSER_INTERNAL_ERROR;
+  }
 
   /// The variable's type (if not annotated) is inferred later by the semantic
   /// pass (semantic.c), once the types of all called functions are known.
@@ -2096,12 +2114,14 @@ static ParserStatus p_variable_init_statement(Lexer *lexer, Program *program,
   if (assignment_node == NULL) {
     ERROR_INTERNAL("failed to allocate an assignment node");
     ast_node_destroy(expression_node);
+    free(variable_name);
     return PARSER_INTERNAL_ERROR;
   }
   assignment_node->data.assignment.is_definition = true;
 
   /// Return the assignment node to the caller
   *return_node = assignment_node;
+  free(variable_name);
 
   return PARSER_OK;
 }
