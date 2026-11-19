@@ -64,13 +64,9 @@ ParserStatus parse_status(const char *text) {
 /// Parses @p text preceded by a valid main function and, when parsing
 /// succeeds, runs the semantic pass. Returns the compiler exit code.
 int compile_status(const char *text) {
-  FILE *stream = stream_with_main(text);
-  if (stream == nullptr) {
-    return PARSER_INTERNAL_ERROR;
-  }
+  std::vector<char> source = source_with_main(text);
   Lexer lexer;
-  if (lexer_init(&lexer, stream) != LEXER_OK) {
-    fclose(stream);
+  if (lexer_init(&lexer, source.data()) != LEXER_OK) {
     return PARSER_INTERNAL_ERROR;
   }
   Program program;
@@ -84,7 +80,6 @@ int compile_status(const char *text) {
   }
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
   return code;
 }
 
@@ -789,13 +784,12 @@ TEST(ParserDirectLexerTest, BlockBranchesOfIfAreKept) {
 }
 
 TEST(ParserDirectLexerTest, ParsesAssignmentToVariable) {
-  FILE *stream = stream_with_main("def foo() =\n"
-                                  "  var a = 1\n"
-                                  "  a = 5 + 6\n");
-  ASSERT_NE(stream, nullptr);
+  std::vector<char> source = source_with_main("def foo() =\n"
+                                              "  var a = 1\n"
+                                              "  a = 5 + 6\n");
 
   Lexer lexer;
-  ASSERT_EQ(lexer_init(&lexer, stream), LEXER_OK);
+  ASSERT_EQ(lexer_init(&lexer, source.data()), LEXER_OK);
   Program program;
   ASSERT_EQ(program_init(&program), PARSER_OK);
   ASSERT_EQ(p_program(&lexer, &program), PARSER_OK);
@@ -816,7 +810,6 @@ TEST(ParserDirectLexerTest, ParsesAssignmentToVariable) {
 
   program_destroy(&program);
   lexer_destroy(&lexer);
-  fclose(stream);
 }
 
 TEST(ParserDirectLexerTest, AssignmentAcceptsAnyExpressionOnTheRight) {

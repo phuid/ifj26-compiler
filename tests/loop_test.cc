@@ -291,7 +291,7 @@ TEST_F(LoopTest, ForMultilineHeaderWithGuards) {
             0);
 
   ASTNode *body = body_of("foo");
-  ASSERT_EQ(body->data.block.statement_count, 3U);
+  ASSERT_EQ(body->data.block.statement_count, 4U);
   ASTNode *loop = body->data.block.statements[1];
   ASSERT_EQ(loop->kind, AST_FOR);
   EXPECT_EQ(loop->data.for_loop.iterable->kind, AST_UNTIL);
