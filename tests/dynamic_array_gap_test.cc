@@ -15,9 +15,15 @@ extern "C" {
 TEST(DynamicArrayGapTest, InvalidArgumentsAreRejected) {
   void *data = nullptr;
   size_t zero = 0U, eight = 8U;
-  struct Case { void **data; size_t *capacity; size_t required, size; };
-  const Case cases[] = {{nullptr, &zero, 1, 4}, {&data, nullptr, 1, 4},
-                        {&data, &zero, 1, 0}, {&data, &eight, 16, 4}};
+  struct Case {
+    void **data;
+    size_t *capacity;
+    size_t required, size;
+  };
+  const Case cases[] = {{nullptr, &zero, 1, 4},
+                        {&data, nullptr, 1, 4},
+                        {&data, &zero, 1, 0},
+                        {&data, &eight, 16, 4}};
   for (const Case &c : cases) {
     EXPECT_EQ(dynamic_array_reserve(c.data, c.capacity, c.required, c.size),
               DYNAMIC_ARRAY_INVALID_ARGUMENT);

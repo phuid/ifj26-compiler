@@ -87,9 +87,9 @@ protected:
   void SetUp() override {
     scope = symbol_table_create_root();
     ASSERT_NE(scope, nullptr);
-    ASSERT_EQ(symbol_table_define(scope, "x", type_scalar(TYPE_INT), true,
-                                  false, &x),
-              SYMTABLE_OK);
+    ASSERT_EQ(
+        symbol_table_define(scope, "x", type_scalar(TYPE_INT), true, false, &x),
+        SYMTABLE_OK);
     ASSERT_EQ(function_table_init(&table), FUNCTION_TABLE_OK);
     ASSERT_EQ(function_table_get_or_create(&table, "f", &f), FUNCTION_TABLE_OK);
   }
@@ -167,8 +167,8 @@ const CtorCase kCtorCases[] = {
      }},
     {"if", AST_IF, TYPE_UNKNOWN,
      [](Symbol *, FunctionSymbol *, Position at) {
-       return ast_node_create_if(Int(1), ast_node_create_block(1U, 1U),
-                                 nullptr, at.line, at.column);
+       return ast_node_create_if(Int(1), ast_node_create_block(1U, 1U), nullptr,
+                                 at.line, at.column);
      }},
     {"not_equal", AST_NOT_EQUAL, TYPE_UNKNOWN,
      [](Symbol *, FunctionSymbol *, Position at) {
@@ -211,11 +211,11 @@ TEST_P(AstConstructorEdgeTest, StoresKindPositionAndInitialType) {
   EXPECT_EQ(f->return_type.dependent_count, 0U);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    AllConstructors, AstConstructorEdgeTest, ::testing::ValuesIn(kCtorCases),
-    [](const ::testing::TestParamInfo<CtorCase> &info) {
-      return std::string(info.param.name);
-    });
+INSTANTIATE_TEST_SUITE_P(AllConstructors, AstConstructorEdgeTest,
+                         ::testing::ValuesIn(kCtorCases),
+                         [](const ::testing::TestParamInfo<CtorCase> &info) {
+                           return std::string(info.param.name);
+                         });
 
 /*
  * AI-generated test block — extreme literal payloads and rejected kinds.
@@ -290,9 +290,8 @@ TEST_F(ModelFixture, AstDestroyLeavesNoHeapGrowthForAnyKind) {
   SKIP_WITHOUT_HEAP_COUNTER();
   std::vector<long long> growth;
   for (const CtorCase &c : kCtorCases) {
-    growth.push_back(HeapGrowth([&] {
-      ast_node_destroy(c.make(x, f, Position{1U, 1U}));
-    }));
+    growth.push_back(
+        HeapGrowth([&] { ast_node_destroy(c.make(x, f, Position{1U, 1U})); }));
   }
   for (size_t i = 0U; i < growth.size(); i++) {
     EXPECT_EQ(growth[i], 0) << kCtorCases[i].name;
@@ -694,8 +693,8 @@ TEST_F(ModelFixture, ParameterListsOfZeroOneAndManyTypes) {
   EXPECT_GE(f->parameter_capacity, 700U);
   for (size_t i = 0U; i < f->argument_count; i++) {
     EXPECT_STREQ(f->parameters[i]->name, ("p" + std::to_string(i)).c_str());
-    EXPECT_TRUE(type_equal(f->parameters[i]->type.type,
-                           type_scalar(all[i % 7U])))
+    EXPECT_TRUE(
+        type_equal(f->parameters[i]->type.type, type_scalar(all[i % 7U])))
         << i;
   }
   EXPECT_EQ(none->argument_count, 0U);
@@ -746,13 +745,13 @@ bool PopulateFunction(FunctionSymbol *fn, FunctionSymbol *callee) {
   ok &= scope != nullptr &&
         symbol_table_define(scope, "local", type_unknown(), true, false,
                             &local) == SYMTABLE_OK;
-  ok &= local != nullptr && type_entity_depend(&fn->return_type,
-                                               &local->type) == TYPE_RESOLVE_OK;
+  ok &= local != nullptr &&
+        type_entity_depend(&fn->return_type, &local->type) == TYPE_RESOLVE_OK;
   ASTNode *body = ast_node_create_block(1U, 1U);
   ok &= ast_node_block_append_statement(
-            body, ast_node_create_return(ast_node_create_variable_ref(local, 2U,
-                                                                      5U),
-                                         2U, 3U)) == AST_OK;
+            body,
+            ast_node_create_return(ast_node_create_variable_ref(local, 2U, 5U),
+                                   2U, 3U)) == AST_OK;
   ok &= function_symbol_set_ast_root(fn, body) == FUNCTION_TABLE_OK;
   return ok;
 }

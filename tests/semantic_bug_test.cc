@@ -52,8 +52,8 @@ protected:
   /// initializer is parsed and already marked initialized.
   static Symbol *var(FunctionSymbol *f, const char *name, BaseType annotated) {
     Symbol *s = nullptr;
-    symbol_table_define(f->local_scope, name, type_scalar(annotated), true, true,
-                        &s);
+    symbol_table_define(f->local_scope, name, type_scalar(annotated), true,
+                        true, &s);
     return s;
   }
 
