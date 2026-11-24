@@ -363,8 +363,7 @@ TEST(ParserEdgeLimitTest, ManyParametersKeepSourceOrder) {
   ASSERT_EQ(p.count(), 2U);
   ASSERT_EQ(p.at(0)->argument_count, kParameters);
   for (size_t i = 0; i < kParameters; ++i) {
-    EXPECT_TRUE(
-        type_is_scalar(p.at(0)->parameters[i]->type, expected[i % 4U]))
+    EXPECT_TRUE(type_is_scalar(p.at(0)->parameters[i]->type, expected[i % 4U]))
         << i;
   }
 }

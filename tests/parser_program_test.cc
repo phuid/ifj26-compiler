@@ -110,8 +110,7 @@ TEST(ParserProgramTest, MainWithUnitReturnTypeIsAccepted) {
   EXPECT_TRUE(main_function->is_main);
   EXPECT_TRUE(main_function->is_defined);
   EXPECT_TRUE(main_function->has_explicit_return_type);
-  EXPECT_TRUE(
-      type_equal(main_function->return_type, type_scalar(TYPE_UNIT)));
+  EXPECT_TRUE(type_equal(main_function->return_type, type_scalar(TYPE_UNIT)));
   EXPECT_EQ(main_function->argument_count, 0U);
 
   FunctionSymbol *helper =

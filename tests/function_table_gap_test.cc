@@ -64,8 +64,7 @@ TEST_F(FunctionTableGapTest, AddParameterKeepsOrderWhileGrowing) {
   ASSERT_EQ(f->argument_count, 20U);
   for (size_t i = 0U; i < 20U; i += 1U) {
     EXPECT_EQ(f->parameters[i], symbols[i]) << i;
-    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type, cycle[i % 4U]))
-        << i;
+    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type, cycle[i % 4U])) << i;
   }
 }
 

@@ -199,8 +199,7 @@ TEST_P(AstConstructorEdgeTest, StoresKindPositionAndInitialType) {
     EXPECT_EQ(node->kind, c.kind) << c.name;
     EXPECT_EQ(node->line, at.line) << c.name;
     EXPECT_EQ(node->column, at.column) << c.name;
-    EXPECT_TRUE(type_equal(node->inferred_type, type_scalar(c.type)))
-        << c.name;
+    EXPECT_TRUE(type_equal(node->inferred_type, type_scalar(c.type))) << c.name;
     ast_node_destroy(node);
   }
   EXPECT_TRUE(type_equal(x->type, type_scalar(TYPE_INT)));
@@ -493,8 +492,7 @@ TEST_F(ModelFixture, ParameterListsOfZeroOneAndManyTypes) {
   EXPECT_GE(f->parameter_capacity, 700U);
   for (size_t i = 0U; i < f->argument_count; i++) {
     EXPECT_STREQ(f->parameters[i]->name, ("p" + std::to_string(i)).c_str());
-    EXPECT_TRUE(
-        type_equal(f->parameters[i]->type, type_scalar(all[i % 7U])))
+    EXPECT_TRUE(type_equal(f->parameters[i]->type, type_scalar(all[i % 7U])))
         << i;
   }
   EXPECT_EQ(none->argument_count, 0U);

@@ -407,9 +407,8 @@ static bool has_unknown_element_type(const ASTNode *node) {
   }
 
   const FunctionSymbol *callee = node->data.call.function;
-  bool callee_returns_list =
-      callee != NULL && callee->is_builtin &&
-      type_is_scalar(callee->return_type, TYPE_ANY_LIST);
+  bool callee_returns_list = callee != NULL && callee->is_builtin &&
+                             type_is_scalar(callee->return_type, TYPE_ANY_LIST);
   return callee_returns_list &&
          has_unknown_element_type(node->data.call.arguments[0]);
 }
@@ -768,8 +767,8 @@ static SemanticStatus check_list_constructor(SemanticContext *ctx,
   /// Second pass: widen the elements to the common type.
   for (index = 0U; index < node->data.call.argument_count; index += 1U) {
     status = coerce(&node->data.call.arguments[index],
-                    node->data.call.arguments[index]->inferred_type,
-                    element, SEMANTIC_TYPE_ERROR);
+                    node->data.call.arguments[index]->inferred_type, element,
+                    SEMANTIC_TYPE_ERROR);
     if (status != SEMANTIC_OK) {
       ERROR_TRACE("while converting element %zu of a list literal", index + 1U);
       return status;
@@ -1341,8 +1340,7 @@ static SemanticStatus check_statement(SemanticContext *ctx,
                   target->name);
       return status;
     }
-    if (node->data.assignment.is_definition &&
-        type_is_unknown(target->type)) {
+    if (node->data.assignment.is_definition && type_is_unknown(target->type)) {
       /// `val x = expr`: the variable takes the initializer's type; it must be
       /// inferable (not e.g. `val x = List()`).
       if (type_is_unknown(type)) {
@@ -1810,9 +1808,9 @@ static SemanticStatus check_function(SemanticContext *ctx,
   }
 
   /// Make the implicit return at the end of the body explicit.
-  status = add_implicit_return(
-      &function->ast_root, NULL,
-      type_is_scalar(function->return_type, TYPE_UNIT));
+  status =
+      add_implicit_return(&function->ast_root, NULL,
+                          type_is_scalar(function->return_type, TYPE_UNIT));
   if (status != SEMANTIC_OK) {
     ERROR_TRACE("while adding the implicit return of function '%s'",
                 function->name);

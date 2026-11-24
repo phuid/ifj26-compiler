@@ -422,8 +422,8 @@ static ParserStatus p_type(Lexer *lexer, DataType *out_type, bool required,
     }
   }
 
-  status = p_type_name(lexer, consume_newlines_indents, indentation_level,
-                       out_type);
+  status =
+      p_type_name(lexer, consume_newlines_indents, indentation_level, out_type);
   if (status != PARSER_OK) {
     ERROR_TRACE("while parsing the type name of a type annotation");
   }
@@ -3196,8 +3196,7 @@ static ParserStatus p_function(Lexer *lexer, Program *program,
                 function->name);
     return status;
   }
-  function->has_explicit_return_type =
-      !type_is_unknown(function->return_type);
+  function->has_explicit_return_type = !type_is_unknown(function->return_type);
 
   /// Consume `=` to indicate the start of the function body
   status = parser_expect_and_consume(lexer, TOKEN_ASSIGN);

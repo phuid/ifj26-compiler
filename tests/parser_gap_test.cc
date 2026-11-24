@@ -303,8 +303,7 @@ TEST(ParserGapStructureTest, ReturnTypeAnnotationIsResolved) {
     SCOPED_TRACE(c.source);
     ParsedProgram p(c.source);
     ASSERT_EQ(p.status, PARSER_OK);
-    EXPECT_TRUE(
-        type_equal(p.function("f")->return_type, type_scalar(c.type)));
+    EXPECT_TRUE(type_equal(p.function("f")->return_type, type_scalar(c.type)));
     EXPECT_EQ(p.function("f")->has_explicit_return_type,
               c.type != TYPE_UNKNOWN);
   }

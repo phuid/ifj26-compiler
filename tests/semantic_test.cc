@@ -456,8 +456,8 @@ TEST_F(SemanticTest, EmptyListPropagatesThroughListPreservingBuiltins) {
   add(m, define(e, value));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_equal(value->inferred_type,
-                         type_list(type_scalar(TYPE_STRING))));
+  EXPECT_TRUE(
+      type_equal(value->inferred_type, type_list(type_scalar(TYPE_STRING))));
 }
 
 namespace {

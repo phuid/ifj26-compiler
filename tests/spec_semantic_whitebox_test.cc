@@ -1044,10 +1044,8 @@ TEST_F(SpecSemanticWhiteboxTest, IfIsUnitAndConditionIsBoolean) {
   ASSERT_EQ(status, OK);
   ASTNode *node = stmt(m, 0);
   EXPECT_TRUE(has_type(node->inferred_type, U));
-  EXPECT_TRUE(
-      has_type(node->data.if_statement.condition->inferred_type, B));
-  EXPECT_TRUE(
-      has_type(node->data.if_statement.then_branch->inferred_type, U));
+  EXPECT_TRUE(has_type(node->data.if_statement.condition->inferred_type, B));
+  EXPECT_TRUE(has_type(node->data.if_statement.then_branch->inferred_type, U));
 }
 
 // §1.3, §2.3 rules 3-4: every Int return of a nested final if in a Double
