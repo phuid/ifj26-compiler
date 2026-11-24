@@ -938,10 +938,455 @@ static ParserStatus p_list_constructor_args(Lexer *lexer, Program *program,
   return parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
 }
 
+static ParserStatus p_int_literal(Lexer *lexer, ASTNode **return_node) {
+  *return_node = ast_node_create_int(lexer->token.value.int_value,
+                                     lexer->token.line, lexer->token.column);
+  if (*return_node == NULL) {
+    ERROR_INTERNAL("failed to allocate an Int literal node");
+    return PARSER_INTERNAL_ERROR;
+  }
+  return parser_advance(lexer);
+}
+
+static ParserStatus p_double_literal(Lexer *lexer, ASTNode **return_node) {
+  *return_node = ast_node_create_real(lexer->token.value.double_value,
+                                      lexer->token.line, lexer->token.column);
+  if (*return_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a Double literal node");
+    return PARSER_INTERNAL_ERROR;
+  }
+  return parser_advance(lexer);
+}
+
+static ParserStatus p_string_literal(Lexer *lexer, ASTNode **return_node) {
+  *return_node = ast_node_create_string(lexer->token.value.string_value,
+                                        lexer->token.line, lexer->token.column);
+  if (*return_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a String literal node");
+    return PARSER_INTERNAL_ERROR;
+  }
+  return parser_advance(lexer);
+}
+
+static ParserStatus p_true_literal(Lexer *lexer, ASTNode **return_node) {
+  *return_node =
+      ast_node_create_bool(true, lexer->token.line, lexer->token.column);
+  if (*return_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a Bool literal node");
+    return PARSER_INTERNAL_ERROR;
+  }
+  return parser_advance(lexer);
+}
+
+static ParserStatus p_false_literal(Lexer *lexer, ASTNode **return_node) {
+  *return_node =
+      ast_node_create_bool(false, lexer->token.line, lexer->token.column);
+  if (*return_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a Bool literal node");
+    return PARSER_INTERNAL_ERROR;
+  }
+  return parser_advance(lexer);
+}
+
+static ParserStatus p_list_primary(Lexer *lexer, Program *program,
+                                   FunctionSymbol *function, SymbolTable *scope,
+                                   ASTNode **return_node,
+                                   bool consume_newlines_indents,
+                                   ptrdiff_t *indentation_level) {
+  ParserStatus status;
+  status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  /// Inside parentheses: Consume any number of layout tokens after the 'List'
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after 'List'");
+      return status;
+    }
+  }
+
+  if (lexer->token.type == TOKEN_DOT) {
+    /// List.range(1,10,2)
+    status = parser_expect_and_consume(lexer, TOKEN_DOT);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    /// indentifier
+    if (lexer->token.type != TOKEN_IDENTIFIER) {
+      ERROR_ORIGIN(&lexer->token,
+                   "syntax error: expected a method name after 'List.'");
+      return PARSER_SYNTAX_ERROR;
+    }
+    const char *method_name = lexer->token.value.string_value;
+    if (strcmp(method_name, "range") != 0) {
+      ERROR_ORIGIN(&lexer->token, "unknown method 'List.%s'", method_name);
+      return PARSER_SYNTAX_ERROR;
+    }
+
+    status = parser_expect_and_consume(lexer, TOKEN_IDENTIFIER);
+    if (status != PARSER_OK) {
+      return status;
+    }
+
+    /// Inside parentheses: Consume any number of layout tokens after the '.'
+    if (consume_newlines_indents) {
+      status = parser_consume_newlines(lexer, false, true, indentation_level);
+      if (status != PARSER_OK) {
+        ERROR_TRACE("after 'List.range'");
+        return status;
+      }
+    }
+
+    /// lpar
+    status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while parsing a call to 'List.range'");
+      return status;
+    }
+
+    ptrdiff_t local_indent = 0;
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after '(' of 'List.range'");
+      return status;
+    }
+
+    /// args, convert range(x,y,z) to operators ((x until y) by z)
+    ASTNode *from_expr = NULL;
+    status = p_expression(lexer, program, function, scope, &from_expr, true,
+                          &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while parsing argument 1 of 'List.range'");
+      return status;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after argument 1 of 'List.range'");
+      ast_node_destroy(from_expr);
+      return status;
+    }
+
+    status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after argument 1 of 'List.range'");
+      ast_node_destroy(from_expr);
+      return status;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after ',' in 'List.range'");
+      ast_node_destroy(from_expr);
+      return status;
+    }
+
+    /// second argument (until)
+    ASTNode *until_expr = NULL;
+    status = p_expression(lexer, program, function, scope, &until_expr, true,
+                          &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while parsing argument 2 of 'List.range'");
+      ast_node_destroy(from_expr);
+      return status;
+    }
+
+    status = parser_consume_newlines(lexer, false, true, &local_indent);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after argument 2 of 'List.range'");
+      ast_node_destroy(from_expr);
+      ast_node_destroy(until_expr);
+      return status;
+    }
+
+    /// third argument is optional
+    ASTNode *by_expr = NULL;
+    if (lexer->token.type == TOKEN_COMMA) {
+      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
+      if (status != PARSER_OK) {
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        return status;
+      }
+
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        ERROR_TRACE("after ',' in 'List.range'");
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        return status;
+      }
+
+      /// third argument (by)
+      status = p_expression(lexer, program, function, scope, &by_expr, true,
+                            &local_indent);
+      if (status != PARSER_OK) {
+        ERROR_TRACE("while parsing argument 3 of 'List.range'");
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        return status;
+      }
+
+      status = parser_consume_newlines(lexer, false, true, &local_indent);
+      if (status != PARSER_OK) {
+        ERROR_TRACE("after argument 3 of 'List.range'");
+        ast_node_destroy(from_expr);
+        ast_node_destroy(until_expr);
+        ast_node_destroy(by_expr);
+        return status;
+      }
+    }
+
+    /// build the expression ((x until y) by z)
+    ASTNode *to_node =
+        ast_node_create_binary_op(AST_UNTIL, from_expr, until_expr,
+                                  lexer->token.line, lexer->token.column);
+    if (to_node == NULL) {
+      ERROR_INTERNAL("failed to allocate a range node");
+      ast_node_destroy(from_expr);
+      ast_node_destroy(until_expr);
+      ast_node_destroy(by_expr);
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    if (by_expr != NULL) {
+      /// wrap in by operator
+      ASTNode *by_node = ast_node_create_binary_op(
+          AST_BY, to_node, by_expr, lexer->token.line, lexer->token.column);
+      if (by_node == NULL) {
+        ERROR_INTERNAL("failed to allocate a range step node");
+        ast_node_destroy(to_node);
+        ast_node_destroy(by_expr);
+        return PARSER_INTERNAL_ERROR;
+      }
+      *return_node = by_node;
+    } else {
+      *return_node = to_node;
+    }
+
+    /// rpar
+    status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while closing the call to 'List.range'");
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    return PARSER_OK;
+  }
+
+  ASTNode *list_node =
+      ast_node_create_list_constructor(lexer->token.line, lexer->token.column);
+
+  if (list_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a list constructor node");
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  status = p_list_constructor_args(lexer, program, function, scope, list_node);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("while parsing the arguments of a list constructor");
+    ast_node_destroy(list_node);
+    return status;
+  }
+
+  *return_node = list_node;
+  return PARSER_OK;
+}
+
 /**
 @note This function was altered by an LLM agent to handle nested parentheses
 and unit parsing in accordance with psa_spec.md. Model used: Kimi-k3.1-pro.
 */
+static ParserStatus p_parenthesized_primary(Lexer *lexer, Program *program,
+                                            FunctionSymbol *function,
+                                            SymbolTable *scope,
+                                            ASTNode **return_node) {
+  ParserStatus status;
+  size_t paren_line = lexer->token.line;
+  size_t paren_column = lexer->token.column;
+
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    return status;
+  }
+
+  ptrdiff_t nested_indent = 0;
+  status = parser_consume_newlines(lexer, false, true, &nested_indent);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("after '('");
+    return status;
+  }
+
+  if (lexer->token.type == TOKEN_RIGHT_PAREN) {
+    *return_node = ast_node_create_unit(paren_line, paren_column);
+    if (*return_node == NULL) {
+      ERROR_INTERNAL("failed to allocate a Unit node");
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    status = parser_status_from_lexer(
+        lexer_change_current_indent(lexer, (-1) * nested_indent));
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while closing '()'");
+      ast_node_destroy(*return_node);
+      *return_node = NULL;
+      return status;
+    }
+
+    return parser_advance(lexer);
+  }
+
+  status = p_expression(lexer, program, function, scope, return_node, true,
+                        &nested_indent);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("while parsing a parenthesized expression");
+    return status;
+  }
+  if (*return_node == NULL) {
+    ERROR_ORIGIN(&lexer->token,
+                 "syntax error: expected an expression inside parentheses");
+    return PARSER_SYNTAX_ERROR;
+  }
+
+  status = parser_consume_newlines(lexer, false, true, &nested_indent);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("after a parenthesized expression");
+    ast_node_destroy(*return_node);
+    *return_node = NULL;
+    return status;
+  }
+
+  status = parser_status_from_lexer(
+      lexer_change_current_indent(lexer, (-1) * nested_indent));
+  if (status != PARSER_OK) {
+    ERROR_TRACE("while closing a parenthesized expression");
+    ast_node_destroy(*return_node);
+    *return_node = NULL;
+    return status;
+  }
+
+  status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("while closing a parenthesized expression opened at %zu:%zu",
+                paren_line, paren_column);
+    ast_node_destroy(*return_node);
+    *return_node = NULL;
+    return status;
+  }
+
+  return PARSER_OK;
+}
+
+static ParserStatus p_identifier_primary(Lexer *lexer, Program *program,
+                                         SymbolTable *scope,
+                                         ASTNode **return_node,
+                                         bool consume_newlines_indents,
+                                         ptrdiff_t *indentation_level) {
+  ParserStatus status;
+  const char *token_name = lexer->token.value.string_value;
+  size_t line = lexer->token.line;
+  size_t column = lexer->token.column;
+  size_t name_length = strlen(token_name) + 1U;
+  char *name = malloc(name_length);
+  if (name == NULL) {
+    ERROR_INTERNAL("failed to allocate an identifier name");
+    return PARSER_INTERNAL_ERROR;
+  }
+  memcpy(name, token_name, name_length);
+
+  status = parser_advance(lexer);
+  if (status != PARSER_OK) {
+    free(name);
+    return status;
+  }
+
+  /// newline and indent/dedent consumption after the identifier is allowed
+  /// when in parentheses
+  if (consume_newlines_indents) {
+    status = parser_consume_newlines(lexer, false, true, indentation_level);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("after identifier '%s'", name);
+      free(name);
+      return status;
+    }
+  }
+
+  Symbol *symbol = symbol_table_resolve(scope, name);
+  if (lexer->token.type == TOKEN_LEFT_PAREN && symbol == NULL) {
+    /// Without a local binding, an identifier followed by `(` is a call.
+    FunctionSymbol *function = NULL;
+    if (function_table_get_or_create(&program->functions, name, &function) !=
+        FUNCTION_TABLE_OK) {
+      ERROR_INTERNAL("failed to register function '%s'", name);
+      free(name);
+      return PARSER_INTERNAL_ERROR;
+    }
+    free(name);
+
+    ASTNode *call_node = ast_node_create_function_call(function, line, column);
+    if (call_node == NULL) {
+      ERROR_INTERNAL("failed to allocate a call node");
+      return PARSER_INTERNAL_ERROR;
+    }
+
+    /// Parse the function call arguments
+    status = p_call_args(lexer, program, function, scope, call_node);
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while parsing the arguments of the call to '%s'",
+                  function->name);
+      ast_node_destroy(call_node);
+      return status;
+    }
+    *return_node = call_node;
+    return PARSER_OK;
+  }
+
+  /// A resolved identifier stays a primary variable reference. Any following
+  /// parenthesis is left for the postfix-indexing parser.
+  /// An undefined variable, or one used inside its own initializer
+  /// (`val x = x`), is a use before definition (code 3).
+  if (symbol == NULL || !symbol->initialized) {
+    ERROR_ORIGIN_AT(line, column, name,
+                    symbol == NULL
+                        ? "use of undefined variable '%s'"
+                        : "use of variable '%s' inside its own initializer",
+                    name);
+    free(name);
+    return PARSER_UNDEFINED_ERROR;
+  }
+  free(name);
+  ASTNode *variable_node = ast_node_create_variable_ref(symbol, line, column);
+  if (variable_node == NULL) {
+    ERROR_INTERNAL("failed to allocate a variable reference node");
+    return PARSER_INTERNAL_ERROR;
+  }
+
+  *return_node = variable_node;
+  return PARSER_OK;
+}
+
+static ParserStatus p_if_primary(Lexer *lexer, Program *program,
+                                 FunctionSymbol *function, SymbolTable *scope,
+                                 ASTNode **return_node,
+                                 bool consume_newlines_indents,
+                                 ptrdiff_t *indentation_level) {
+  ParserStatus status;
+  status = p_if(lexer, program, function, scope, return_node,
+                consume_newlines_indents, indentation_level);
+  if (status != PARSER_OK) {
+    ERROR_TRACE("while parsing an if expression");
+    return status;
+  }
+  parser_mark_if_chain_as_expression(*return_node);
+  return PARSER_OK;
+}
+
 static ParserStatus p_primary(Lexer *lexer, Program *program,
                               FunctionSymbol *function, SymbolTable *scope,
                               ASTNode **return_node,
@@ -953,428 +1398,37 @@ static ParserStatus p_primary(Lexer *lexer, Program *program,
     return PARSER_INVALID_ARGUMENT;
   }
 
-  ParserStatus status;
   switch (lexer->token.type) {
   case TOKEN_INT:
-    *return_node = ast_node_create_int(lexer->token.value.int_value,
-                                       lexer->token.line, lexer->token.column);
-    if (*return_node == NULL) {
-      ERROR_INTERNAL("failed to allocate an Int literal node");
-      return PARSER_INTERNAL_ERROR;
-    }
-    return parser_advance(lexer);
+    return p_int_literal(lexer, return_node);
 
   case TOKEN_DOUBLE:
-    *return_node = ast_node_create_real(lexer->token.value.double_value,
-                                        lexer->token.line, lexer->token.column);
-    if (*return_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a Double literal node");
-      return PARSER_INTERNAL_ERROR;
-    }
-    return parser_advance(lexer);
+    return p_double_literal(lexer, return_node);
 
   case TOKEN_STRING:
-    *return_node =
-        ast_node_create_string(lexer->token.value.string_value,
-                               lexer->token.line, lexer->token.column);
-    if (*return_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a String literal node");
-      return PARSER_INTERNAL_ERROR;
-    }
-    return parser_advance(lexer);
+    return p_string_literal(lexer, return_node);
 
   case TOKEN_KW_TRUE:
-    *return_node =
-        ast_node_create_bool(true, lexer->token.line, lexer->token.column);
-    if (*return_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a Bool literal node");
-      return PARSER_INTERNAL_ERROR;
-    }
-    return parser_advance(lexer);
+    return p_true_literal(lexer, return_node);
 
   case TOKEN_KW_FALSE:
-    *return_node =
-        ast_node_create_bool(false, lexer->token.line, lexer->token.column);
-    if (*return_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a Bool literal node");
-      return PARSER_INTERNAL_ERROR;
-    }
-    return parser_advance(lexer);
+    return p_false_literal(lexer, return_node);
 
   case TOKEN_KW_LIST:
-    status = parser_expect_and_consume(lexer, TOKEN_KW_LIST);
-    if (status != PARSER_OK) {
-      return status;
-    }
+    return p_list_primary(lexer, program, function, scope, return_node,
+                          consume_newlines_indents, indentation_level);
 
-    /// Inside parentheses: Consume any number of layout tokens after the 'List'
-    if (consume_newlines_indents) {
-      status = parser_consume_newlines(lexer, false, true, indentation_level);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after 'List'");
-        return status;
-      }
-    }
-
-    if (lexer->token.type == TOKEN_DOT) {
-      /// List.range(1,10,2)
-      status = parser_expect_and_consume(lexer, TOKEN_DOT);
-      if (status != PARSER_OK) {
-        return status;
-      }
-
-      /// indentifier
-      if (lexer->token.type != TOKEN_IDENTIFIER) {
-        ERROR_ORIGIN(&lexer->token,
-                     "syntax error: expected a method name after 'List.'");
-        return PARSER_SYNTAX_ERROR;
-      }
-      const char *method_name = lexer->token.value.string_value;
-      if (strcmp(method_name, "range") != 0) {
-        ERROR_ORIGIN(&lexer->token, "unknown method 'List.%s'", method_name);
-        return PARSER_SYNTAX_ERROR;
-      }
-
-      status = parser_expect_and_consume(lexer, TOKEN_IDENTIFIER);
-      if (status != PARSER_OK) {
-        return status;
-      }
-
-      /// Inside parentheses: Consume any number of layout tokens after the '.'
-      if (consume_newlines_indents) {
-        status = parser_consume_newlines(lexer, false, true, indentation_level);
-        if (status != PARSER_OK) {
-          ERROR_TRACE("after 'List.range'");
-          return status;
-        }
-      }
-
-      /// lpar
-      status = parser_expect_and_consume(lexer, TOKEN_LEFT_PAREN);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while parsing a call to 'List.range'");
-        return status;
-      }
-
-      ptrdiff_t local_indent = 0;
-      status = parser_consume_newlines(lexer, false, true, &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after '(' of 'List.range'");
-        return status;
-      }
-
-      /// args, convert range(x,y,z) to operators ((x until y) by z)
-      ASTNode *from_expr = NULL;
-      status = p_expression(lexer, program, function, scope, &from_expr, true,
-                            &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while parsing argument 1 of 'List.range'");
-        return status;
-      }
-
-      status = parser_consume_newlines(lexer, false, true, &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after argument 1 of 'List.range'");
-        ast_node_destroy(from_expr);
-        return status;
-      }
-
-      status = parser_expect_and_consume(lexer, TOKEN_COMMA);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after argument 1 of 'List.range'");
-        ast_node_destroy(from_expr);
-        return status;
-      }
-
-      status = parser_consume_newlines(lexer, false, true, &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after ',' in 'List.range'");
-        ast_node_destroy(from_expr);
-        return status;
-      }
-
-      /// second argument (until)
-      ASTNode *until_expr = NULL;
-      status = p_expression(lexer, program, function, scope, &until_expr, true,
-                            &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while parsing argument 2 of 'List.range'");
-        ast_node_destroy(from_expr);
-        return status;
-      }
-
-      status = parser_consume_newlines(lexer, false, true, &local_indent);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after argument 2 of 'List.range'");
-        ast_node_destroy(from_expr);
-        ast_node_destroy(until_expr);
-        return status;
-      }
-
-      /// third argument is optional
-      ASTNode *by_expr = NULL;
-      if (lexer->token.type == TOKEN_COMMA) {
-        status = parser_expect_and_consume(lexer, TOKEN_COMMA);
-        if (status != PARSER_OK) {
-          ast_node_destroy(from_expr);
-          ast_node_destroy(until_expr);
-          return status;
-        }
-
-        status = parser_consume_newlines(lexer, false, true, &local_indent);
-        if (status != PARSER_OK) {
-          ERROR_TRACE("after ',' in 'List.range'");
-          ast_node_destroy(from_expr);
-          ast_node_destroy(until_expr);
-          return status;
-        }
-
-        /// third argument (by)
-        status = p_expression(lexer, program, function, scope, &by_expr, true,
-                              &local_indent);
-        if (status != PARSER_OK) {
-          ERROR_TRACE("while parsing argument 3 of 'List.range'");
-          ast_node_destroy(from_expr);
-          ast_node_destroy(until_expr);
-          return status;
-        }
-
-        status = parser_consume_newlines(lexer, false, true, &local_indent);
-        if (status != PARSER_OK) {
-          ERROR_TRACE("after argument 3 of 'List.range'");
-          ast_node_destroy(from_expr);
-          ast_node_destroy(until_expr);
-          ast_node_destroy(by_expr);
-          return status;
-        }
-      }
-
-      /// build the expression ((x until y) by z)
-      ASTNode *to_node =
-          ast_node_create_binary_op(AST_UNTIL, from_expr, until_expr,
-                                    lexer->token.line, lexer->token.column);
-      if (to_node == NULL) {
-        ERROR_INTERNAL("failed to allocate a range node");
-        ast_node_destroy(from_expr);
-        ast_node_destroy(until_expr);
-        ast_node_destroy(by_expr);
-        return PARSER_INTERNAL_ERROR;
-      }
-
-      if (by_expr != NULL) {
-        /// wrap in by operator
-        ASTNode *by_node = ast_node_create_binary_op(
-            AST_BY, to_node, by_expr, lexer->token.line, lexer->token.column);
-        if (by_node == NULL) {
-          ERROR_INTERNAL("failed to allocate a range step node");
-          ast_node_destroy(to_node);
-          ast_node_destroy(by_expr);
-          return PARSER_INTERNAL_ERROR;
-        }
-        *return_node = by_node;
-      } else {
-        *return_node = to_node;
-      }
-
-      /// rpar
-      status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while closing the call to 'List.range'");
-        ast_node_destroy(*return_node);
-        *return_node = NULL;
-        return status;
-      }
-
-      return PARSER_OK;
-    }
-
-    ASTNode *list_node = ast_node_create_list_constructor(lexer->token.line,
-                                                          lexer->token.column);
-
-    if (list_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a list constructor node");
-      return PARSER_INTERNAL_ERROR;
-    }
-
-    status =
-        p_list_constructor_args(lexer, program, function, scope, list_node);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("while parsing the arguments of a list constructor");
-      ast_node_destroy(list_node);
-      return status;
-    }
-
-    *return_node = list_node;
-    return PARSER_OK;
-
-  case TOKEN_LEFT_PAREN: {
-    size_t paren_line = lexer->token.line;
-    size_t paren_column = lexer->token.column;
-
-    status = parser_advance(lexer);
-    if (status != PARSER_OK) {
-      return status;
-    }
-
-    ptrdiff_t nested_indent = 0;
-    status = parser_consume_newlines(lexer, false, true, &nested_indent);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("after '('");
-      return status;
-    }
-
-    if (lexer->token.type == TOKEN_RIGHT_PAREN) {
-      *return_node = ast_node_create_unit(paren_line, paren_column);
-      if (*return_node == NULL) {
-        ERROR_INTERNAL("failed to allocate a Unit node");
-        return PARSER_INTERNAL_ERROR;
-      }
-
-      status = parser_status_from_lexer(
-          lexer_change_current_indent(lexer, (-1) * nested_indent));
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while closing '()'");
-        ast_node_destroy(*return_node);
-        *return_node = NULL;
-        return status;
-      }
-
-      return parser_advance(lexer);
-    }
-
-    status = p_expression(lexer, program, function, scope, return_node, true,
-                          &nested_indent);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("while parsing a parenthesized expression");
-      return status;
-    }
-    if (*return_node == NULL) {
-      ERROR_ORIGIN(&lexer->token,
-                   "syntax error: expected an expression inside parentheses");
-      return PARSER_SYNTAX_ERROR;
-    }
-
-    status = parser_consume_newlines(lexer, false, true, &nested_indent);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("after a parenthesized expression");
-      ast_node_destroy(*return_node);
-      *return_node = NULL;
-      return status;
-    }
-
-    status = parser_status_from_lexer(
-        lexer_change_current_indent(lexer, (-1) * nested_indent));
-    if (status != PARSER_OK) {
-      ERROR_TRACE("while closing a parenthesized expression");
-      ast_node_destroy(*return_node);
-      *return_node = NULL;
-      return status;
-    }
-
-    status = parser_expect_and_consume(lexer, TOKEN_RIGHT_PAREN);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("while closing a parenthesized expression opened at %zu:%zu",
-                  paren_line, paren_column);
-      ast_node_destroy(*return_node);
-      *return_node = NULL;
-      return status;
-    }
-
-    return PARSER_OK;
-  }
+  case TOKEN_LEFT_PAREN:
+    return p_parenthesized_primary(lexer, program, function, scope,
+                                   return_node);
 
   case TOKEN_IDENTIFIER:
-    const char *token_name = lexer->token.value.string_value;
-    size_t line = lexer->token.line;
-    size_t column = lexer->token.column;
-    size_t name_length = strlen(token_name) + 1U;
-    char *name = malloc(name_length);
-    if (name == NULL) {
-      ERROR_INTERNAL("failed to allocate an identifier name");
-      return PARSER_INTERNAL_ERROR;
-    }
-    memcpy(name, token_name, name_length);
-
-    status = parser_advance(lexer);
-    if (status != PARSER_OK) {
-      free(name);
-      return status;
-    }
-
-    /// newline and indent/dedent consumption after the identifier is allowed
-    /// when in parentheses
-    if (consume_newlines_indents) {
-      status = parser_consume_newlines(lexer, false, true, indentation_level);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("after identifier '%s'", name);
-        free(name);
-        return status;
-      }
-    }
-
-    Symbol *symbol = symbol_table_resolve(scope, name);
-    if (lexer->token.type == TOKEN_LEFT_PAREN && symbol == NULL) {
-      /// Without a local binding, an identifier followed by `(` is a call.
-      FunctionSymbol *function = NULL;
-      if (function_table_get_or_create(&program->functions, name, &function) !=
-          FUNCTION_TABLE_OK) {
-        ERROR_INTERNAL("failed to register function '%s'", name);
-        free(name);
-        return PARSER_INTERNAL_ERROR;
-      }
-      free(name);
-
-      ASTNode *call_node =
-          ast_node_create_function_call(function, line, column);
-      if (call_node == NULL) {
-        ERROR_INTERNAL("failed to allocate a call node");
-        return PARSER_INTERNAL_ERROR;
-      }
-
-      /// Parse the function call arguments
-      status = p_call_args(lexer, program, function, scope, call_node);
-      if (status != PARSER_OK) {
-        ERROR_TRACE("while parsing the arguments of the call to '%s'",
-                    function->name);
-        ast_node_destroy(call_node);
-        return status;
-      }
-      *return_node = call_node;
-      return PARSER_OK;
-    }
-
-    /// A resolved identifier stays a primary variable reference. Any following
-    /// parenthesis is left for the postfix-indexing parser.
-    /// An undefined variable, or one used inside its own initializer
-    /// (`val x = x`), is a use before definition (code 3).
-    if (symbol == NULL || !symbol->initialized) {
-      ERROR_ORIGIN_AT(line, column, name,
-                      symbol == NULL
-                          ? "use of undefined variable '%s'"
-                          : "use of variable '%s' inside its own initializer",
-                      name);
-      free(name);
-      return PARSER_UNDEFINED_ERROR;
-    }
-    free(name);
-    ASTNode *variable_node = ast_node_create_variable_ref(symbol, line, column);
-    if (variable_node == NULL) {
-      ERROR_INTERNAL("failed to allocate a variable reference node");
-      return PARSER_INTERNAL_ERROR;
-    }
-
-    *return_node = variable_node;
-    return PARSER_OK;
+    return p_identifier_primary(lexer, program, scope, return_node,
+                                consume_newlines_indents, indentation_level);
 
   case TOKEN_KW_IF:
-    status = p_if(lexer, program, function, scope, return_node,
-                  consume_newlines_indents, indentation_level);
-    if (status != PARSER_OK) {
-      ERROR_TRACE("while parsing an if expression");
-      return status;
-    }
-    parser_mark_if_chain_as_expression(*return_node);
-    return PARSER_OK;
+    return p_if_primary(lexer, program, function, scope, return_node,
+                        consume_newlines_indents, indentation_level);
 
   default:
     ERROR_ORIGIN(&lexer->token, "syntax error: expected an operand");
