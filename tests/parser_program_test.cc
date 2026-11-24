@@ -110,8 +110,7 @@ TEST(ParserProgramTest, MainWithUnitReturnTypeIsAccepted) {
   EXPECT_TRUE(main_function->is_main);
   EXPECT_TRUE(main_function->is_defined);
   EXPECT_TRUE(main_function->has_explicit_return_type);
-  EXPECT_TRUE(
-      type_equal(main_function->return_type.type, type_scalar(TYPE_UNIT)));
+  EXPECT_TRUE(type_equal(main_function->return_type, type_scalar(TYPE_UNIT)));
   EXPECT_EQ(main_function->argument_count, 0U);
 
   FunctionSymbol *helper =
@@ -262,7 +261,7 @@ TEST(ParserProgramTest, ValInitializerInfersIntConstant) {
   Symbol *symbol =
       symbol_table_lookup_local(function->local_scope, "max_retries");
   ASSERT_NE(symbol, nullptr);
-  EXPECT_TRUE(type_equal(symbol->type.type, type_scalar(TYPE_INT)));
+  EXPECT_TRUE(type_equal(symbol->type, type_scalar(TYPE_INT)));
   EXPECT_TRUE(symbol->constant);
 
   program_destroy(&program);

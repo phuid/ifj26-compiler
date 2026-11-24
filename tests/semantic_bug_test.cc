@@ -36,7 +36,7 @@ protected:
     function_table_get_or_create(&program.functions, name, &f);
     f->is_defined = true;
     function_symbol_create_local_scope(f);
-    f->return_type.type = type_scalar(explicit_ret);
+    f->return_type = type_scalar(explicit_ret);
     f->has_explicit_return_type = true;
     f->ast_root = ast_node_create_block(1, 1);
     return f;

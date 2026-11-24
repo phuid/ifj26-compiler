@@ -40,7 +40,7 @@ typedef enum {
  *  5. every function is checked by a memoized DFS: a call of a function
  *     without an explicit return type first checks the callee, so return types
  *     are inferred in topological order of the (now acyclic) dependencies.
- * Types are written into @c TypeEntity::type of symbols, functions and AST
+ * Types are written into the @c DataType fields of symbols, functions and AST
  * nodes; Int-to-Double conversions are inserted as AST nodes.
  * @param program Successfully parsed program.
  * @return SEMANTIC_OK or the error code of the first detected error.

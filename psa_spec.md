@@ -301,11 +301,6 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
         ast_node_destroy(call_node);
         return status;
       }
-      status = parser_status_from_type(type_entity_depend(&function->return_type, &call_node->inferred_type));
-      if (status != PARSER_OK) {
-        ast_node_destroy(call_node);
-        return status;
-      }
       *return_node = call_node;
       return PARSER_OK;
     } else {
@@ -317,11 +312,6 @@ static ParserStatus p_operand(Lexer *lexer, Program *program,
       ASTNode *var_node = ast_node_create_variable_ref(symbol, line, column);
       if (var_node == NULL) {
         return PARSER_INTERNAL_ERROR;
-      }
-      status = parser_status_from_type(type_entity_depend(&symbol->type, &var_node->inferred_type));
-      if (status != PARSER_OK) {
-        ast_node_destroy(var_node);
-        return status;
       }
       *return_node = var_node;
       return PARSER_OK;

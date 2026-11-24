@@ -53,7 +53,6 @@ void function_table_destroy(FunctionTable *table) {
   }
   for (index = 0U; index < table->function_count; index += 1U) {
     ast_node_destroy(table->functions[index]->ast_root);
-    type_entity_destroy(&table->functions[index]->return_type);
     symbol_table_destroy(table->functions[index]->local_scope);
     free(table->functions[index]->parameters);
     free(table->functions[index]->callees);
@@ -116,7 +115,7 @@ FunctionTableStatus function_table_get_or_create(FunctionTable *table,
     free(created);
     return FUNCTION_TABLE_OUT_OF_MEMORY;
   }
-  type_entity_init(&created->return_type);
+  created->return_type = type_unknown();
   table->functions[table->function_count] = created;
   table->function_count += 1U;
   *function = created;

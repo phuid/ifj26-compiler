@@ -245,7 +245,7 @@ bool build_semantic_program(Program *program) {
   main_fn->is_defined = true;
   main_fn->is_main = true;
   main_fn->has_explicit_return_type = true;
-  main_fn->return_type.type = type_scalar(TYPE_UNIT);
+  main_fn->return_type = type_scalar(TYPE_UNIT);
   SymbolTable *scope = function_symbol_create_local_scope(main_fn);
   main_fn->ast_root = ast_node_create_block(1, 1);
   if (scope == nullptr || main_fn->ast_root == nullptr) {
@@ -309,33 +309,6 @@ TEST_F(OomFaultTest, DynamicArrayReallocFailureKeepsStorage) {
   EXPECT_EQ(capacity, 4U);
   EXPECT_EQ(static_cast<int *>(data)[0], 42);
   free(data);
-}
-
-/*
- * AI-generated test block — type_entity_depend allocation failure.
- * Model: Claude (Claude Code).
- * Prompt:
- *   Fail the dependents-array growth and check that no edge is recorded, so
- *   resolving the source later does not reach the would-be dependent.
- */
-TEST_F(OomFaultTest, TypeDependFailureAddsNoDependent) {
-  TypeEntity source, dependent;
-  type_entity_init(&source);
-  type_entity_init(&dependent);
-
-  TypeResolveStatus status;
-  {
-    oom::Arm arm(1);
-    status = type_entity_depend(&source, &dependent);
-  }
-
-  EXPECT_EQ(status, TYPE_RESOLVE_OUT_OF_MEMORY);
-  EXPECT_EQ(source.dependent_count, 0U);
-  EXPECT_EQ(type_entity_resolve(&source, type_scalar(TYPE_INT)),
-            TYPE_RESOLVE_OK);
-  EXPECT_TRUE(type_equal(dependent.type, type_scalar(TYPE_UNKNOWN)));
-  type_entity_destroy(&source);
-  type_entity_destroy(&dependent);
 }
 
 /*
@@ -746,38 +719,6 @@ TEST_F(OomFaultTest, SemanticAllocationFailureIsInternalError) {
     EXPECT_EQ(status, SEMANTIC_INTERNAL_ERROR) << "k=" << k;
   }
   EXPECT_GT(k, 1);
-}
-
-/*
- * AI-generated test block — AST destroy and inferred-type dependents.
- * Model: Claude (Claude Code).
- * Prompt:
- *   Destroying a node must release the dependents array its inferred_type
- *   owns; count live blocks around create/depend/destroy.
- */
-// Bug ast.c:348: destroy skips type_entity_destroy(&node->inferred_type).
-TEST_F(OomFaultTest, DISABLED_AstDestroyReleasesInferredTypeDependents) {
-  // type.h l.40: the entity owns its dependents array. Use a block, not a
-  // literal: a literal's type is already resolved, so no edge is stored.
-  TypeEntity dependent;
-  type_entity_init(&dependent);
-  bool created;
-  TypeResolveStatus status = TYPE_RESOLVE_INVALID_ARGUMENT;
-  long live;
-  {
-    oom::Arm arm(0);
-    ASTNode *block = ast_node_create_block(1, 1);
-    created = block != nullptr;
-    if (created) {
-      status = type_entity_depend(&block->inferred_type, &dependent);
-    }
-    ast_node_destroy(block);
-    live = oom::live;
-  }
-  ASSERT_TRUE(created);
-  ASSERT_EQ(status, TYPE_RESOLVE_OK);
-  EXPECT_EQ(live, 0);
-  type_entity_destroy(&dependent);
 }
 
 #endif // OOM_SANITIZED

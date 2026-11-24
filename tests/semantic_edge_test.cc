@@ -129,7 +129,7 @@ FunctionSymbol *def(Program *program, const char *name, BaseType ret_type = N,
         f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
   }
   f->has_explicit_return_type = ret_type != N;
-  f->return_type.type = type_scalar(ret_type);
+  f->return_type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -316,7 +316,7 @@ TEST_P(SemanticEdgeOperatorTest, FollowsSpecOperatorTable) {
     return;
   }
   ASTNode *n = in_if ? stmt(m, 0)->data.if_statement.condition : stmt(m, 0);
-  EXPECT_TRUE(has_type(n->inferred_type.type, expected));
+  EXPECT_TRUE(has_type(n->inferred_type, expected));
   EXPECT_EQ(widened(n->data.binary_op.left), r.left == I && r.right == R);
   EXPECT_EQ(widened(n->data.binary_op.right), r.right == I && r.left == R);
 }
@@ -339,12 +339,12 @@ TEST_F(SemanticEdgeTest, NestedExpressionWidensWholeSubexpression) {
                        real(2.5))));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(x->type.type, R));
+  EXPECT_TRUE(has_type(x->type, R));
   ASTNode *product = stmt(m, 0)->data.assignment.value;
   ASSERT_TRUE(widened(product->data.binary_op.left));
   ASTNode *sum = product->data.binary_op.left->data.conversion.operand;
   EXPECT_EQ(sum->kind, AST_ADD);
-  EXPECT_TRUE(has_type(sum->inferred_type.type, I));
+  EXPECT_TRUE(has_type(sum->inferred_type, I));
   EXPECT_FALSE(widened(sum->data.binary_op.left));
   EXPECT_FALSE(widened(product->data.binary_op.right));
 }
@@ -414,7 +414,7 @@ TEST_F(SemanticEdgeTest, VarInferredIntRejectsLaterDoubleAssignment) {
   add(m, define(x, integer(1)));
   add(m, assign(x, real(2.5)));
   EXPECT_EQ(check(), E6);
-  EXPECT_TRUE(has_type(x->type.type, I));
+  EXPECT_TRUE(has_type(x->type, I));
 }
 
 TEST_F(SemanticEdgeTest, VarInferredDoubleWidensLaterIntAssignment) {
@@ -424,7 +424,7 @@ TEST_F(SemanticEdgeTest, VarInferredDoubleWidensLaterIntAssignment) {
   add(m, define(d, real(1.5)));
   add(m, assign(d, integer(1)));
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(d->type.type, R));
+  EXPECT_TRUE(has_type(d->type, R));
   EXPECT_TRUE(widened(stmt(m, 1)->data.assignment.value));
 }
 
@@ -437,9 +437,9 @@ TEST_F(SemanticEdgeTest, InferenceChainThroughVariables) {
   add(m, define(c, bin(AST_MULTIPLY, ref_var(b), real(2.5))));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(a->type.type, I));
-  EXPECT_TRUE(has_type(b->type.type, I));
-  EXPECT_TRUE(has_type(c->type.type, R));
+  EXPECT_TRUE(has_type(a->type, I));
+  EXPECT_TRUE(has_type(b->type, I));
+  EXPECT_TRUE(has_type(c->type, R));
   EXPECT_FALSE(widened(stmt(m, 1)->data.assignment.value));
   EXPECT_TRUE(widened(stmt(m, 2)->data.assignment.value->data.binary_op.left));
 }
@@ -454,7 +454,7 @@ TEST_F(SemanticEdgeTest, UnitVariablesAreUsable) {
   add(m, if_(bin(AST_EQUAL, ref_var(u), ref_var(w)), block({unit()}),
              block({unit()})));
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(u->type.type, U));
+  EXPECT_TRUE(has_type(u->type, U));
 }
 
 TEST_F(SemanticEdgeTest, UnitAnnotationRejectsIntInitializer) {
@@ -509,9 +509,9 @@ TEST_F(SemanticEdgeTest, ShadowedVariableInBranchKeepsOwnType) {
   add(m, bin(AST_ADD, ref_var(outer), integer(1)));
 
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(outer->type.type, I));
-  EXPECT_TRUE(has_type(inner->type.type, S));
-  EXPECT_TRUE(has_type(stmt(m, 2)->inferred_type.type, I));
+  EXPECT_TRUE(has_type(outer->type, I));
+  EXPECT_TRUE(has_type(inner->type, S));
+  EXPECT_TRUE(has_type(stmt(m, 2)->inferred_type, I));
 }
 
 /*
@@ -638,7 +638,7 @@ TEST_P(SemanticEdgeBodyTest, InfersOrRejectsResult) {
   row.body(&program, f);
   ASSERT_EQ(check(), row.status);
   if (row.status == OK) {
-    EXPECT_TRUE(has_type(f->return_type.type, row.result));
+    EXPECT_TRUE(has_type(f->return_type, row.result));
   }
 }
 INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeBodyTest,
@@ -718,7 +718,7 @@ TEST_F(SemanticEdgeTest, NotAnnotatedCallerOfRecursiveFunctionInfersType) {
   add(g, call(f, {integer(1)}));
   add(m, call(g));
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(g->return_type.type, I));
+  EXPECT_TRUE(has_type(g->return_type, I));
 }
 
 TEST_F(SemanticEdgeTest, SelfCallInsideCallArgumentIsCycle) {
@@ -768,7 +768,7 @@ TEST_F(SemanticEdgeTest, NotAnnotatedMainEndingWithPrintIsOk) {
   FunctionSymbol *m = def("main", N, {}, true);
   add(m, call(ref("print"), {str("x")}));
   ASSERT_EQ(check(), OK);
-  EXPECT_TRUE(has_type(m->return_type.type, U));
+  EXPECT_TRUE(has_type(m->return_type, U));
 }
 
 /*
@@ -888,7 +888,7 @@ TEST_P(SemanticEdgeBuiltinTest, ChecksSpecSignature) {
   }
   ASTNode *init = stmt(m, 0)->data.assignment.value;
   FunctionSymbol *builtin = ref(row.name);
-  bool widen = row.annotation == R && has_type(builtin->return_type.type, I);
+  bool widen = row.annotation == R && has_type(builtin->return_type, I);
   EXPECT_EQ(widened(init), widen);
 }
 INSTANTIATE_TEST_SUITE_P(SemanticEdge, SemanticEdgeBuiltinTest,

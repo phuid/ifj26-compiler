@@ -64,7 +64,7 @@ typedef struct {
 /** Initializes an empty, owned program result. */
 ParserStatus program_init(Program *program);
 
-/** Releases every function, scope tree, AST, and type dependency in a program.
+/** Releases every function, scope tree, and AST in a program.
  */
 void program_destroy(Program *program);
 

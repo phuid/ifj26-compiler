@@ -105,9 +105,9 @@ TEST(SymbolTableExtraTest, DeepScopeResolvesRootBinding) {
     ASSERT_EQ(found, expected) << index;
     EXPECT_EQ(found->owner, owner) << index;
   }
-  EXPECT_TRUE(type_equal(inner_limit->type.type, type_scalar(TYPE_REAL)));
+  EXPECT_TRUE(type_equal(inner_limit->type, type_scalar(TYPE_REAL)));
   EXPECT_TRUE(inner_limit->constant);
-  EXPECT_TRUE(type_equal(root_limit->type.type, type_scalar(TYPE_INT)));
+  EXPECT_TRUE(type_equal(root_limit->type, type_scalar(TYPE_INT)));
   EXPECT_FALSE(root_limit->constant);
 
   symbol_table_destroy(scopes[0]);
@@ -159,7 +159,7 @@ TEST(SymbolTableExtraTest, DefineCopiesNameAndRecordsOwner) {
 
   EXPECT_STREQ(total->name, "total");
   EXPECT_EQ(total->owner, function_scope);
-  EXPECT_TRUE(type_equal(total->type.type, type_scalar(TYPE_REAL)));
+  EXPECT_TRUE(type_equal(total->type, type_scalar(TYPE_REAL)));
   EXPECT_TRUE(total->constant);
   EXPECT_FALSE(total->initialized);
   EXPECT_EQ(symbol_table_lookup_local(function_scope, "total"), total);

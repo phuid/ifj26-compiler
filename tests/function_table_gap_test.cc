@@ -64,8 +64,7 @@ TEST_F(FunctionTableGapTest, AddParameterKeepsOrderWhileGrowing) {
   ASSERT_EQ(f->argument_count, 20U);
   for (size_t i = 0U; i < 20U; i += 1U) {
     EXPECT_EQ(f->parameters[i], symbols[i]) << i;
-    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type.type, cycle[i % 4U]))
-        << i;
+    EXPECT_TRUE(type_is_scalar(f->parameters[i]->type, cycle[i % 4U])) << i;
   }
 }
 
@@ -102,7 +101,7 @@ TEST_F(FunctionTableGapTest, NameIsCopiedAndRepeatedGetOrCreateReuses) {
 }
 
 TEST_F(FunctionTableGapTest, NewSymbolHasDefaultFields) {
-  EXPECT_TRUE(type_equal(f->return_type.type, type_scalar(TYPE_UNKNOWN)));
+  EXPECT_TRUE(type_equal(f->return_type, type_scalar(TYPE_UNKNOWN)));
   EXPECT_FALSE(f->has_explicit_return_type || f->is_defined || f->is_main ||
                f->is_builtin || f->contains_return);
   EXPECT_EQ(f->argument_count + f->callee_count, 0U);

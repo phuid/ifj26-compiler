@@ -164,7 +164,7 @@ FunctionSymbol *def(Program *p, const char *name, BaseType ret,
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
   f->has_explicit_return_type = true;
-  f->return_type.type = type_scalar(ret);
+  f->return_type = type_scalar(ret);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }

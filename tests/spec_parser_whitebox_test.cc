@@ -377,7 +377,7 @@ void ExpectY(const SymbolTable *scope, bool constant, BaseType type) {
   Symbol *y = Local(scope, "y");
   ASSERT_NE(y, nullptr);
   EXPECT_EQ(y->constant, constant);
-  EXPECT_TRUE(type_is_scalar(y->type.type, type)) << y->type.type.base;
+  EXPECT_TRUE(type_is_scalar(y->type, type)) << y->type.base;
 }
 
 } // namespace
@@ -634,7 +634,7 @@ TEST_P(SpecParserWhiteboxConversionShapeTest, ConversionsFollowGrouping) {
   const ASTNode *expression = ShapedExpression(row, p);
   ASSERT_NE(expression, nullptr) << p.source();
   EXPECT_EQ(Sexpr(expression), row.shape) << p.source();
-  EXPECT_TRUE(type_is_scalar(expression->inferred_type.type, row.type))
+  EXPECT_TRUE(type_is_scalar(expression->inferred_type, row.type))
       << p.source();
 }
 
@@ -686,8 +686,8 @@ TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusKeepsOperandType) {
   Symbol *q = Local(f->local_scope, "q");
   ASSERT_NE(r, nullptr);
   ASSERT_NE(q, nullptr);
-  EXPECT_TRUE(type_is_scalar(r->type.type, TYPE_REAL));
-  EXPECT_TRUE(type_is_scalar(q->type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(r->type, TYPE_REAL));
+  EXPECT_TRUE(type_is_scalar(q->type, TYPE_INT));
   ExpectNegationKept(p.Initializer(0U), "x");
   ExpectNegationKept(p.Initializer(1U), "a");
 }
@@ -711,7 +711,7 @@ TEST(SpecParserWhiteboxUnaryMinusTest, NegatedIntIsWidenedAsWhole) {
   const ASTNode *negation = value->data.conversion.operand;
   ExpectNegationKept(negation, "a");
   ASSERT_NE(negation, nullptr);
-  EXPECT_TRUE(type_is_scalar(negation->inferred_type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(negation->inferred_type, TYPE_INT));
 }
 
 // §3: unary `-` (priority 1) binds before `<` (4); the Int negation is the
@@ -736,5 +736,5 @@ TEST(SpecParserWhiteboxUnaryMinusTest, UnaryMinusOperandOfRelationIsWidened) {
   const ASTNode *negation = left->data.conversion.operand;
   ExpectNegationKept(negation, "a");
   ASSERT_NE(negation, nullptr);
-  EXPECT_TRUE(type_is_scalar(negation->inferred_type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(negation->inferred_type, TYPE_INT));
 }

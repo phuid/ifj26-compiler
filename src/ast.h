@@ -118,7 +118,7 @@ struct ASTNode {
   ASTNodeKind kind;
   size_t line;
   size_t column;
-  TypeEntity inferred_type;
+  DataType inferred_type;
   union {
     long long int_value;
     double real_value;

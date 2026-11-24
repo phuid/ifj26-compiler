@@ -146,7 +146,7 @@ FunctionSymbol *def(Program *program, const char *name, BaseType ret_type = N,
         f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
   }
   f->has_explicit_return_type = ret_type != N;
-  f->return_type.type = type_scalar(ret_type);
+  f->return_type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -380,9 +380,9 @@ TEST_F(SpecSemanticWhiteboxTest,
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(y->type.type, R));
-  EXPECT_TRUE(has_type(z->type.type, R));
-  EXPECT_TRUE(has_type(i->type.type, I));
+  EXPECT_TRUE(has_type(y->type, R));
+  EXPECT_TRUE(has_type(z->type, R));
+  EXPECT_TRUE(has_type(i->type, I));
   EXPECT_TRUE(widened(stmt(m, 0)->data.assignment.value));
   EXPECT_FALSE(widened(stmt(m, 1)->data.assignment.value));
   ASTNode *last = stmt(m, 4)->data.assignment.value;
@@ -422,7 +422,7 @@ TEST_F(SpecSemanticWhiteboxTest,
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_TRUE(has_type(u->type.type, U));
+  EXPECT_TRUE(has_type(u->type, U));
 }
 
 /*
@@ -736,7 +736,7 @@ TEST_P(SpecSemanticWhiteboxBodyTest, InfersOrRejectsResult) {
   // Assert
   ASSERT_EQ(status, row.status);
   if (status == OK && row.result != N) {
-    EXPECT_TRUE(has_type(f->return_type.type, row.result));
+    EXPECT_TRUE(has_type(f->return_type, row.result));
   }
 }
 INSTANTIATE_TEST_SUITE_P(SpecSemanticWhitebox, SpecSemanticWhiteboxBodyTest,
@@ -979,9 +979,9 @@ TEST_F(SpecSemanticWhiteboxTest, ReturnOfForwardCallInfersCallee) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(g->return_type.type, I));
+  EXPECT_TRUE(has_type(g->return_type, I));
   EXPECT_TRUE(
-      has_type(stmt(f, 0)->data.return_statement.value->inferred_type.type, I));
+      has_type(stmt(f, 0)->data.return_statement.value->inferred_type, I));
 }
 
 // §1.3, §2.3: an inferred Int result passed to a Double parameter is widened
@@ -1001,7 +1001,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredIntResultWidensForDoubleParameter) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(d->type.type, I));
+  EXPECT_TRUE(has_type(d->type, I));
   EXPECT_TRUE(widened(stmt(m, 1)->data.call.arguments[0]));
 }
 
@@ -1018,7 +1018,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferenceThroughDoubleParameter) {
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_TRUE(has_type(g->return_type.type, R));
+  EXPECT_TRUE(has_type(g->return_type, R));
 }
 
 /*
@@ -1043,11 +1043,9 @@ TEST_F(SpecSemanticWhiteboxTest, IfIsUnitAndConditionIsBoolean) {
   // Assert
   ASSERT_EQ(status, OK);
   ASTNode *node = stmt(m, 0);
-  EXPECT_TRUE(has_type(node->inferred_type.type, U));
-  EXPECT_TRUE(
-      has_type(node->data.if_statement.condition->inferred_type.type, B));
-  EXPECT_TRUE(
-      has_type(node->data.if_statement.then_branch->inferred_type.type, U));
+  EXPECT_TRUE(has_type(node->inferred_type, U));
+  EXPECT_TRUE(has_type(node->data.if_statement.condition->inferred_type, B));
+  EXPECT_TRUE(has_type(node->data.if_statement.then_branch->inferred_type, U));
 }
 
 // §1.3, §2.3 rules 3-4: every Int return of a nested final if in a Double
@@ -1095,10 +1093,10 @@ TEST_F(SpecSemanticWhiteboxTest, DoubleInitWidensWholeIntQuotient) {
   ASSERT_EQ(status, OK);
   ASTNode *v = stmt(m, 0)->data.assignment.value;
   ASSERT_TRUE(widened(v));
-  EXPECT_TRUE(has_type(v->inferred_type.type, R));
+  EXPECT_TRUE(has_type(v->inferred_type, R));
   ASTNode *q = v->data.conversion.operand;
   EXPECT_EQ(q->kind, AST_DIVIDE);
-  EXPECT_TRUE(has_type(q->inferred_type.type, I));
+  EXPECT_TRUE(has_type(q->inferred_type, I));
   EXPECT_FALSE(widened(q->data.binary_op.left));
   EXPECT_FALSE(widened(q->data.binary_op.right));
 }
@@ -1116,11 +1114,11 @@ TEST_F(SpecSemanticWhiteboxTest, RelationalWidensIntSumAsWhole) {
   // Assert
   ASSERT_EQ(status, OK);
   ASTNode *c = stmt(m, 0)->data.if_statement.condition;
-  EXPECT_TRUE(has_type(c->inferred_type.type, B));
+  EXPECT_TRUE(has_type(c->inferred_type, B));
   ASSERT_TRUE(widened(c->data.binary_op.left));
   ASTNode *sum = c->data.binary_op.left->data.conversion.operand;
   EXPECT_EQ(sum->kind, AST_ADD);
-  EXPECT_TRUE(has_type(sum->inferred_type.type, I));
+  EXPECT_TRUE(has_type(sum->inferred_type, I));
   EXPECT_FALSE(widened(c->data.binary_op.right));
 }
 
@@ -1202,7 +1200,7 @@ TEST_F(SpecSemanticWhiteboxTest, LeftNestedQuotientWidensOnlyInner) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(x->type.type, R));
+  EXPECT_TRUE(has_type(x->type, R));
   ASTNode *v = stmt(m, 0)->data.assignment.value;
   EXPECT_EQ(v->kind, AST_DIVIDE);
   ASSERT_TRUE(widened(v->data.binary_op.left));
@@ -1375,7 +1373,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredStringFromReadLineRejectsIntUse) {
   const SemanticStatus status = check();
   // Assert
   EXPECT_EQ(status, E6);
-  EXPECT_TRUE(has_type(f->return_type.type, S));
+  EXPECT_TRUE(has_type(f->return_type, S));
 }
 
 // §1.3, §2.3, §4: f ending with toInt(1.5) infers Int, which widens for a
@@ -1391,7 +1389,7 @@ TEST_F(SpecSemanticWhiteboxTest, InferredIntFromToIntWidensToDouble) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(f->return_type.type, I));
+  EXPECT_TRUE(has_type(f->return_type, I));
   EXPECT_TRUE(widened(stmt(m, 0)->data.assignment.value));
 }
 
@@ -1429,10 +1427,10 @@ TEST_F(SpecSemanticWhiteboxTest, RegisteredSignaturesMatchChapter4Exactly) {
     FunctionSymbol *f = ref(sig.name);
     EXPECT_TRUE(f->is_builtin) << sig.name;
     EXPECT_TRUE(f->has_explicit_return_type) << sig.name;
-    EXPECT_TRUE(has_type(f->return_type.type, sig.result)) << sig.name;
+    EXPECT_TRUE(has_type(f->return_type, sig.result)) << sig.name;
     ASSERT_EQ(f->argument_count, sig.parameters.size()) << sig.name;
     for (size_t i = 0; i < sig.parameters.size(); ++i) {
-      EXPECT_TRUE(has_type(f->parameters[i]->type.type, sig.parameters[i]))
+      EXPECT_TRUE(has_type(f->parameters[i]->type, sig.parameters[i]))
           << sig.name << i;
     }
   }
@@ -1449,5 +1447,5 @@ TEST_F(SpecSemanticWhiteboxTest, CallNodeGetsBuiltinReturnType) {
   const SemanticStatus status = check();
   // Assert
   ASSERT_EQ(status, OK);
-  EXPECT_TRUE(has_type(c->inferred_type.type, S));
+  EXPECT_TRUE(has_type(c->inferred_type, S));
 }

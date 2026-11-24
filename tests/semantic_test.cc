@@ -36,7 +36,7 @@ protected:
       function_symbol_add_parameter(f, symbol);
     }
     if (explicit_ret != TYPE_UNKNOWN) {
-      f->return_type.type = type_scalar(explicit_ret);
+      f->return_type = type_scalar(explicit_ret);
       f->has_explicit_return_type = true;
     }
     f->ast_root = ast_node_create_block(1, 1);
@@ -131,7 +131,7 @@ TEST_F(SemanticTest, InfersReturnTypeOfForwardCalledFunction) {
   add(g, integer(1));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(g->return_type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(g->return_type, TYPE_INT));
   ASTNode *init = m->ast_root->data.block.statements[0]->data.assignment.value;
   EXPECT_EQ(init->kind, AST_IMPLICIT_INT_TO_REAL);
 }
@@ -150,10 +150,10 @@ TEST_F(SemanticTest, ResolvesChainInTopologicalOrder) {
   add(c, str("hi"));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(c->return_type.type, TYPE_STRING));
-  EXPECT_TRUE(type_is_scalar(v->type.type, TYPE_STRING));
-  EXPECT_TRUE(type_is_scalar(b->return_type.type, TYPE_STRING));
-  EXPECT_TRUE(type_is_scalar(a->return_type.type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(c->return_type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(v->type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(b->return_type, TYPE_STRING));
+  EXPECT_TRUE(type_is_scalar(a->return_type, TYPE_STRING));
 }
 
 TEST_F(SemanticTest, DirectRecursionWithoutReturnTypeIsError6) {
@@ -178,7 +178,7 @@ TEST_F(SemanticTest, DirectRecursionWithReturnTypeIsOk) {
   add(f, bin(AST_ADD, ref_var(r), integer(1)));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(r->type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(r->type, TYPE_INT));
 }
 
 TEST_F(SemanticTest, IndirectRecursionThroughAnnotatedFunctionsIsError6) {
@@ -270,7 +270,7 @@ TEST_F(SemanticTest, BuiltinsHaveSignatures) {
   add(m, define(n, call(ref("readInt"))));
   add(m, call(ref("print"), {ref_var(n)}));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(n->type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(n->type, TYPE_INT));
 }
 
 TEST_F(SemanticTest, BuiltinWithWrongArgumentIsError5) {
@@ -307,7 +307,7 @@ TEST_F(SemanticTest, MixedArithmeticWidensToDouble) {
   Symbol *x = var(m, "x", TYPE_UNKNOWN, true);
   add(m, define(x, bin(AST_MULTIPLY, integer(2), real(1.5))));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(x->type.type, TYPE_REAL));
+  EXPECT_TRUE(type_is_scalar(x->type, TYPE_REAL));
 }
 
 TEST_F(SemanticTest, StringPlusIntIsError6) {
@@ -330,7 +330,7 @@ TEST_F(SemanticTest, IfAsLastStatementYieldsCommonValue) {
   add(f, if_(bin(AST_LESS, integer(1), integer(2)), block({integer(1)}),
              block({real(2.5)})));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(f->return_type.type, TYPE_REAL));
+  EXPECT_TRUE(type_is_scalar(f->return_type, TYPE_REAL));
   /// The branch value is widened and then wrapped in an implicit return.
   ASTNode *then_tail =
       f->ast_root->data.block.statements[0]
@@ -365,7 +365,7 @@ TEST_F(SemanticTest, IfWithUnitBranchesInfersUnit) {
              block({call(ref("print"), {str("x")})}),
              block({ast_node_create_unit(1, 1)})));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(f->return_type.type, TYPE_UNIT));
+  EXPECT_TRUE(type_is_scalar(f->return_type, TYPE_UNIT));
 }
 
 TEST_F(SemanticTest, MainReturningIntIsError6) {
@@ -396,8 +396,8 @@ TEST_F(SemanticTest, BooleanValuesCanBeStoredAndCombined) {
                        bin(AST_LESS, integer(1), integer(2)))));
   add(m, define(c, ast_node_create_not(ref_var(b), 1, 1)));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(b->type.type, TYPE_BOOL));
-  EXPECT_TRUE(type_is_scalar(c->type.type, TYPE_BOOL));
+  EXPECT_TRUE(type_is_scalar(b->type, TYPE_BOOL));
+  EXPECT_TRUE(type_is_scalar(c->type, TYPE_BOOL));
 }
 
 TEST_F(SemanticTest, ChainedRelationalOperatorsAreError6) {
@@ -419,8 +419,8 @@ TEST_F(SemanticTest, ListLiteralWidensElementsAndIndexes) {
   add(m,
       define(x, ast_node_create_list_indexing(ref_var(l), integer(0), 1, 1)));
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_equal(l->type.type, type_list(type_scalar(TYPE_REAL))));
-  EXPECT_TRUE(type_is_scalar(x->type.type, TYPE_REAL));
+  EXPECT_TRUE(type_equal(l->type, type_list(type_scalar(TYPE_REAL))));
+  EXPECT_TRUE(type_is_scalar(x->type, TYPE_REAL));
 }
 
 TEST_F(SemanticTest, EmptyListNeedsExpectedType) {
@@ -456,8 +456,8 @@ TEST_F(SemanticTest, EmptyListPropagatesThroughListPreservingBuiltins) {
   add(m, define(e, value));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_equal(value->inferred_type.type,
-                         type_list(type_scalar(TYPE_STRING))));
+  EXPECT_TRUE(
+      type_equal(value->inferred_type, type_list(type_scalar(TYPE_STRING))));
 }
 
 namespace {
@@ -503,7 +503,7 @@ TEST_F(SemanticTest, IntBodyTailValueIsWrappedInReturn) {
   ASTNode *r = last(f->ast_root);
   ASSERT_EQ(r->kind, AST_RETURN);
   EXPECT_EQ(r->data.return_statement.value->kind, AST_CONSTANT_INT);
-  EXPECT_TRUE(type_is_scalar(r->inferred_type.type, TYPE_INT));
+  EXPECT_TRUE(type_is_scalar(r->inferred_type, TYPE_INT));
 }
 
 TEST_F(SemanticTest, WidenedTailValueIsWrappedInReturn) {
@@ -598,7 +598,7 @@ TEST_F(SemanticTest, TrailingIfWithoutElseInInferredFunctionIsUnit) {
              block({call(ref("print"), {integer(1)})}), nullptr));
 
   ASSERT_EQ(check(), SEMANTIC_OK);
-  EXPECT_TRUE(type_is_scalar(k->return_type.type, TYPE_UNIT));
+  EXPECT_TRUE(type_is_scalar(k->return_type, TYPE_UNIT));
 }
 
 TEST_F(SemanticTest, TrailingIfWithoutElseInIntFunctionIsError6) {

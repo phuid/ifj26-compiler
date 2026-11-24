@@ -162,7 +162,7 @@ protected:
           f, var(f, ("p" + std::to_string(i)).c_str(), params[i]));
     }
     f->has_explicit_return_type = ret_type != N;
-    f->return_type.type = type_scalar(ret_type);
+    f->return_type = type_scalar(ret_type);
     f->ast_root = ast_node_create_block(1, 1);
     return f;
   }
@@ -255,7 +255,7 @@ TEST_F(ExtFunexpAstTest, CallInsideArithmetic) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(r->type.type, I));
+  EXPECT_TRUE(has_type(r->type, I));
 }
 
 // §5.1, §3 (A7-122): `val r = 1 + print("a")` is Int + Unit -> 6.
@@ -356,7 +356,7 @@ TEST_F(ExtFunexpAstTest, IntCallResultWidensInDoubleExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(r->type.type, R));
+  EXPECT_TRUE(has_type(r->type, R));
   const ASTNode *right = sum->data.binary_op.right;
   ASSERT_TRUE(widened(right));
   ASSERT_NE(right->data.conversion.operand, nullptr);
@@ -406,7 +406,7 @@ TEST_F(ExtFunexpAstTest, DoubleCalleeInferredBeforeCallerExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(a->return_type.type, R));
+  EXPECT_TRUE(has_type(a->return_type, R));
 }
 
 // §5.1, §2.3 (A7-126): the same order with `def b() = 3` makes a Int.
@@ -425,7 +425,7 @@ TEST_F(ExtFunexpAstTest, IntCalleeInferredBeforeCallerExpression) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(a->return_type.type, I));
+  EXPECT_TRUE(has_type(a->return_type, I));
 }
 
 // §5.1, §2.3 (A7-127): direct recursion hidden in a nested argument still
@@ -482,7 +482,7 @@ TEST_F(ExtBoolthenMissingElseTest, MissingElseWithUnitBranchInfersUnit) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(f->return_type.type, U));
+  EXPECT_TRUE(has_type(f->return_type, U));
 }
 
 // §2.3 rule 3 item 1, rule 4 (A7-104): `def f(): Unit = if c then {1}` is
@@ -549,7 +549,7 @@ TEST_F(ExtBoolthenMissingElseTest, MissingElseNotLastStatement) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(f->return_type.type, I));
+  EXPECT_TRUE(has_type(f->return_type, I));
 }
 
 // §2.3 rule 3, §2.2 (A7-108): `var k: Int`; `if c then {k = "s"}`: the
@@ -626,7 +626,7 @@ TEST_F(ExtBoolthenMissingElseTest, NestedMissingElseAllUnitInfersUnit) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(f->return_type.type, U));
+  EXPECT_TRUE(has_type(f->return_type, U));
 }
 
 } // namespace
@@ -837,7 +837,7 @@ TEST_F(ExtBoolthenAstTest, DISABLED_InferredBooleanReturnType) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(f->return_type.type, B));
+  EXPECT_TRUE(has_type(f->return_type, B));
 }
 
 // §5.2, §1.3 (A7-114): `val b = 1 < 2` stores a Boolean.
@@ -854,7 +854,7 @@ TEST_F(ExtBoolthenAstTest, DISABLED_BooleanCanBeStored) {
 
   // Assert
   EXPECT_EQ(status, OK);
-  EXPECT_TRUE(has_type(b->type.type, B));
+  EXPECT_TRUE(has_type(b->type, B));
 }
 
 // §5.2, §1.3 (A7-114): `val b: Boolean = 1 < 2`.

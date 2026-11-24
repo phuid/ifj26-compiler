@@ -80,7 +80,7 @@ FunctionSymbol *def_in(FunctionTable *table, const char *name,
   f->is_main = is_main;
   function_symbol_create_local_scope(f);
   f->has_explicit_return_type = ret_type != TYPE_UNKNOWN;
-  f->return_type.type = type_scalar(ret_type);
+  f->return_type = type_scalar(ret_type);
   f->ast_root = ast_node_create_block(1, 1);
   return f;
 }
@@ -307,7 +307,7 @@ TEST_F(SemanticCovTest, InferenceFromCalleeWithUntypedAnnotationIsError6) {
   def_main();
   FunctionSymbol *g = def("g");
   FunctionSymbol *h = def("h");
-  h->has_explicit_return_type = true; // return_type.type stays TYPE_UNKNOWN
+  h->has_explicit_return_type = true; // return_type stays TYPE_UNKNOWN
   // h alone passes: its return value has the same (unknown) type and the
   // body returns, so only the inference of g rejects the program.
   add(h, ret(call(h)));

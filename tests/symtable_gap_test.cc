@@ -60,7 +60,7 @@ TEST_F(SymbolTableGapTest, DuplicateIsRejectedWithoutSideEffects) {
                                 &second),
             SYMTABLE_DUPLICATE);
   EXPECT_EQ(second, nullptr);
-  EXPECT_TRUE(type_equal(first->type.type, type_scalar(TYPE_INT)));
+  EXPECT_TRUE(type_equal(first->type, type_scalar(TYPE_INT)));
   EXPECT_TRUE(first->constant && !first->initialized);
   SymbolTable *block = symbol_table_create_child(root);
   ASSERT_NE(block, nullptr);
@@ -115,7 +115,7 @@ TEST_F(SymbolTableGapTest, StoresEveryDataTypeValue) {
               SYMTABLE_OK);
     Symbol *found = symbol_table_lookup_local(root, name);
     ASSERT_NE(found, nullptr) << i;
-    EXPECT_TRUE(type_equal(found->type.type, type_scalar(types[i]))) << i;
+    EXPECT_TRUE(type_equal(found->type, type_scalar(types[i]))) << i;
   }
 }
 
@@ -139,7 +139,7 @@ TEST_F(SymbolTableGapTest, SymbolPointerStaysValidAcrossLaterDefinitions) {
         << name;
     ASSERT_NE(stored[id], nullptr) << name;
     if (i == 0U) {
-      stored[0]->type.type = type_scalar(TYPE_STRING);
+      stored[0]->type = type_scalar(TYPE_STRING);
     }
   }
   for (size_t id = 0U; id < kCount; id += 1U) {
@@ -148,7 +148,7 @@ TEST_F(SymbolTableGapTest, SymbolPointerStaysValidAcrossLaterDefinitions) {
         << name;
     EXPECT_STREQ(stored[id]->name, name.c_str());
   }
-  EXPECT_TRUE(type_equal(symbol_table_lookup_local(root, "s0")->type.type,
+  EXPECT_TRUE(type_equal(symbol_table_lookup_local(root, "s0")->type,
                          type_scalar(TYPE_STRING)));
   SymbolTable *child = symbol_table_create_child(root);
   ASSERT_NE(child, nullptr);
