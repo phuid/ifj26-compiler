@@ -1,3 +1,9 @@
+/**
+ * @file instructions.h
+ * @brief Defines target-code operands and instruction-printing functions.
+ * @author Milan Novák
+ */
+
 #ifndef INSTRUCTIONS_H
 #define INSTRUCTIONS_H
 #include "symtable.h"

@@ -1,3 +1,10 @@
+/**
+ * @file builtins.c
+ * @brief Definitions of builtin functions for the source language and their
+ * assembly code.
+ * @author Milan Novák
+ */
+
 #include "builtins.h"
 
 /*

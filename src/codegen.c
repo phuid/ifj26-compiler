@@ -1,3 +1,9 @@
+/**
+ * @file codegen.c
+ * @brief Generates target code from the program's abstract syntax tree.
+ * @author Milan Novák
+ */
+
 #include "codegen.h"
 #include "ast.h"
 #include "builtins.h"
@@ -9,9 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// This is such a disqusting solution, i dont like this
 static int variable_suffix_counter = 0;
-
 static int label_suffix_counter = 0;
 
 typedef void (*ASTNodeHandler)(const ASTNode *node, bool discard_return_value);
@@ -661,15 +665,20 @@ static void handle_list_indexing(const ASTNode *node,
   print_POPS(LIST_GLOBAL_A);
   print_ARRAYGET(LIST_SIZE_GLOBAL_A, LIST_GLOBAL_A, INT_ZERO_OPERAND);
 
-  // Shift index by one, the zeroth element is the size of the array
+  // Add 1 to index since the array is offset by one
   print_ADD(LIST_INDEX_GLOBAL_A, LIST_INDEX_GLOBAL_A, INT_ONE_OPERAND);
 
-  // Check if index is above lower bound. The upper bound is checked by the
-  // interpret.
-  print_GT(COND_GLOBAL, LIST_INDEX_GLOBAL_A, INT_ZERO_OPERAND);
-  print_JUMPIFEQ("INDEX_OK", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
-  print_EXIT(58);
+  // Check lower bound: index must not be negative
+  print_LT(COND_GLOBAL, LIST_INDEX_GLOBAL_A, INT_ONE_OPERAND);
+  print_JUMPIFEQ("INDEX_ERROR", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
 
+  // Check upper bound: index must be smaller than array size
+  print_GT(COND_GLOBAL, LIST_INDEX_GLOBAL_A, LIST_SIZE_GLOBAL_A);
+  print_JUMPIFEQ("INDEX_ERROR", id, COND_GLOBAL, BOOL_TRUE_OPERAND);
+
+  print_JUMP("INDEX_OK", id);
+  print_LABEL("INDEX_ERROR", id);
+  print_EXIT(40);
   print_LABEL("INDEX_OK", id);
 
   print_ARRAYGET(LIST_ELEMENT_GLOBAL_A, LIST_GLOBAL_A, LIST_INDEX_GLOBAL_A);
