@@ -1141,6 +1141,17 @@ static ParserStatus p_list_primary(Lexer *lexer, Program *program,
       }
     }
 
+    /// reset indentation level to what it was before the opening parenthesis
+    status = parser_status_from_lexer(
+        lexer_change_current_indent(lexer, (-1) * local_indent));
+    if (status != PARSER_OK) {
+      ERROR_TRACE("while restoring the indentation after 'List.range'");
+      ast_node_destroy(from_expr);
+      ast_node_destroy(until_expr);
+      ast_node_destroy(by_expr);
+      return status;
+    }
+
     /// build the expression ((x until y) by z)
     ASTNode *to_node =
         ast_node_create_binary_op(AST_UNTIL, from_expr, until_expr,
