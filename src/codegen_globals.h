@@ -1,3 +1,9 @@
+/**
+ * @file codegen_globals.h
+ * @brief Public interface exposing target code global variables.
+ * @author Milan Novák
+ */
+
 #ifndef CODEGEN_GLOBALS_H
 #define CODEGEN_GLOBALS_H
 #include "instructions.h"

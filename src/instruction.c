@@ -1,3 +1,9 @@
+/**
+ * @file instruction.c
+ * @brief Prints target-code instructions and operands.
+ * @author Milan Novák
+ */
+
 #include "codegen.h"
 #include "error_trace.h"
 #include "instructions.h"

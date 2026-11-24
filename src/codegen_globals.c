@@ -1,3 +1,10 @@
+/**
+ * @file codegen_globals.c
+ * @brief Definition of target code global variables used by code generation as
+ * temporary variables.
+ * @author Milan Novák
+ */
+
 #include "instructions.h"
 #include <stddef.h>
 

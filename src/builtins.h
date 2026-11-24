@@ -1,3 +1,9 @@
+/**
+ * @file builtins.h
+ * @brief Public interface exposing the builtin function definitions.
+ * @author Milan Novák
+ */
+
 #ifndef BUILTINS_H
 #define BUILTINS_H
 #include "type.h"

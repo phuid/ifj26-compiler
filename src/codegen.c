@@ -1,3 +1,9 @@
+/**
+ * @file codegen.c
+ * @brief Generates target code from the program's abstract syntax tree.
+ * @author Milan Novák
+ */
+
 #include "codegen.h"
 #include "ast.h"
 #include "builtins.h"
@@ -9,9 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// This is such a disqusting solution, i dont like this
 static int variable_suffix_counter = 0;
-
 static int label_suffix_counter = 0;
 
 typedef void (*ASTNodeHandler)(const ASTNode *node, bool discard_return_value);
