@@ -25,7 +25,7 @@ ifj26-compiler: $(OBJECTS)
 
 $(BUILD_DIR)/make/%.o: src/%.c
 	mkdir -p $(dir $@)
-	gcc -Wall -Wextra -std=c11 -g -MMD -MP -MF $(@:.o=.d) -c $< -o $@
+	gcc -Wall -Wextra -std=c11 -MMD -MP -MF $(@:.o=.d) -c $< -o $@
 
 -include $(DEPFILES)
 
