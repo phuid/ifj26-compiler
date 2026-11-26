@@ -437,12 +437,8 @@ Odpovědi nad zadáním (NotebookLM) byly užitečné, ale ne vždy přesné, a 
 jsme je nikdy nebrali jako jediný zdroj pravdy.
 
 \subsection{Návrhy AI nevyužité nebo výrazně upravené}
-Původní implementace lexeru vygenerovaná AI byla velmi nepřehledná
-a neodpovídala naší představě, takže jsme ji nepoužili. Místo toho jsme
-nejdřív formálně popsali konečný automat (stavy, abecedu a přechody
-v~dokumentu \texttt{KA.md}) a rozhodli jsme se, že bude v~kódu
-reprezentován tabulkou přechodů. Teprve podle tohoto přesnějšího zadání
-vznikla implementace, kterou projekt používá.
+Prvotní implementace lexeru vygenerovaná AI byla velmi nepřehledná
+a neodpovídala naší představě, takže jsme ji museli přepracovat.
 
 U~testů, které neprocházely, AI často navrhovala „upravit očekávaný
 výsledek podle překladače“. Takové řešení jsme vědomě nepřijímali:
