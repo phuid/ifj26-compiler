@@ -4,8 +4,8 @@
  * @brief Syntactic analysis of IFJ26 source code.
  * @author Vojtěch Ondráček (xondrav00)
  * @author Šimon Hrouda (xhrouds00)
- * @note Code in this file was partially generated using an LLM agent based on
- *       specifikace.txt.
+ * @note Functions p_primary and p_expression were altered by an LLM agent
+ * according to psa_spec.md.
  */
 
 #include "parser.h"

@@ -4,8 +4,6 @@
  * @brief Public parser interface and parsed-program representation.
  * @author Vojtěch Ondráček (xondrav00)
  * @author Šimon Hrouda (xhrouds00)
- * @note Code in this file was partially generated using an LLM agent based on
- *       specifikace.txt.
  */
 
 #ifndef SRC_PARSER_H_
