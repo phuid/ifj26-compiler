@@ -1,0 +1,95 @@
+% Diagram datových struktur překladače (dle src/*.h na větvi main).
+% Každý typ je v diagramu právě jednou; rekurzivní struktury (strom scopů,
+% AST, uzly BST) jsou znázorněny smyčkou na sebe sama.
+% Soubor je samostatný: styly jsou definované přímo v tikzpicture, vyžaduje
+% pouze balík tikz a knihovnu arrows.meta (obojí je v preambuli main.tex).
+% čárkovaná šipka = vypůjčený ukazatel (bez vlastnictví).
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      ds/.style={draw, rounded corners=1mm, fill=black!4, align=left,
+                 inner sep=4pt, font=\footnotesize},
+      own/.style={-{Stealth[length=2mm]}, semithick},
+      ref/.style={-{Stealth[length=2mm]}, semithick, dashed, black!60},
+      lab/.style={font=\scriptsize\ttfamily, fill=white, inner sep=1pt},
+    ]
+    % ---------------------------------------------------------------- uzly
+    \node[ds] (prog) at (0,0)
+      {\textbf{Program}\\
+       \texttt{functions, initialized}};
+    \node[ds] (ft) at (0,-1.8)
+      {\textbf{FunctionTable} {\scriptsize(dynamické pole)}\\
+       \texttt{functions[], function\_count}};
+    \node[ds] (fs) at (0,-4.0)
+      {\textbf{FunctionSymbol} {\scriptsize(jedna funkce)}\\
+       \texttt{name, return\_type, argument\_count}\\
+       \texttt{parameters[]}$^{*}$\texttt{, local\_scope, ast\_root}\\
+       \texttt{callees[], is\_main, is\_builtin, \dots}};
+
+    \node[ds, anchor=north] (st) at (-3.0,-6.0)
+      {\textbf{SymbolTable} {\scriptsize(jeden scope)}\\
+       \texttt{parent, children[], bindings}};
+    \node[ds] (bst) at (-3.0,-8.6)
+      {\textbf{BST} {\scriptsize(výškově vyvážený)}\\
+       \texttt{root, compare\_data, \dots}};
+    \node[ds] (bnode) at (-3.0,-10.8)
+      {\textbf{Node} {\scriptsize(uzel stromu)}\\
+       \texttt{value, height, left, right}};
+    \node[ds] (sym) at (0.6,-12.9)
+      {\textbf{Symbol} {\scriptsize(proměnná / parametr)}\\
+       \texttt{name, type, initialized,}\\
+       \texttt{constant, owner, assembler\_suffix}};
+
+    \node[ds, anchor=north] (ast) at (3.3,-6.0)
+      {\textbf{ASTNode} {\scriptsize(příkaz / výraz)}\\
+       \texttt{kind, inferred\_type,}\\
+       \texttt{line, column,}\\
+       \texttt{data} -- union podle \texttt{kind}:\\
+       \texttt{block, if\_statement,}\\
+       \texttt{while\_loop, for\_loop,}\\
+       \texttt{assignment, call,}\\
+       \texttt{binary\_op, unary\_op, \dots}};
+
+    % ---------------------------------------------------------- vlastnictví
+    \draw[own] (prog) -- node[lab, right] {functions} (ft);
+    \draw[own] (ft) -- node[lab, right] {functions[i] \normalfont\scriptsize(1\,:\,n)} (fs);
+    \draw[own] ([xshift=0.9cm]fs.south west) -- node[lab, above left]
+      {local\_scope \normalfont\scriptsize(kořenový scope)} (st.north);
+    \draw[own] ([xshift=1.7cm]fs.south) -- node[lab, above right]
+      {ast\_root \normalfont\scriptsize(kořen: \texttt{AST\_BLOCK})} (ast.north);
+
+    % strom scopů: vnořené scopy jsou tentýž typ SymbolTable
+    \draw[own] ([yshift=0.2cm]st.west) .. controls +(150:1.2) and +(210:1.2) ..
+      node[lab, left, align=right] {children[i]\\\normalfont\scriptsize(0\,:\,n)}
+      ([yshift=0.15cm]st.south west);
+    \draw[own] (st) -- node[lab, left] {bindings} (bst);
+    \draw[own] (bst) -- node[lab, left] {root} (bnode);
+    \draw[own] ([yshift=0.2cm]bnode.west) .. controls +(150:1.2) and +(210:1.2) ..
+      node[lab, left] {left, right} ([yshift=0.15cm]bnode.south west);
+    \draw[own] (bnode.south) to[out=-90, in=180]
+      node[lab, pos=0.4, below left] {value} (sym.west);
+
+    % AST: potomci uzlu jsou opět uzly ASTNode
+    \draw[own] ([yshift=0.6cm]ast.east) .. controls +(20:1.6) and +(340:1.6) ..
+      node[lab, right, align=left] {\normalfont\scriptsize potomci\\(0\,:\,n)}
+      ([yshift=0.6cm]ast.south east);
+
+    % ------------------------------------------------- vypůjčené ukazatele
+    \draw[ref] ([yshift=0.15cm]st.south east) .. controls +(330:0.9) and +(30:0.9) ..
+      node[lab, right] {parent} ([yshift=0.2cm]st.east);
+    \draw[ref] ([xshift=0.9cm]ast.south west) to[out=-90, in=0]
+      node[lab, pos=0.45, right] {variable.symbol, target} (sym.east);
+    \draw[ref] ([xshift=1.4cm]ast.north) to[out=90, in=0]
+      node[lab, pos=0.6, right] {call.function} (fs.east);
+  \end{tikzpicture}
+  \caption{Diagram datových struktur překladače. Každý typ je uveden jednou,
+    smyčka značí rekurzivní strukturu: tabulky symbolů tvoří strom
+    zanořených scopů (funkce odkazuje pouze na kořenový scope, vnořené
+    scopy jsou jeho potomci), uzly AST mají za potomky opět uzly AST (např.\ příkazy bloku, operandy
+    výrazu, větve podmínky nebo tělo cyklu).
+    Plná šipka značí vlastnictví (podstruktura je uvolněna spolu
+    s~rodičem), čárkovaná šipka vypůjčený ukazatel bez vlastnictví.
+    $^{*}$Parametry jsou vypůjčené symboly z~kořenového scope funkce.}
+  \label{fig:datove-struktury}
+\end{figure}
