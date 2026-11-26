@@ -1,7 +1,8 @@
 /**
  * @file bst.h
+ * Project: IFJ26 compiler
  * @brief Public API for the binary search tree.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 #include <stddef.h>
 

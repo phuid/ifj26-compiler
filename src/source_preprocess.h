@@ -1,7 +1,8 @@
 /**
  * @file source_preprocess.h
+ * Project: IFJ26 compiler
  * @brief Public interface for IFJ26 source preprocessing.
- * @author Simon Hrouda
+ * @author Šimon Hrouda (xhrouds00)
  * @note Doxygen comments in this file were generated using an LLM agent:
  * gpt-5.6-luna
  */

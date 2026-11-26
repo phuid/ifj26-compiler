@@ -1,8 +1,9 @@
 /**
  * @file semantic.h
+ * Project: IFJ26 compiler
  * @brief Semantic analysis (type checking) run over a fully parsed program.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  */

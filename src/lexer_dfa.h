@@ -1,8 +1,9 @@
 /**
  * @file lexer_dfa.h
+ * Project: IFJ26 compiler
  * @brief Internal declarative DFA interface for lexical analysis.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  */

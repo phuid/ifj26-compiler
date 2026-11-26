@@ -1,7 +1,8 @@
 /**
  * @file bst.c
+ * Project: IFJ26 compiler
  * @brief Height-balanced binary search tree implementation
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "bst.h"

@@ -1,8 +1,9 @@
 /**
  * @file error_trace.h
+ * Project: IFJ26 compiler
  * @brief Prints a compile error and the chain of functions it propagates
  * through.
- * @author Vojtech Ondracek
+ * @author Vojtěch Ondráček (xondrav00)
  * @note Code in this file was partially generated using an LLM agent.
  *
  * @details The function that detects an error prints its *origin* with

@@ -1,8 +1,9 @@
 /**
  * @file builtins.c
+ * Project: IFJ26 compiler
  * @brief Definitions of builtin functions for the source language and their
  * assembly code.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "builtins.h"

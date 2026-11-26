@@ -11,7 +11,7 @@ OBJECTS = $(patsubst src/%.c,$(BUILD_DIR)/make/%.o,$(SOURCES))
 DEPFILES = $(OBJECTS:.o=.d)
 ROOT_DIR := $(CURDIR)
 PACK_DIR_NAME := .
-PACK_ARCHIVE := $(ROOT_DIR)/compiler.zip
+PACK_ARCHIVE := $(ROOT_DIR)/xnovakm00.zip
 
 configure: $(BUILD_DIR)/CMakeCache.txt
 

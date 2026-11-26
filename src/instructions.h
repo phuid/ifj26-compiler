@@ -1,7 +1,8 @@
 /**
  * @file instructions.h
+ * Project: IFJ26 compiler
  * @brief Defines target-code operands and instruction-printing functions.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #ifndef INSTRUCTIONS_H

@@ -1,8 +1,9 @@
 /**
  * @file type.c
+ * Project: IFJ26 compiler
  * @brief Semantic data type representation and helpers.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was mostly generated using an LLM agent based on
  *       specifikace.txt.
  */

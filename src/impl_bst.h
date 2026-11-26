@@ -1,7 +1,8 @@
 /**
  * @file impl_bst.h
+ * Project: IFJ26 compiler
  * @brief Internal node and tree structure definitions for the BST.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #ifndef IMPL_BST_H

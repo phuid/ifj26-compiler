@@ -1,7 +1,8 @@
 /**
  * @file source_preprocess.c
+ * Project: IFJ26 compiler
  * @brief IFJ26 source preprocessing - import and comment removal
- * @author Simon Hrouda
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was partially generated using an LLM agent, see note
  * below.
  */
