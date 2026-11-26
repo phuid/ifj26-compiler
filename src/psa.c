@@ -1,7 +1,8 @@
 /**
  * @file psa.c
+ * Project: IFJ26 compiler
  * @brief Precedence stack and reduction helpers for expression parsing.
- * @author Simon Hrouda
+ * @author Šimon Hrouda (xhrouds00)
  * @note psa_reduce was partially generated using an LLM agent based on
  * psa_spec.md. Model used: Kimi-k3.1-pro.
  */

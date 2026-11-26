@@ -1,8 +1,9 @@
 /**
  * @file lexer_dfa.c
+ * Project: IFJ26 compiler
  * @brief Declarative DFA tables for the IFJ26 lexer.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  */

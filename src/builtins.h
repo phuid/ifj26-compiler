@@ -1,7 +1,8 @@
 /**
  * @file builtins.h
+ * Project: IFJ26 compiler
  * @brief Public interface exposing the builtin function definitions.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #ifndef BUILTINS_H

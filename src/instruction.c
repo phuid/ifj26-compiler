@@ -1,7 +1,8 @@
 /**
  * @file instruction.c
+ * Project: IFJ26 compiler
  * @brief Prints target-code instructions and operands.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "codegen.h"

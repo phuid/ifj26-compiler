@@ -1,7 +1,8 @@
 /**
  * @file psa.h
+ * Project: IFJ26 compiler
  * @brief Precedence stack and reduction helpers for expression parsing.
- * @author Simon Hrouda
+ * @author Šimon Hrouda (xhrouds00)
  */
 
 #ifndef SRC_PSA_H

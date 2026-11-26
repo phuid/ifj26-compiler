@@ -1,7 +1,8 @@
 /**
  * @file codegen.h
+ * Project: IFJ26 compiler
  * @brief Public interface for generating target code from a program.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #ifndef CODEGEN_H

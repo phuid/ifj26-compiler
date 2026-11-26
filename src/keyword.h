@@ -1,9 +1,10 @@
 /**
  * @file keyword.h
+ * Project: IFJ26 compiler
  * @brief Static keyword table used by the lexer to turn identifiers into
  * keyword tokens.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  */

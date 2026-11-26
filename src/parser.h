@@ -1,10 +1,9 @@
 /**
  * @file parser.h
+ * Project: IFJ26 compiler
  * @brief Public parser interface and parsed-program representation.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
- * @note Code in this file was partially generated using an LLM agent based on
- *       specifikace.txt.
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  */
 
 #ifndef SRC_PARSER_H_

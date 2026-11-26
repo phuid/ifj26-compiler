@@ -1,8 +1,9 @@
 /**
  * @file codegen_globals.c
+ * Project: IFJ26 compiler
  * @brief Definition of target code global variables used by code generation as
  * temporary variables.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "instructions.h"

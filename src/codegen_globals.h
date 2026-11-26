@@ -1,7 +1,8 @@
 /**
  * @file codegen_globals.h
+ * Project: IFJ26 compiler
  * @brief Public interface exposing target code global variables.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #ifndef CODEGEN_GLOBALS_H

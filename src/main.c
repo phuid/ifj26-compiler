@@ -1,8 +1,9 @@
 /**
  * @file main.c
+ * Project: IFJ26 compiler
  * @brief Program entry point.
- * @author Simon Hrouda
- * @author Milan Novak
+ * @author Šimon Hrouda (xhrouds00)
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "codegen.h"

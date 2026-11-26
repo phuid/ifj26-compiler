@@ -1,7 +1,8 @@
 /**
  * @file error_trace.c
+ * Project: IFJ26 compiler
  * @brief Printing of compile error origins and their propagation chain.
- * @author Vojtech Ondracek
+ * @author Vojtěch Ondráček (xondrav00)
  * @note Code in this file was partially generated using an LLM agent.
  */
 

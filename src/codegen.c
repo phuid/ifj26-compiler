@@ -1,7 +1,8 @@
 /**
  * @file codegen.c
+ * Project: IFJ26 compiler
  * @brief Generates target code from the program's abstract syntax tree.
- * @author Milan Novák
+ * @author Milan Novák (xnovakm00)
  */
 
 #include "codegen.h"

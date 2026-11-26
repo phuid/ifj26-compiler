@@ -1,8 +1,9 @@
 /**
  * @file semantic.c
+ * Project: IFJ26 compiler
  * @brief Semantic analysis: call graph, recursion rules and type checking.
- * @author Vojtech Ondracek
- * @author Lukas Petricek
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Lukáš Petříček (xpetril00)
  * @note Code in this file was partially generated using an LLM agent based on
  *       specifikace.txt.
  *

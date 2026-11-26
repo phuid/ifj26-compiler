@@ -1,8 +1,9 @@
 /**
  * @file function_table.c
+ * Project: IFJ26 compiler
  * @brief Top-level function table operations.
- * @author Vojtech Ondracek
- * @author Simon Hrouda
+ * @author Vojtěch Ondráček (xondrav00)
+ * @author Šimon Hrouda (xhrouds00)
  * @note Code in this file was mostly generated using an LLM agent based on
  *       specifikace.txt.
  */
