@@ -1,0 +1,459 @@
+% Dokumentace projektu IFJ26 / IAL – šablona (pouze struktura)
+% Překlad: pdflatex dokumentace.tex (2x kvůli odkazům)
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[czech]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{relsize}
+\usepackage{graphicx}
+\usepackage[justification=centering,singlelinecheck=false]{caption}
+\usepackage{pdflscape}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{circuitikz}
+\usetikzlibrary{automata,positioning,arrows.meta,shapes.geometric,fit}
+\usepackage[hidelinks]{hyperref}
+\usepackage{amssymb,booktabs}
+\usepackage{float}
+
+\setlist{itemsep=2pt,topsep=4pt}
+
+% Styl a značení pro diagram konečného automatu (fsm-diagram.tex)
+\tikzset{
+  ka/.style={
+    ->, >={Stealth[length=2mm]}, auto, semithick,
+    font=\footnotesize\ttfamily,
+    node distance=2cm,
+    initial text={},
+    every state/.style={
+      draw, rectangle, rounded corners=2mm, align=center,
+      minimum height=7mm, minimum width=9mm, inner sep=2pt, fill=white,
+    },
+    every loop/.style={min distance=6mm, looseness=7},
+  },
+}
+% Popisky přechodů
+\newcommand{\kaLF}{{\normalfont\textit{LF}}}
+\newcommand{\kaTAB}{{\normalfont\textit{TAB}}}
+\newcommand{\kaSP}{\textvisiblespace}
+\newcommand{\kaQ}{\textquotedbl}
+\newcommand{\kaBS}{\textbackslash}
+% Podtržítko v rámečku -- odlišitelné od mínusu
+\newcommand{\kaUS}{{\setlength{\fboxsep}{0.6pt}\setlength{\fboxrule}{0.3pt}\fbox{\vphantom{Ag}\_}}}
+
+% Zástupný text – před odevzdáním všechny výskyty odstranit
+\newcommand{\TODO}[1]{\textcolor{red}{[#1]}}
+
+% Údaje o týmu (vyplnit)
+\newcommand{\varianta}{vv-BVS}
+\newcommand{\rozsireni}{FUNEXP, CONTROL, BOOLTHEN, LISTS}
+
+\begin{document}
+
+%------------------------------------------------------------
+% 1. strana
+%------------------------------------------------------------
+\begin{titlepage}
+  \centering
+  {\Large Vysoké učení technické v~Brně\\
+   Fakulta informačních technologií\par}
+  \vspace{2cm}
+  {\Huge\bfseries Implementace překladače\\imperativního jazyka IFJ26\par}
+  \vspace{0.5cm}
+  {\large Dokumentace k~projektu z~předmětů IFJ a~IAL\par}
+  \vspace{1cm}
+  {\large Tým xnovakm00, varianta \varianta\par}
+  \vspace{1.5cm}
+  \begin{center}
+    \begin{tabular}{@{}l l l r@{}}
+        \toprule
+        \textbf{Jméno a příjmení} & \textbf{Login} & \textbf{Osobní číslo} & \textbf{Body [\%]}\\
+        \midrule
+        \textbf{Milan Novák} & \textbf{xnovakm00} & {281702} & 25\\
+        Šimon Hrouda & xhrouds00 & 281730 & 25\\
+        Vojtěch Ondráček & xondrav00 & 282118 & 25\\
+        Lukáš Petříček & xpetril00 & 281978 & 25\\
+        \bottomrule
+    \end{tabular}
+  \end{center}
+
+  \vspace{1cm}
+  \begin{tabularx}{\textwidth}{@{}l X@{}}
+    \textbf{Varianta:} & \varianta\\[4pt]
+    \textbf{Implementovaná rozšíření:} & \rozsireni\\[4pt]
+    \textbf{Git repozitář:} & \href{https://github.com/phuid/ifj26-compiler}{https://github.com/phuid/ifj26-compiler}\\
+  \end{tabularx}
+
+  \vfill
+  {\large \today}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+%------------------------------------------------------------
+\section{Rozdělení práce v týmu}
+\label{sec:prace}
+Milan Novák: Výškově vyvážený strom, generátor cílového kódu\\
+Šimon Hrouda: Preprocesor, rekuzivní sestup, precedenční analýza výrazu\\
+Vojtěch Ondráček: Lexikální analyzátor, rekuzivní sestup, semantická analýza\\
+Lukáš Petříček: Testy, semantická analýza
+
+\subsection{Dělení bodů}
+Všichni členové týmu spolupracovali a kooperovali adekvátně, nemáme důvod pro nestandardní rozdělení bodů.
+
+%------------------------------------------------------------
+\section{Spolupráce a kvalita kódu}
+\label{sec:spoluprace}
+
+\subsection{Způsob spolupráce}
+Týmová komunikace probíhala přes aplikaci Discord. Každý týden se celý tým účastnil 2-3 hodinové porady. Překladač jsme designovali primárně kooperativní metodou během týmových porad. Často jsme využívali metody párového programování, buď fyzicky na FITu, nebo online přes    Discord.
+% Komunikační kanály, schůzky, vedení repozitáře.
+
+\subsection{Code review a schvalování PR}
+Každý pracoval výhradně ve vlastní větvi. Před merge do hlavní větve vždy proběhl code review a oprava poznámek. Code review byl vynucen pravidlem repozitáře. V některých případech code review probíhal přímo jako součást párového programování, což bylo rychlejší než klasický postup implementace -> review -> implementace...
+
+\subsection{Formy testování}
+% Max. jednotky vět či odrážek (unit testy, end-to-end testy apod.).
+\begin{itemize}
+  \item \textbf{Jednotkové testy} -- každou část překladače (lexer, parser,
+        výrazy, sémantiku, tabulku symbolů, strom~\dots) jsme testovali zvlášť
+        pomocí knihovny GoogleTest. Celkem jde zhruba o~470 testů.
+  \item \textbf{End-to-end testy} -- přes 200 krátkých programů v~IFJ26,
+        u~kterých víme, jak mají dopadnout. Skript každý program přeloží
+        a spustí v~interpretu. Pak zkontroluje, jestli sedí výstup i návratový
+        kód. U~chybných programů kontroluje, že překladač vrátí správný
+        chybový kód.
+  \item \textbf{Automatické kontroly} -- po každém pushi na GitHub se
+        automaticky zkontroluje formátování kódu a proběhne statická analýza
+        (\texttt{cppcheck}).
+\end{itemize}
+
+\subsection{Styl formátování kódu}
+% Zvolený styl clang-format (hodnota --style).
+Automatické formátování nástrojem clang-format při každém commitu.\\
+Byl zvolen výchozí styl LLVM.
+
+%------------------------------------------------------------
+\section{Architektura překladače}
+\label{sec:architektura}
+\subsection{Blokové schéma}
+% Moduly + datové toky (tokeny, AST, mezikód, ...).
+\begin{figure}[H]
+  \centering
+  % \begin{tikzpicture}[...] ... \end{tikzpicture}
+  % \fbox{\parbox{0.9\textwidth}{\centering\vspace{4cm}
+  
+  \input{architecture-diagram}
+  % }}
+  \caption{Architektura překladače.\\
+    \footnotesize * Programem je myšlena níže popsaná datová struktura.
+  }
+  \label{fig:architektura}
+\end{figure}
+
+\subsection{Popis komponent a datových toků}
+
+Zdrojový kód nejprve zpracovává preprocesor, který odstraní prolog a komentáře.
+
+Upravený zdrojový kód předá lexeru, který jej převede na tokeny a ty dále zpracovává syntaktická analýza.
+
+Syntaktická analýza metodami rekurzivního sestupu a precedenční SA zdola nahoru se zásobníkem parsuje tokeny ve stejném pořadí v jakém je předá lexer. Při tom plní tabulku funkcí, tabulky symbolů a staví abstraktní syntaktický strom (AST). To vše předá sémantické analýze ve struktuře Program.
+
+Sémantická analýza provádí typové kontroly a z toho vycházející úpravy AST. Upravenou strukturu Program předá generátoru cílového kódu, který rekurzivně prochází AST a generuje cílový kód.
+
+\subsubsection{Datové struktury}
+Nejdůležitějším datovým typem pro syntaktickou a sémantickou analýzu a následné generování cílového kódu je tabulka funkcí~\texttt{FunctionTable}, která odpovídá nejvyššímu scope. Každý funkční symbol~\texttt{FunctionSymbol} z tabulky (tj. každá funkce) drží ukazatele na svůj lokální kořenový scope~\texttt{SymbolTable} a tělo funkce jakožto stromová struktura výrazů a příkazů \texttt{ASTNode}. Propojení datových struktur ilustruje Obrázek~\ref{fig:datove-struktury}.
+
+Komunikaci mezi lexikální a sémantickou analýzou zprostředkovává datová struktura \texttt{Token}, která obsahuje typ tokenu a jeho hodnotu (např. konstantu, nebo text identifikátoru).
+\input{data-structures-diagram-v2}
+
+%------------------------------------------------------------
+\section{Lexikální analýza}
+\label{sec:lex}
+Lexer jsme se rozhodli implementovat jako konečný automat s rozšířením pro rozpoznávání odsazení. Lexikální analyzátor následně pomocí funkce \texttt{lexer\_pls()} vždy vrací další načtený token, případně lexikální chybu. Pokud dojde ke změně odsazení, vrátí speciální token pro zvětšení nebo zmenšení odsazení.
+
+Pokud vyhodnotí, že jde o identifikátor, podívá se ještě do tabulky klíčových slov, která nemohou být identifikátory. Pokud se s některým shoduje, vrátí token tohoto klíčového slova.
+
+Tokeny konstant, které mají hodnotu, přímo konvertuje na příslušnou hodnotu, ať už jde o číslo, nebo řetězec, a vrátí je společně s tokenem. Úvodní prolog a veškeré komentáře, řeší zvlášť preprocesor, který se těchto nepotřebných prvků se zbaví.
+
+Protože lexikální analýza vznikala jako první část implementace projektu, obsahuje i tokeny pro rozšíření, které jsme se nakonec rozhodli nepodporovat.
+
+\subsection{Diagram konečného automatu}
+Kvůli přehlednosti je konečný automat lexikálního analyzátoru rozdělen do
+šesti částí (obrázky~\ref{fig:ka}--\ref{fig:ka-nl}). Části spolu sdílejí
+pouze počáteční stav~\texttt{S}; ostatní stavy a přechody se mezi částmi
+neopakují a žádný přechod nevede z~jedné části do druhé. Úplný automat
+vznikne sjednocením všech částí, ve kterém se stavy \texttt{S} ztotožní.
+
+Koncové stavy jsou vyznačeny dvojitým okrajem. Pokud automat v~nekoncovém
+stavu nemůže pokračovat, jde o~lexikální chybu. Na přechodech se používají
+následující značení:
+\begin{itemize}
+  \item \kaLF{} -- znak konce řádku, \kaTAB{} -- tabulátor, \kaSP{} -- mezera,
+  \item \texttt{\kaUS} -- podtržítko (v~rámečku, aby nebylo zaměnitelné se znakem \texttt{-}),
+  \item $C = \{c \in \mathrm{ASCII} \mid c \neq \mbox{\kaLF} \wedge c \neq \texttt{\kaQ} \wedge c \neq \texttt{\kaBS}\}$
+        -- znaky jednořádkového řetězce bez escape sekvence,
+  \item $M = \{c \in \mathrm{ASCII} \mid c \neq \texttt{\kaQ}\}$
+        -- znaky víceřádkového řetězce,
+  \item \texttt{a-b} -- libovolný znak z~rozsahu \texttt{a} až \texttt{b}.
+\end{itemize}
+
+\input{fsm-diagram}
+
+%------------------------------------------------------------
+\section{Syntaktická analýza}
+
+Syntaktickou analýzu jsme implementovali metodou rekurzivního sestupu. Pro každý neterminál gramatiky existuje jedna
+funkce (\texttt{p\_program}, \texttt{p\_function}, \texttt{p\_code\_block},
+\texttt{p\_statement}, \texttt{p\_if}, \texttt{p\_while}, \texttt{p\_for},
+\ldots) a o~dalším postupu rozhoduje vždy jeden token dopředu, který drží
+lexer. Bloky kódu jsou dané odsazením, které lexer převádí na tokeny
+\texttt{INDENT} a \texttt{DEDENT}, takže je parser zpracovává jako běžné
+závorky. Během analýzy parser rovnou staví abstraktní syntaktický strom
+a plní tabulky symbolů. Funkci lze volat i před její definicí: volání si
+v~tabulce funkcí založí záznam, který definice později doplní.
+
+Výrazy zpracovává funkce \texttt{p\_expression} pomocí precedenční
+syntaktické analýzy zdola nahoru. Na zásobníku terminálů je na dně
+zarážka \texttt{\$}. O~tom, zda se operátor ze vstupu přesune na zásobník
+(\emph{take}), nebo se má redukovat (\emph{reduce}), rozhoduje precedenční
+tabulka $13\times13$ pro operátory \texttt{*}, \texttt{/}, \texttt{+},
+\texttt{-}, \texttt{++}, relační operátory, \texttt{==}/\texttt{!=},
+\texttt{\&\&}, \texttt{||}, \texttt{to}, \texttt{until}, \texttt{by}
+a \texttt{\$}. Relační operátory a operátory rovnosti jsou neasociativní,
+takže například \texttt{a < b < c} skončí syntaktickou chybou. Každá
+redukce vytvoří uzel binární operace v~AST\@.
+
+Operandy v~tabulce nejsou. Analyzátor střídá dva stavy, „čekám operand“
+a „čekám operátor“, a ve stavu operandu volá rekurzivní sestup
+(\texttt{p\_operand}). Ten zpracuje literály, proměnné, volání funkcí,
+indexování, výrazy v~závorkách i unární operátory. Díky tomu se unární
+a binární minus rozliší podle stavu, ne podle tokenu. Všechny tokeny, které do výrazu nepatří (nový řádek, \texttt{then}, \texttt{do}, čárka, pravá závorka
+apod.) se chovájí jako konec vstupu (\texttt{\$}), zbytek zásobníku se
+zredukuje a řízení se vrátí rekurzivnímu sestupu.
+
+\subsection{LL gramatika}
+LL gramatiku jsme nepsali dopředu jako samostatný dokument, ale rovnou ji
+převáděli do kódu rekurzivního sestupu.
+
+\subsection{LL tabulka}
+LL tabulku jsme nepoužili, protože jsme parser implementovali s metodou rekurzivního sestupu.
+
+\subsection{Precedenční tabulka}
+\label{sec:prec}
+\begin{table}[H]
+  \centering
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{l|*{13}{c}}
+    \toprule
+    Zásobník \textbackslash Vstup & \texttt{*} & \texttt{/} & \texttt{+} & \texttt{-} & \texttt{++} & \texttt{<=} & \texttt{==}
+    & \texttt{\&\&} & \texttt{||} & \texttt{to} & \texttt{until} & \texttt{by} & \$ \\
+    \midrule
+    \texttt{*}     & > & > & > & > & > & > & > & > & > & > & > & > & > \\
+    \texttt{/}     & > & > & > & > & > & > & > & > & > & > & > & > & > \\
+    \texttt{+}     & < & < & > & > & > & > & > & > & > & > & > & > & > \\
+    \texttt{-}     & < & < & > & > & > & > & > & > & > & > & > & > & > \\
+    \texttt{++}    & < & < & > & > & > & > & > & > & > & > & > & > & > \\
+    \texttt{<=}    & < & < & < & < & < & -- & > & > & > & > & > & > & > \\
+    \texttt{==}    & < & < & < & < & < & < & -- & > & > & > & > & > & > \\
+    \texttt{\&\&}  & < & < & < & < & < & < & < & > & > & > & > & > & > \\
+    \texttt{||}    & < & < & < & < & < & < & < & < & > & > & > & > & > \\
+    \texttt{to}    & < & < & < & < & < & < & < & < & < & > & > & > & > \\
+    \texttt{until} & < & < & < & < & < & < & < & < & < & < & > & > & > \\
+    \texttt{by}    & < & < & < & < & < & < & < & < & < & < & < & > & > \\
+    \$             & < & < & < & < & < & < & < & < & < & < & < & < & -- \\
+    \bottomrule
+  \end{tabular}
+  \caption{Precedenční tabulka.
+           < = načtení, > = redukce,
+           -- = chyba. V záhlavích řádků i sloupců \texttt{<=} zastupuje operátory \texttt{<}, \texttt{<=}, \texttt{>} a \texttt{>=}. \texttt{==} zastupuje i operátor \texttt{!=}.}
+  \label{tab:prec}
+\end{table}
+
+\section{Sémantická analýza}
+\label{sec:semantika}
+Sémantickou analýzu provádíme ve dvou fázích. Kontroly, které lze udělat
+hned při čtení programu, dělá přímo parser (redefinice a použití před definicí). Zbytek běží jako samostatný
+průchod nad hotovým AST (\texttt{semantic.c}), protože k~němu je potřeba
+znát signatury všech funkcí. Funkce totiž lze volat ještě před jejich
+definicí.
+
+\subsection{Samostatný sémantický průchod}
+Po úspěšném parsování projde funkce \texttt{semantic\_check} program
+v~několika krocích:
+
+\begin{enumerate}
+  \item Doplní vestavěné funkce do tabulky funkcí.
+  \item Ověří, že každá volaná funkce je definovaná a že existuje
+        \texttt{@main}.
+  \item Z~AST sestaví graf volání (funkce $\rightarrow$ funkce, které volá)
+        a poznamená si, které funkce obsahují \texttt{return}.
+  \item Funkce bez explicitního návratového typu nesmí obsahovat
+        \texttt{return} ani ležet na cyklu grafu volání, tedy nesmí být
+        přímo ani nepřímo rekurzivní. Cyklus hledáme obyčejným
+        průchodem do hloubky z~dané funkce.
+  \item Rekurzivně typově zkontroluje těla všech funkcí a odvodí chybějící návratové typy. Máme zkontrolováno, že v závislosti typů nejsou smyčky, takže nedojde k zacyklení.
+\end{enumerate}
+
+\subsection{Typová kontrola}
+Typy výrazů počítáme zdola nahoru a ukládáme je přímo do uzlů AST, odkud je
+pak přebírá generátor kódu. Proměnná definovaná bez anotace
+(\texttt{val x = e}) převezme typ inicializačního výrazu. U implicitních typových konverzí doplníme do AST příslušný \texttt{ASTNode}.
+
+Do funkcí bez explicitního returnu zkontrolujeme pravidla a doplníme implicitní \texttt{return}, popřípadě \texttt{return Unit}.
+
+\section{Generátor cílového kódu}
+Cílový kód v jazyce IFJcode26 je generován přímo ze struktury AST a tabulky symbolů bez použití vnitřního mezikódu. Není prováděna optimalizace pro velikost či ryclost interpretace.
+
+Generace je realizována rekurzivním průchodem AST. Pro vyhodnocování výrazů, předávaní parametů a návratových hodnot funkcí je využit datový zásobník. Jelikož je cílový kód generován přímo do výsledného souboru, bylo by vytváření dočasných proměnných složité a nepraktické. Proto jsou pro veškeré operace bez podpory datového zásobníku využity globální proměnné interpretu, sloužící jako dočasné proměnné. Jsou využity především pro práci s listy. 
+
+%------------------------------------------------------------
+\section{Popis modulů}
+\label{sec:moduly}
+% Informačně obohacující věta na dvojici .c/.h.
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+    \toprule
+    \textbf{Modul} & \textbf{Popis}\\
+    \midrule
+    \texttt{main.c} & Vstupní bod programu.\\
+    \texttt{ast.c/.h} & Definice a operace nad abstraktním syntaktickým stromem.\\
+    \texttt{bst.c/.h} & Implementace výškově vyváženého binárního vyhledávacího stromu.\\
+    \texttt{impl\_bst.h} & Interní definice uzlů a struktury binárního vyhledávacího stromu.\\
+    \texttt{builtins.c/.h} & Signatury vestavěných funkcí a jejich cílový kód.\\
+    \texttt{codegen.c/.h} & Generování cílového kódu z abstraktního syntaktického stromu.\\
+    \texttt{codegen\_globals.c/.h} & Globální proměnné cílového kódu používané jako dočasné proměnné.\\
+    \texttt{dynamic\_array.c/.h} & Správa kapacity generického dynamického pole.\\
+    \texttt{error\_trace.c/.h} & Výpis původu chyby a řetězce jejího šíření.\\
+    \texttt{function\_table.c/.h} & Operace nad tabulkou funkcí programu.\\
+    \texttt{instruction.c/instructions.h} & Reprezentace operandů a výpis instrukcí cílového kódu.\\
+    \texttt{keyword.c/.h} & Tabulka klíčových slov a jejich rozpoznávání lexikálním analyzátorem.\\
+    \texttt{lexer.c/.h} & Lexikální analýza zdrojového kódu IFJ26.\\
+    \texttt{lexer\_dfa.c/.h} & Tabulky stavů a přechodů konečného automatu lexikálního analyzátoru.\\
+    \texttt{parser.c/.h} & Syntaktická analýza zdrojového kódu IFJ26.\\
+    \texttt{psa.c/.h} & Zásobník precedenční analýzy a redukce výrazů.\\
+    \texttt{semantic.c/.h} & Sémantická analýza, kontrola typů a pravidel volání funkcí.\\
+    \texttt{source\_preprocess.c/.h} & Předzpracování zdrojového kódu, kontrola importů a odstranění komentářů.\\
+    \texttt{symtable.c/.h} & Operace nad tabulkou symbolů.\\
+    \texttt{type.c/.h} & Definice sémantických typů a řešení jejich závislostí.\\
+    \bottomrule
+\end{tabularx}
+
+%------------------------------------------------------------
+\section{Využití prostředků AI}
+\label{sec:ai}
+AI jsme používali hlavně jako agentního pomocníka při implementaci a při
+konzultacích nad architekturou systému. Dále jsme ji používali pro code-reviews a kontroly návrhů architektury. Hodně nám pomohla i při ujasňování
+nejasných míst ve specifikaci, kde jsme použili nástroj NotebookLM.
+
+Největší přínos měla AI při psaní testů. Repozitář obsahuje 467 jednotkových
+testů v~GoogleTestu a 214 end-to-end případů (programů v~IFJ26 s~očekávaným
+výstupem nebo návratovým kódem), které pokrývají lexikální, syntaktickou
+i sémantickou analýzu, vestavěné funkce a celé programy. Většinu z~nich
+vygenerovala AI podle našich zadání. Zkušenost s~AI hodnotíme celkově
+pozitivně, výrazně nám zrychlila hlavně implementaci a testování.
+
+\subsection{Použité nástroje a modely}
+\begin{itemize}
+  \item Claude Sonnet 5.5 ve webovém rozhraní (konzultace návrhu),
+  \item Google Gemini notebook (dříve NotebookLM), model neuveden
+        (dotazy nad zadáním projektu),
+  \item Google Antigravity, model Gemini 3.8 Flash,
+  \item Opencode, model Kimi-k3.1-pro,
+  \item Claude Code, model Claude Opus 5.5 (implementace a naprostá většina
+        testů),
+  \item OpenAI Codex přes Hermes Agent, model gpt-5.6-terra (část testů
+        lexeru),
+  \item Claude Fable 5.2.
+\end{itemize}
+
+\subsection{Typický pracovní postup}
+Práce s~AI u~nás probíhala v~několika ustálených krocích:
+
+\begin{enumerate}
+  \item \textbf{Ujasnění zadání.} Když nám nebylo jasné, co specifikace
+        přesně vyžaduje, zeptali jsme se nástroje NotebookLM, do kterého jsme
+        nahráli zadání projektu. Jeho odpovědi nám sloužily jen jako vodítko
+        a vždy jsme je ověřili přímo v~textu specifikace.
+  \item \textbf{Návrh v~týmu.} Architekturu a rozhraní modulů jsme navrhovali
+        sami na týmových poradách. AI nám přitom sloužila spíš jako partner do
+        diskuze, se kterým jsme procházeli různé varianty řešení. Například
+        konečný automat lexeru jsme nejdřív formálně popsali v~samostatném
+        dokumentu (\texttt{KA.md}) a lexer pak podle tohoto popisu
+        implementovali jako tabulkou řízený automat.
+  \item \textbf{Malé, jasně vymezené úkoly.} Agentovi (Claude Code, Opencode,
+        Antigravity) jsme nikdy nezadávali „napiš parser“. Dostal vždy menší
+        úkol a k~němu potřebný kontext: příslušnou část specifikace, hlavičkové
+        soubory s~rozhraním a ukázku stávajícího kódu, aby výsledek odpovídal
+        stylu projektu.
+  \item \textbf{Ověření.} Vygenerovaný kód musel odpovídat očekávání zadavatele.          Dále se musel dát přeložit a projít testy.
+        Formátování (\texttt{clang-format}) a statickou analýzu
+        (\texttt{cppcheck}) kontrolovaly hooky \texttt{pre-commit}, které
+        se spouštěly lokálně i v~GitHub Actions při každém pushi.
+  \item \textbf{Code review.} Do hlavní větve se kód od AI dostával stejně
+        jako každý jiný, tedy přes pull request a kontrolu dalším členem týmu.
+  \item \textbf{Upřesnění místo záplatování.} Když výsledek neodpovídal naší
+        představě, většinou jsme ho neopravovali po kouscích. Zpřesnili jsme
+        zadání a nechali kód vygenerovat znovu.
+\end{enumerate}
+
+U~testů jsme postupovali podobně, jen jsme očekávané výsledky vždy odvozovali
+ze specifikace, nikdy z~toho, jak se překladač zrovna choval. Díky tomu testy
+odhalily několik míst, kde se implementace od specifikace odchylovala,
+například nerozpoznané komentáře, chybné zpracování čísel s~úvodní nulou nebo
+přijetí literálu typu \texttt{Double} mimo povolený rozsah. Takové testy jsme
+ponechali s~původním očekáváním a do opravy je dočasně vypnuli (prefix
+\texttt{DISABLED\_}). Chybu pak opravil člen týmu, který měl daný modul
+na starosti. Testy jsme přidávali po menších tematických dávkách, abychom
+je dokázali zkontrolovat. Každý test vygenerovaný AI má v~hlavičce uvedeno,
+jaký model ho vytvořil a s~jakým zadáním.
+
+Obecně platilo, že AI nám výrazně zrychlila psaní kódu, ale rozhodnutí
+o~návrhu a odpovědnost za výsledek zůstaly na nás.
+
+\subsection{Problémy při využití AI}
+Rozsáhlejší úsek kódu vygenerovaný AI je potřeba následně zkontrolovat, což
+bývá náročné a demotivující. Vygenerovaný kód je navíc podle naší zkušenosti
+skoro vždy na první pohled správný, a tak má recenzent sklon kontrolu
+odbývat a přehlédnout chybu. To platí hlavně ve složitém systému s~mnoha
+mezními případy, jakým překladač je.
+
+Podobné riziko jsme viděli u~testů. Pokud by model dostal k~dispozici jen
+zdrojový kód, snadno by očekávané výsledky opsal ze stávajícího chování,
+a test by pak chybu nenašel, ale „zakonzervoval“. Proto jsme modelu vždy
+dávali příslušnou část specifikace a výsledky odvozovali z~ní. Obecně se
+ukázalo, že klíčové je mít specifikaci jasně sepsanou a poctivě ji ověřovat
+testy.
+
+Odpovědi nad zadáním (NotebookLM) byly užitečné, ale ne vždy přesné, a proto
+jsme je nikdy nebrali jako jediný zdroj pravdy.
+
+\subsection{Návrhy AI nevyužité nebo výrazně upravené}
+Původní implementace lexeru vygenerovaná AI byla velmi nepřehledná
+a neodpovídala naší představě, takže jsme ji nepoužili. Místo toho jsme
+nejdřív formálně popsali konečný automat (stavy, abecedu a přechody
+v~dokumentu \texttt{KA.md}) a rozhodli jsme se, že bude v~kódu
+reprezentován tabulkou přechodů. Teprve podle tohoto přesnějšího zadání
+vznikla implementace, kterou projekt používá.
+
+U~testů, které neprocházely, AI často navrhovala „upravit očekávaný
+výsledek podle překladače“. Takové řešení jsme vědomě nepřijímali:
+pokud test odpovídal specifikaci, opravovali jsme implementaci, ne test.
+
+Dokumenty \texttt{specifikace.txt} a \texttt{psa\_spec.md} jsme
+sepisovali s~pomocí AI agentů. Sloužily nám jako podrobné návrhy
+implementace datových struktur a jednotlivých částí překladače.
+Při jejich vypracování jsme spolu s~agenty často narazili na logické
+mezery, takže oba dokumenty před samotnou implementací prošly mnoha
+úpravami.
+
+%------------------------------------------------------------
+\end{document}

@@ -1,0 +1,223 @@
+% Diagram konečného automatu lexikálního analyzátoru (dle KA.md).
+% Automat je rozdělen na nezávislé části, které sdílejí pouze počáteční
+% stav S. Celý automat vznikne sjednocením všech částí (stav S se ztotožní).
+% Interní jména uzlů jsou alfanumerická, zobrazené popisky odpovídají KA.md.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial]   (S)      at (0,0)     {S};
+    \node[state, accepting] (Int0)   at (2.4,2.4) {Int0};
+    \node[state]            (UDSZ)   at (4.3,4.8) {U\_DoubleStarts\\Zero};
+    \node[state]            (DSZ)    at (6.2,2.4) {DoubleStarts\\Zero};
+    \node[state, accepting] (Int)    at (2.4,0)   {Int};
+    \node[state]            (UInt)   at (2.4,-2)  {U\_Int};
+    \node[state, accepting] (Period) at (2.4,-4)  {Period};
+    \node[state]            (NumDot) at (6.2,0)   {NumDot};
+    \node[state, accepting] (Double) at (8.8,0)   {Double};
+    \node[state]            (UDouble) at (8.8,-2.1) {U\_Double};
+    \node[state]            (Exp)    at (8.8,2.4) {Exp};
+    \node[state]            (SExp)   at (10.3,4.4) {S\_Exp};
+    \node[state, accepting] (EDouble) at (11.8,2.4) {E\_Double};
+    \node[state]            (EUDouble) at (13.6,4.4) {E\_U\_Double};
+    \node[state, accepting] (DFinal) at (11.8,0)  {DoubleFinal};
+
+    \path
+      (S)      edge node {0}           (Int0)
+               edge node {1-9}         (Int)
+               edge node[swap] {.}     (Period)
+      % počáteční nula -- smí následovat pouze Double
+      (Int0)   edge node {\kaUS}          (UDSZ)
+               edge node {0-9}         (DSZ)
+               edge node[pos=0.3] {.}  (NumDot)
+               edge[out=90, in=90, looseness=2.2] node[pos=0.5] {e,E} (Exp)
+      (DSZ)    edge[loop above] node {0-9} ()
+               edge[bend left=15] node {\kaUS} (UDSZ)
+               edge node {.}           (NumDot)
+               edge node {e,E}         (Exp)
+      (UDSZ)   edge[loop right] node {\kaUS} ()
+               edge[bend left=15] node {0-9} (DSZ)
+      % celé číslo
+      (Int)    edge[loop above] node {0-9} ()
+               edge[bend left=20] node {\kaUS} (UInt)
+               edge node {.}           (NumDot)
+               edge[bend left=8] node[swap, pos=0.72] {e,E} (Exp)
+      (UInt)   edge[loop right] node {\kaUS} ()
+               edge[bend left=20] node {0-9} (Int)
+      % desetinná část
+      (NumDot) edge node {0-9}         (Double)
+      (Period) edge node[swap] {0-9}   (Double)
+      (Double) edge[out=-60, in=-20, loop] node[below right] {0-9} ()
+               edge[bend left=15] node {\kaUS} (UDouble)
+               edge node[swap] {e,E}   (Exp)
+               edge node {d,D}         (DFinal)
+      (UDouble) edge[loop right] node {\kaUS} ()
+               edge[bend left=15] node {0-9} (Double)
+      % exponent
+      (Exp)    edge node {+,-}         (SExp)
+               edge node {0-9}         (EDouble)
+      (SExp)   edge node {0-9}         (EDouble)
+      (EDouble) edge[loop right] node {0-9} ()
+               edge[bend left=15] node {\kaUS} (EUDouble)
+               edge node {d,D}         (DFinal)
+      (EUDouble) edge[loop above] node {\kaUS} ()
+               edge[bend left=15] node {0-9} (EDouble);
+  \end{tikzpicture}
+  \caption{KA -- část 1: číselné literály (\texttt{Int}, \texttt{Double}) a tečka.}
+  \label{fig:ka}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial]   (S)       at (0,0)      {S};
+    \node[state]            (Q1)      at (2.2,0)    {Q1};
+    \node[state]            (In)      at (5,1.8)    {In};
+    \node[state]            (Esc)     at (5,4)      {Esc};
+    \node[state, accepting] (StrN)    at (8.2,1.8)  {StrNormal};
+    \node[state, accepting] (StrE)    at (4.4,-2)   {StrEmpty};
+    \node[state]            (InM)     at (7.4,-2)   {InMultiline};
+    \node[state]            (Q1M)     at (10.4,-2)  {Q1Multi};
+    \node[state]            (Q2M)     at (13.2,-2)  {Q2Multi};
+    \node[state, accepting] (StrM)    at (13.2,0.4) {StrMultiline};
+
+    \path
+      (S)    edge node {\kaQ}             (Q1)
+      (Q1)   edge node {C}                (In)
+             edge node {\kaBS}            (Esc)
+             edge node[swap] {\kaQ}       (StrE)
+      (In)   edge[loop below] node {C}    ()
+             edge[bend left=20] node {\kaBS} (Esc)
+             edge node {\kaQ}             (StrN)
+      (Esc)  edge[bend left=20] node {\kaBS, \kaQ, n, r, t} (In)
+      (StrE) edge node {\kaQ}             (InM)
+      (InM)  edge[loop above] node {M}    ()
+             edge node {\kaQ}             (Q1M)
+      (Q1M)  edge node {\kaQ}             (Q2M)
+             edge[bend left=30] node {M}  (InM)
+      (Q2M)  edge node[swap] {\kaQ}       (StrM)
+             edge[bend left=40] node {M}  (InM)
+      (StrM) edge[loop above] node {\kaQ} ();
+  \end{tikzpicture}
+  \caption{KA -- část 2: řetězcové literály (jednořádkové a víceřádkové).}
+  \label{fig:ka-str}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial]   (S)      at (0,0)      {S};
+    \node[state, accepting] (Und)    at (2.8,1.8)  {Underscore};
+    \node[state, accepting] (I)      at (6,0)      {I};
+    \node[state]            (At)     at (2.4,-2)   {Q@};
+    \node[state]            (Atm)    at (4.6,-2)   {Q@m};
+    \node[state]            (Atma)   at (6.8,-2)   {Q@ma};
+    \node[state]            (Atmai)  at (9,-2)     {Q@mai};
+    \node[state, accepting] (Atmain) at (11.4,-2)  {Q@main};
+
+    \path
+      (S)     edge node {\kaUS}             (Und)
+              edge node {A-Z, a-z}       (I)
+              edge node[swap] {@}        (At)
+      (Und)   edge node {A-Z, a-z, 0-9, \kaUS} (I)
+      (I)     edge[loop right] node {A-Z, a-z, 0-9, \kaUS} ()
+      (At)    edge node {m}              (Atm)
+      (Atm)   edge node {a}              (Atma)
+      (Atma)  edge node {i}              (Atmai)
+      (Atmai) edge node {n}              (Atmain);
+  \end{tikzpicture}
+  \caption{KA -- část 3: identifikátory, zástupný symbol \texttt{\_} a anotace \texttt{@main}.}
+  \label{fig:ka-id}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial]   (S)    at (0,0)     {S};
+    \node[state, accepting] (Eq)   at (3,3)     {Q=};
+    \node[state, accepting] (EqEq) at (6,3.6)   {Q==};
+    \node[state, accepting] (Arr)  at (6,2.4)   {Q=>};
+    \node[state, accepting] (Not)  at (3,1.4)   {Q!};
+    \node[state, accepting] (Neq)  at (6,1.4)   {Q!=};
+    \node[state, accepting] (Gt)   at (3,0.2)   {Q>};
+    \node[state, accepting] (Ge)   at (6,0.2)   {Q>=};
+    \node[state, accepting] (Lt)   at (3,-1.4)  {Q<};
+    \node[state, accepting] (Le)   at (6,-0.8)  {Q<=};
+    \node[state, accepting] (Gen)  at (6,-2)    {Q<-};
+    \node[state]            (Amp)  at (3,-3.2)  {Q\&};
+    \node[state, accepting] (And)  at (6,-3.2)  {Q\&\&};
+    \node[state, accepting] (Bar)  at (3,-4.4)  {Q|};
+    \node[state, accepting] (Or)   at (6,-4.4)  {Q||};
+
+    \path
+      (S)   edge node {=}        (Eq)
+            edge node[pos=0.6] {!}  (Not)
+            edge node[pos=0.6] {>}  (Gt)
+            edge node[pos=0.6] {<}  (Lt)
+            edge node[pos=0.6] {\&} (Amp)
+            edge node[swap] {|}     (Bar)
+      (Eq)  edge node {=}        (EqEq)
+            edge node[swap] {>}  (Arr)
+      (Not) edge node {=}        (Neq)
+      (Gt)  edge node {=}        (Ge)
+      (Lt)  edge node {=}        (Le)
+            edge node[swap] {-}  (Gen)
+      (Amp) edge node {\&}       (And)
+      (Bar) edge node {|}        (Or);
+  \end{tikzpicture}
+  \caption{KA -- část 4: relační, logické a další víceznakové operátory.}
+  \label{fig:ka-op}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial above] (S) at (0,0) {S};
+    \foreach \name/\lab/\ang in {
+        Plus/Q+/0, Minus/Q-/30, Mul/Q*/60, Div/{Q/}/120, LPar/Q(/150,
+        RPar/Q)/180, LBr/Q[/210, RBr/Q]/240, Colon/Q:/270, Semi/Q;/300,
+        Comma/Comma/330} {
+      \node[state, accepting] (\name) at (\ang:3) {\lab};
+    }
+    \node[state, accepting] (Concat) at (0:5.6) {Q++};
+
+    \path
+      (S)    edge node[swap, pos=0.6] {+} (Plus)
+             edge node[swap, pos=0.6] {-} (Minus)
+             edge node[swap, pos=0.6] {*} (Mul)
+             edge node[swap, pos=0.6] {/} (Div)
+             edge node[swap, pos=0.6] {(} (LPar)
+             edge node[swap, pos=0.6] {)} (RPar)
+             edge node[swap, pos=0.6] {[} (LBr)
+             edge node[swap, pos=0.6] {]} (RBr)
+             edge node[swap, pos=0.6] {:} (Colon)
+             edge node[swap, pos=0.6] {;} (Semi)
+             edge node[swap, pos=0.6] {,} (Comma)
+      (Plus) edge node {+} (Concat);
+  \end{tikzpicture}
+  \caption{KA -- část 5: aritmetické operátory, závorky a oddělovače.}
+  \label{fig:ka-delim}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[ka]
+    \node[state, initial]   (S)   at (0,0)    {S};
+    \node[state, accepting] (NL)  at (3,0)    {NewLine};
+    \node[state, accepting] (NLS) at (7.5,1.6)  {NewLineSpaces};
+    \node[state]            (NLT) at (7.5,-1.6) {NewLineTabs};
+
+    \path
+      (S)   edge node {\kaLF}                   (NL)
+      (NL)  edge[loop above] node {\kaLF}       ()
+            edge[bend left=15] node {\kaSP}     (NLS)
+            edge[bend right=15] node[swap] {\kaTAB} (NLT)
+      (NLS) edge[loop right] node {\kaSP}       ()
+            edge[bend left=15] node[pos=0.25] {\kaLF} (NL)
+            edge node {\kaTAB}                  (NLT)
+      (NLT) edge[loop right] node {\kaSP, \kaTAB} ()
+            edge[bend right=15] node[swap, pos=0.25] {\kaLF} (NL);
+  \end{tikzpicture}
+  \caption{KA -- část 6: konec řádku a odsazení na začátku řádku.}
+  \label{fig:ka-nl}
+\end{figure}

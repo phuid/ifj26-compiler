@@ -1,0 +1,32 @@
+  \centering
+  \resizebox{0.6\linewidth}{!}{%
+    \begin{circuitikz}
+      \tikzstyle{every node}=[font=\fontsize{14.4pt}{18.7pt}\selectfont]
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1] (11.875,-5.625) rectangle (22.375,-15.75);
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1] (10.875,-6.25) rectangle (12.875,-7.625);
+      \node[anchor=center, align=center] at (11.875,-6.9375) {Zdrojový\\ kód};
+      \draw [-{Stealth[scale=1.5]}] (10,-6.875) -- (10.875,-6.875);
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, rounded corners = 7.8] (13.625,-6.375) rectangle (16.875,-7.375);
+      \node[anchor=center, align=center] at (15.25,-6.875) {Preprocesor};
+      \draw [-{Stealth[scale=1.5]}] (12.875,-6.875) -- (13.625,-6.875);
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, rounded corners = 7.8] (13.625,-8.75) rectangle (16.875,-11.625);
+      \node[anchor=center, align=center] at (15.25,-10.1875) {Lexikální\\ analýza\\ (lexer)};
+      \draw [-{Stealth[scale=1.5]}] (15.25,-7.375) -- (15.25,-8.75)node[pos=0.5, fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, text opacity=1, inner xsep=0.080cm, inner ysep=0.085cm, rounded corners=0.020cm, font=\fontsize{10.95pt}{14.2pt}\selectfont]{upravený zdrojový kód};
+      \draw [-{Stealth[scale=1.5]}] (16.875,-11.125) -- (18.75,-11.125);
+      \draw [-{Stealth[scale=1.5]}] (18.75,-10.625) -- (16.875,-10.625);
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, rounded corners = 7.8] (18.75,-8.75) rectangle (21.875,-11.625);
+      \node[anchor=center, align=center] at (20.3125,-10.1875) {Syntaktická\\ analýza};
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, rounded corners = 7.8] (18.75,-12.625) rectangle (21.875,-15.25);
+      \node[anchor=center, align=center] at (20.3125,-13.9375) {Semantická\\ analýza};
+      \draw [-{Stealth[scale=1.5]}] (20.375,-11.75) -- (20.375,-12.625)node[pos=0.5, left, fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, text opacity=1, inner xsep=0.080cm, inner ysep=0.085cm, rounded corners=0.020cm, font=\fontsize{10.95pt}{14.2pt}\selectfont]{Program*};
+      \draw [-{Stealth[scale=1.5]}] (18.75,-13.875) -- (16.875,-13.875)node[pos=0.5, above, fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, text opacity=1, inner xsep=0.080cm, inner ysep=0.085cm, rounded corners=0.020cm, font=\fontsize{10.95pt}{14.2pt}\selectfont]{Program*};
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1, rounded corners = 7.8] (13.625,-12.75) rectangle (16.875,-15.25);
+      \node[anchor=center, align=center] at (15.25,-14) {Generátor\\ cílového\\ kódu};
+      \draw [fill={rgb,255:red,255; green,255; blue,255}, fill opacity=1] (10.875,-13.125) rectangle (12.875,-14.5);
+      \node[anchor=center, align=center] at (11.875,-13.8125) {Cílový\\ kód};
+      \draw [-{Stealth[scale=1.5]}] (13.625,-13.875) -- (12.875,-13.875);
+      \draw [-{Stealth[scale=1.5]}] (10.875,-13.875) -- (10.125,-13.875);
+      \node [font=\fontsize{10.95pt}{14.2pt}\selectfont] at (17.75,-11.5) {token/err};
+      \node [font=\fontsize{10.95pt}{14.2pt}\selectfont] at (17.75,-10.25) {lexer\_pls};
+    \end{circuitikz}
+  }
